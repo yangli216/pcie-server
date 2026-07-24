@@ -1210,7 +1210,7 @@ AI 调用类 `operation` 事件补充约束：
 - 当值为 `fast` 时，服务端优先使用当前设备可见 AI 配置中的 `fastModelName`；未配置时回退主模型配置
 - 当值为 `reviewer` 时，服务端优先使用当前设备可见 AI 配置中的独立审查模型地址 / 密钥 / 模型；缺失项回退主模型配置
 - `consultationId`：可选，当前问诊或病历生成运行的业务锚点；服务端会写入 `c_ai_op_log.consultation_id`，供调用排障和业务关联查询使用
-- `enable_thinking` 是否开启由服务端当前 AI 配置统一决定；区域化桌面端不单独透传该开关覆盖服务端配置
+- `enable_thinking` 是否开启由服务端当前 AI 配置统一决定；桌面端不单独透传该开关覆盖服务端配置
 
 非流式响应 `data`：
 
@@ -1959,7 +1959,7 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 
 语音配置最小要求：
 
-0. `fastModelName` 为区域化 `chatFast` 独立模型；可留空，留空时回退 `modelName`。
+0. `fastModelName` 为服务端 `chatFast` 独立模型；可留空，留空时回退 `modelName`。
 1. `enableThinking` 用于控制服务端代理主模型 / `chatFast` / 审查模型时是否附带上游 `enable_thinking`；默认关闭。
 2. `apiKey` 为主模型密钥，也是 `audioApiKey` 留空时的语音密钥回退值。
 3. `audioApiKey` 为批量语音上游独立密钥；可留空，留空时复用 `apiKey`。FunASR 原生实时连接不发送该密钥；仅当批量转写与主模型供应商或账号不一致时填写。
@@ -2996,3 +2996,251 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 响应头：
 
 - `Content-Disposition: attachment; filename*=UTF-8''user-activity-*.xlsx`
+
+### 5.61 POST `/v1/client/chronic-disease/follow-ups`
+
+用途：保存医生确认后的高血压、2 型糖尿病或两病联合融合随访记录。
+
+本接口业务正文严格对应对接系统原始 `TcdVisitForm.getFormData()` 输出，不再接受 `diseaseType`、`systolicPressure`、`symptomCodes` 等平台替代字段。单病种和联合随访都只调用一次、保存一条融合记录。
+
+鉴权：
+
+- `Authorization: Bearer {deviceToken}`
+- ECDSA P-256 请求签名头，规则同 2.3；接口必须经过 `DeviceAuthFilter`
+- `X-Request-Id`：必填且最长 64，作为当前平台机构内的业务幂等键。客户端重试同一次保存时必须复用原值。
+
+病种来源和切换：
+
+| 上游公卫标记 | `sdVisitKind` 页面状态 | 提交值 | 显示字段 |
+| --- | --- | --- | --- |
+| `rqflStatus=3` | `["1"]` | `"1"` | 公共字段 + 高血压字段 |
+| `rqflStatus=6` | `["2"]` | `"2"` | 公共字段 + 糖尿病字段 |
+| `rqflStatus=3,6` | `["1","2"]` | `"1,2"` | 公共字段 + 两病字段并集 |
+
+页面上的病种标记只读。原实例中 `sdVisitKind` 是复选数组；提交前按原 `getFormData()` 转为逗号字符串。
+
+请求体：
+
+```json
+{
+  "idPhr": "P10001",
+  "idRecord": "V20260723001",
+  "id": "",
+  "status": "3",
+  "sdVisitKind": "1,2",
+  "dtHyPlan": "2026-10-23",
+  "dtDbsPlan": "2026-10-23",
+  "sdDataWay": "2",
+  "stature": "160",
+  "avoirdupois": "62",
+  "advAdp": "60",
+  "bmi": "24.22",
+  "waistline": "87",
+  "advWaistline": "84",
+  "pressureH": "134",
+  "pressureL": "83",
+  "heartRate": "72",
+  "glu": "7.2",
+  "fbgMeal": "",
+  "isGlu": "1",
+  "inputUser": "D1001",
+  "idUser": "D1001",
+  "sdHySymptom": "1",
+  "sdDbsSymptom": "1",
+  "desOther": "",
+  "sdArteriopalmus": "2",
+  "sdProAct": "1",
+  "sdPsychicAdj": "1",
+  "fgCardiovascular": "0",
+  "lowEffects": "0",
+  "otherDisease": "",
+  "note": "",
+  "sdWehtherSmoke": "0",
+  "daySmoke": "",
+  "advDaySmoke": "",
+  "sdWhetherDrink": "0",
+  "dayDrink": "",
+  "advDayDrink": "",
+  "sdMainDrinking": "",
+  "sportWeek": "5",
+  "advSportWeek": "5",
+  "sportMinute": "30",
+  "advSportMinute": "30",
+  "sdSalt": "6",
+  "sdAdvSalt": "5",
+  "rice": "300",
+  "targRice": "250",
+  "fgDrugChange": "1",
+  "sdDrugPro": "1",
+  "sdSideEffects": "1",
+  "desSideEffects": "",
+  "drugList": [
+    {
+      "id": "",
+      "idDrug": "MED-001",
+      "idPherec": "",
+      "naDrug": "苯磺酸氨氯地平片",
+      "sdDrugFreq": "1",
+      "perDose": "1",
+      "doseUnit": "片",
+      "insulin": "2"
+    }
+  ],
+  "fgRef": "1",
+  "sdRefStatus": "",
+  "desRef": "",
+  "refDep": "",
+  "desNoRef": "",
+  "desAdr": "1",
+  "sdComplications": "",
+  "desComplications": "",
+  "desComor": "1",
+  "sdComorbidity": "",
+  "desComorbidity": "",
+  "sdMajorCc": "0",
+  "targetOrganDamage": "0",
+  "desPresAdvice": "<p>继续监测血压、血糖并按计划随访。</p>"
+}
+```
+
+字段分组：
+
+| 分组 | 原实例字段 |
+| --- | --- |
+| 锚点/阶段 | `idPhr`、`idRecord`、`id`、`status`、`sdVisitKind`、`dtHyPlan`、`dtDbsPlan` |
+| 信息测量 | `sdDataWay`、`stature`、`avoirdupois`、`advAdp`、`bmi`、`waistline`、`advWaistline`、`pressureH`、`pressureL`、`heartRate`、`glu`、`fbgMeal`、`isGlu` |
+| 随访信息 | `inputUser`、`idUser` |
+| 病情问询 | `sdHySymptom`、`sdDbsSymptom`、`desOther`、`sdArteriopalmus`、`sdProAct`、`sdPsychicAdj`、`fgCardiovascular`、`lowEffects`、`otherDisease`、`note` |
+| 生活习惯 | `sdWehtherSmoke`、`daySmoke`、`advDaySmoke`、`sdWhetherDrink`、`dayDrink`、`advDayDrink`、`sdMainDrinking`、`sportWeek`、`advSportWeek`、`sportMinute`、`advSportMinute`、`sdSalt`、`sdAdvSalt`、`rice`、`targRice` |
+| 用药情况 | `fgDrugChange`、`sdDrugPro`、`sdSideEffects`、`desSideEffects`、`drugList[]` |
+| 转诊情况 | `fgRef`、`sdRefStatus`、`desRef`、`refDep`、`desNoRef` |
+| 健康评估 | `desAdr`、`sdComplications`、`desComplications`、`desComor`、`sdComorbidity`、`desComorbidity`、`sdMajorCc`、`targetOrganDamage`、`desPresAdvice` |
+
+数组序列化：`sdArteriopalmus`、`sdComorbidity`、`sdComplications`、`sdDbsSymptom`、`sdHySymptom`、`sdMajorCc`、`sdVisitKind`、`targetOrganDamage` 在页面状态中为 `String[]`，请求正文中必须是逗号字符串。`drugList` 保持对象数组，仅提交 `idDrug` 非空的行。
+
+原实例可确认的固定值：
+
+- `status`：`1=before`、`2=clinic`、`3=after`；桌面端融合随访固定提交 `3`
+- `sdDataWay`：`1=健康小屋`、`2=移动端`、`3=健康设备`
+- `isGlu`：`1=空腹`、`0=餐后`
+- `sdProAct`、`sdPsychicAdj`：`1=良好`、`2=一般`、`3=差`
+- `fgCardiovascular`：`1=有`、`0=无`
+- `lowEffects`：`0=无`、`1=偶尔`、`2=频繁`
+- `sdWehtherSmoke`：`0=不吸`、`1=吸`、`2=已戒烟`
+- `fgDrugChange`：`1=是`、`0=否`
+- `sdSideEffects`：`1=无`、`2=有`
+- `desAdr`：`1=无并发症`、`2=并发症稳定`、`3=并发症不稳定`
+- `desComor`：`1=无合并症`、`2=合并症稳定`、`3=合并症不稳定`
+
+`chis.dictionary.hySymptoms`、`chis.dbsSymptoms`、`chis.tcd.dpp`、`chis.tcd.drink`、`chis.tcd.drinkType`、`chis.tcd.medicationAdjustment`、`chis.tcd.complications`、`chis.tcd.comorbidity`、`chis.tcd.majorCc`、`chis.tcd.targetOrganDamage`、`chis.tcd.refStatus`、`chis.tcd.referralReason` 的权威值由原慢病系统字典服务提供。提供的 HTML/JS 没有内嵌完整码表，平台不得把猜测码值写成正式契约；服务端按字符串透传并保存。
+
+核心校验与联动：
+
+1. `idPhr`、`idRecord`、`status`、`sdVisitKind` 必填；`sdVisitKind` 只能由 `1`、`2` 组成。
+2. 身高 `0～300`、体重/目标体重 `0～1000`、腰围/目标腰围 `0～999`；BMI 由体重和身高计算并保留 2 位小数。
+3. 收缩压 `0～300`、舒张压 `0～200`，且收缩压不得小于舒张压；心率 `0～200`。
+4. 糖尿病随访按 `isGlu` 只要求 `glu` 或 `fbgMeal`，范围 `0～100`。
+5. 高血压必须填写 `sdHySymptom`、`fgCardiovascular`、`sdSalt`、`sdAdvSalt`；糖尿病必须填写 `sdDbsSymptom`、`sdArteriopalmus`、`lowEffects`、`rice`、`targRice`。
+6. 症状编码 `1` 表示无症状，不能与同病种其它症状并存；`sdMajorCc`、`targetOrganDamage` 的 `0` 不能与其它值并存。
+7. `status=3` 时 `inputUser`、`idUser` 必填；`status=2/3` 时 `fgDrugChange`、`sdDrugPro`、`sdSideEffects` 必填。
+8. `fgDrugChange=0` 时清空 `drugList`；`sdSideEffects=2` 时 `desSideEffects` 必填，最长 255。
+9. `sdComplications` 或 `sdComorbidity` 包含 `0` 时，对应的“其他描述”可填写；取消 `0` 时清空描述。
+10. `desPresAdvice` 最长 5007；`<p><br></p>` 按空值归一化。
+11. `X-Request-Id` 在当前平台机构激活记录内幂等；相同键但 `idPhr + idRecord + sdVisitKind` 不一致时返回 `CHRONIC-FOLLOWUP-CONFLICT`。
+
+响应 `data`：
+
+```json
+{
+  "followUpId": "01K12...",
+  "requestId": "8a43ebce-3426-4eec-b62a-6ab9f93fef68",
+  "status": "saved",
+  "savedAt": "2026-07-23T11:20:31",
+  "idPhr": "P10001",
+  "idRecord": "V20260723001",
+  "sdVisitKind": "1,2"
+}
+```
+
+这里的响应是区域平台适配层保存确认，不冒充原 `chis.tcdService/saveTcdForm` 的未知响应。提供的实例代码没有给出该上游服务的完整出参 schema。
+
+### 5.62 POST `/v1/client/chronic-disease/artifact-snapshots`
+
+用途：健康处方或年度评估进入系统打印前，保存一份可追溯的医生确认快照。客户端只有在本接口成功返回后才可调用打印。
+
+鉴权：
+
+- `Authorization: Bearer {deviceToken}`
+- ECDSA P-256 请求签名头，规则同 2.3；接口必须经过 `DeviceAuthFilter`
+
+请求体：
+
+```json
+{
+  "requestId": "a95f4c0e-a904-4ea3-a9dd-61c48e3a965d",
+  "artifactType": "health_prescription",
+  "hisOrgId": "HIS-ORG-001",
+  "hisOrgName": "新城社区卫生服务中心",
+  "patientId": "P10001",
+  "visitId": "V20260723001",
+  "patientName": "林女士",
+  "diseaseTypes": ["hypertension", "type2_diabetes"],
+  "dataAsOf": "2026-07-24T10:30:00+08:00",
+  "assessmentYear": null,
+  "templateVersions": ["HTN-FOLLOWUP-2026.1", "T2DM-FOLLOWUP-2026.1"],
+  "pathVersions": ["HTN-PATH-2024.1", "T2DM-PATH-2022.1"],
+  "evidenceVersions": ["中国高血压防治指南-2024", "国家基层糖尿病防治管理指南-2022"],
+  "ruleVersion": "CHRONIC-RULE-2026.1",
+  "summaryText": "已基于当前患者证据形成医生确认的健康处方。",
+  "systolicPressure": 134,
+  "diastolicPressure": 83,
+  "bloodGlucose": 7.1,
+  "bloodPressureRecordCount": 6,
+  "bloodGlucoseRecordCount": 4,
+  "acceptedItems": [
+    {
+      "itemId": "ai-test-0",
+      "category": "test",
+      "title": "复核糖化血红蛋白",
+      "detail": "结合近期血糖记录决定是否补充检查。",
+      "reason": "当前糖尿病管理证据需要年度复核。"
+    }
+  ],
+  "doctorNotes": "患者同意先完成复查后复诊。",
+  "doctorId": "D1001",
+  "doctorName": "李医生"
+}
+```
+
+固定枚举：
+
+- `artifactType`：`health_prescription` / `annual_assessment`
+- `diseaseTypes`：每项只能是 `hypertension` / `type2_diabetes`，至少一项且去重
+- `acceptedItems[].category`：`test` / `medicine-review` / `lifestyle`
+
+校验：
+
+1. `requestId`、患者锚点、病种、数据截至时间、规则版本、摘要和医生姓名必填。
+2. 模板、路径和依据版本必须覆盖请求中的全部病种，且只能使用当前已发布版本。
+3. `health_prescription` 至少包含一条医生已确认建议；`annual_assessment` 必须提供 `assessmentYear`，并允许确认项为空。
+4. 年度指标必须是非负记录数；血压和血糖存在时必须在随访接口相同的合理范围内。
+5. `requestId` 在当前设备机构作用域内幂等；重复请求返回第一次保存的快照，不新增第二条。相同 `requestId` 若患者、就诊或快照类型不一致，返回 `CHRONIC-ARTIFACT-CONFLICT`。
+
+响应 `data`：
+
+```json
+{
+  "snapshotId": "01K12...",
+  "requestId": "a95f4c0e-a904-4ea3-a9dd-61c48e3a965d",
+  "status": "saved",
+  "savedAt": "2026-07-24T10:30:03",
+  "artifactType": "health_prescription"
+}
+```
+
+错误语义：
+
+- `400`：字段、病种规则或值域校验失败
+- `401`：device token 或 ECDSA 签名无效
+- `409`：相同 `requestId` 已存在但患者/病种关键字段冲突
+- `500`：服务端保存失败；客户端保留表单现场并允许使用同一 `requestId` 重试

@@ -34,6 +34,18 @@ public class GlobalExceptionHandler {
         return ApiResponse.error(ex.getCode(), sanitizeBusinessMessage(ex.getMessage()), resolveRequestId(request));
     }
 
+    @ExceptionHandler(ConflictException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiResponse<Void> handleConflict(ConflictException ex, HttpServletRequest request) {
+        log.warn("conflict exception. method={}, uri={}, requestId={}, code={}, message={}",
+            request.getMethod(),
+            request.getRequestURI(),
+            resolveRequestId(request),
+            ex.getCode(),
+            ex.getMessage());
+        return ApiResponse.error(ex.getCode(), sanitizeBusinessMessage(ex.getMessage()), resolveRequestId(request));
+    }
+
     @ExceptionHandler(UpdateRequiredException.class)
     @ResponseStatus(HttpStatus.UPGRADE_REQUIRED)
     public ApiResponse<Void> handleUpdateRequired(UpdateRequiredException ex, HttpServletRequest request) {

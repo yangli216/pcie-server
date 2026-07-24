@@ -29,7 +29,7 @@ java -jar floating-ball-server.jar
 \i init.sql
 ```
 
-`init.sql` 是 GaussDB 业务 schema 的初始化基线，结构与 Oracle `sql/oracle/init.sql` 对齐，包含业务表、索引、注释和默认种子数据。当前基线也包含第三方 ODS 检验检查申请单 `hi_ods_apply`、检验常规报告 `hi_ods_apply_lis_report` 与检查报告 `hi_ods_apply_pacs_report`，用于管理端手工模拟第三方结果回写；未提供结构的 `hi_ods_lis_result` 不作为常驻工程资产创建。实时语音 WebSocket 上游独立保存在 `speech_realtime_url`，自建 FunASR 使用 `speech_provider=funasr-websocket`。问诊日志唯一索引只约束尚未结束的 `generated` 记录，同一就诊回写或放弃后再次问诊会保留为新的日志轮次；`c_ai_user_consultation_log.id_his_org` 单独记录桌面端从 HIS 握手上报的机构 ID，不覆盖后台机构 `id_org`。
+`init.sql` 是 GaussDB 业务 schema 的初始化基线，结构与 Oracle `sql/oracle/init.sql` 对齐，包含业务表、索引、注释和默认种子数据。当前基线也包含 `c_ai_chronic_followup` 原 `TcdVisitForm` 两慢病融合随访表：`id_phr/id_record/sd_visit_kind` 独立检索，`form_data_json` 无损保存强类型 DTO，`request_id` 来自 `X-Request-Id`；旧通用列暂留作未发布实验表兼容，不再作为业务请求结构。`c_ai_chronic_artifact` 固化健康处方与年度评估打印前的患者证据、版本和医生确认快照，两表都以平台机构 + `request_id` 保证激活记录幂等。同时包含第三方 ODS 检验检查申请单 `hi_ods_apply`、检验常规报告 `hi_ods_apply_lis_report` 与检查报告 `hi_ods_apply_pacs_report`，用于管理端手工模拟第三方结果回写；未提供结构的 `hi_ods_lis_result` 不作为常驻工程资产创建。实时语音 WebSocket 上游独立保存在 `speech_realtime_url`，自建 FunASR 使用 `speech_provider=funasr-websocket`。问诊日志唯一索引只约束尚未结束的 `generated` 记录，同一就诊回写或放弃后再次问诊会保留为新的日志轮次；`c_ai_user_consultation_log.id_his_org` 单独记录桌面端从 HIS 握手上报的机构 ID，不覆盖后台机构 `id_org`。
 
 ## 本地 Docker 验证
 
@@ -70,4 +70,4 @@ FB_DB_PASSWORD=Rbmh_ai@123
 2. 激活记录唯一性使用表达式唯一索引实现，语义与 Oracle 基线一致；问诊日志只对激活且尚未结束的 `generated` 轮次做唯一约束。
 3. 现场旧库不能重建时，由 DBA 基于当前 `init.sql` 与现场结构生成一次性迁移脚本；迁移脚本不作为常驻工程资产提交。
 4. 若需要普通 PostgreSQL 运行，优先复用本目录结构作为 PG 兼容基线，再结合现场版本验证 JSON、表达式索引和时间函数兼容性。
-5. 本次按明确交付要求保留 `update_his_org_statistics.sql`。存量库使用当前应用账号执行 `\i update_his_org_statistics.sql`，补齐可能遗漏的 `c_ai_config.speech_realtime_url`、`c_ai_user_consultation_log.id_his_org`、`consultation_round_id`、问诊轮次索引，以及操作日志和功能事件 HIS 机构字段、索引与可确定关联的数据回填；新建库仍只执行 `init.sql`。若现场已存在重复的激活 `generated` 轮次，须先清理重复数据再创建轮次唯一索引。
+5. 本次保留 `update_his_org_statistics.sql`、`update_chronic_disease_followup.sql` 与 `update_chronic_disease_artifact.sql`。存量库使用当前应用账号分别执行三个脚本；后两个创建两慢病随访强类型表和打印留痕快照表及幂等/查询索引。新建库仍只执行 `init.sql`。若现场已存在重复的激活 `generated` 轮次，须先清理重复数据再创建轮次唯一索引。
