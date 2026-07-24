@@ -31,7 +31,9 @@ class OracleSchemaScriptTest {
         }
 
         Set<String> expectedSqlFiles = new HashSet<String>(Arrays.asList(
-            "bootstrap.sql", "init.sql", "update_his_org_statistics.sql"
+            "bootstrap.sql", "init.sql", "update_his_org_statistics.sql",
+            "update_chronic_disease_followup.sql",
+            "update_chronic_disease_artifact.sql"
         ));
         assertTrue(actualSqlFiles.equals(expectedSqlFiles),
             "oracle delivery should include the explicit HIS organization update script");
@@ -72,6 +74,13 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_obs");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_fact");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_audit");
+        assertContains(initSql, "CREATE TABLE c_ai_chronic_followup");
+        assertContains(initSql, "CREATE TABLE c_ai_chronic_artifact");
+        assertContains(initSql, "id_phr                   VARCHAR2(64) NOT NULL");
+        assertContains(initSql, "sd_visit_kind            VARCHAR2(8) NOT NULL");
+        assertContains(initSql, "form_data_json           CLOB NOT NULL");
+        assertContains(initSql, "management_source        VARCHAR2(32) NOT NULL");
+        assertContains(initSql, "accepted_items_json      CLOB NOT NULL");
 
         assertContains(initSql, "op_action            VARCHAR2(256)");
         assertContains(initSql, "op_title             VARCHAR2(500)");
@@ -116,6 +125,10 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_patient_memory_obs_idem");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_patient_memory_fact_key");
         assertContains(initSql, "CREATE INDEX idx_c_ai_patient_memory_audit_time");
+        assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_chronic_fu_req");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_chronic_fu_patient");
+        assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_chronic_art_req");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_chronic_art_pat");
 
         assertContains(initSql, "CREATE INDEX idx_c_security_rej_time");
         assertContains(initSql, "CREATE INDEX idx_c_security_rej_type");
@@ -137,7 +150,9 @@ class OracleSchemaScriptTest {
         }
 
         Set<String> expectedSqlFiles = new HashSet<String>(Arrays.asList(
-            "init.sql", "update_his_org_statistics.sql"
+            "init.sql", "update_his_org_statistics.sql",
+            "update_chronic_disease_followup.sql",
+            "update_chronic_disease_artifact.sql"
         ));
         assertTrue(actualSqlFiles.equals(expectedSqlFiles),
             "gaussdb delivery should include the explicit HIS organization update script");
@@ -170,10 +185,21 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_obs");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_fact");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_audit");
+        assertContains(initSql, "CREATE TABLE c_ai_chronic_followup");
+        assertContains(initSql, "CREATE TABLE c_ai_chronic_artifact");
+        assertContains(initSql, "id_phr                   VARCHAR(64) NOT NULL");
+        assertContains(initSql, "sd_visit_kind            VARCHAR(8) NOT NULL");
+        assertContains(initSql, "form_data_json           TEXT NOT NULL");
+        assertContains(initSql, "management_source        VARCHAR(32) NOT NULL");
+        assertContains(initSql, "accepted_items_json      TEXT NOT NULL");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_patient_memory_scope");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_patient_memory_obs_idem");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_patient_memory_fact_key");
         assertContains(initSql, "CREATE INDEX idx_c_ai_patient_memory_audit_time");
+        assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_chronic_fu_req");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_chronic_fu_patient");
+        assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_chronic_art_req");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_chronic_art_pat");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_org_code_active");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_device_code_org_active");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_feedback_latest_scope");
@@ -242,6 +268,60 @@ class OracleSchemaScriptTest {
             gaussdbSql,
             "CASE WHEN fg_active = '1' AND status = 'generated' THEN consultation_round_id END"
         );
+    }
+
+    @Test
+    void chronicDiseaseUpdateScriptsShouldCreateTypedIdempotentSchema() throws IOException {
+        for (Path script : Arrays.asList(
+            ORACLE_SQL_DIR.resolve("update_chronic_disease_followup.sql"),
+            GAUSSDB_SQL_DIR.resolve("update_chronic_disease_followup.sql"),
+            DAMENG_SQL_DIR.resolve("update_chronic_disease_followup.sql")
+        )) {
+            String sql = readSql(script);
+            assertContains(sql, "c_ai_chronic_followup");
+            assertContains(sql, "template_version");
+            assertContains(sql, "path_version");
+            assertContains(sql, "evidence_version");
+            assertContains(sql, "rule_version");
+            assertContains(sql, "management_source");
+            assertContains(sql, "management_evidence");
+            assertContains(sql, "id_phr");
+            assertContains(sql, "id_record");
+            assertContains(sql, "sd_visit_kind");
+            assertContains(sql, "form_data_json");
+            assertContains(sql, "uk_c_ai_chronic_fu_req");
+            assertContains(sql, "idx_c_ai_chronic_fu_patient");
+            assertContains(sql, "idx_c_ai_chronic_fu_disease");
+            assertContains(sql, "idx_c_ai_chronic_fu_tcd");
+        }
+
+        String gaussdbSql = readSql(GAUSSDB_SQL_DIR.resolve("update_chronic_disease_followup.sql"));
+        assertContains(gaussdbSql, "CREATE TABLE IF NOT EXISTS c_ai_chronic_followup");
+        assertNotContains(gaussdbSql, "VARCHAR2");
+        assertNotContains(gaussdbSql, "NUMBER(");
+    }
+
+    @Test
+    void chronicArtifactUpdateScriptsShouldCreateTypedIdempotentSchema() throws IOException {
+        for (Path script : Arrays.asList(
+            ORACLE_SQL_DIR.resolve("update_chronic_disease_artifact.sql"),
+            GAUSSDB_SQL_DIR.resolve("update_chronic_disease_artifact.sql"),
+            DAMENG_SQL_DIR.resolve("update_chronic_disease_artifact.sql")
+        )) {
+            String sql = readSql(script);
+            assertContains(sql, "c_ai_chronic_artifact");
+            assertContains(sql, "artifact_type");
+            assertContains(sql, "disease_types_json");
+            assertContains(sql, "accepted_items_json");
+            assertContains(sql, "uk_c_ai_chronic_art_req");
+            assertContains(sql, "idx_c_ai_chronic_art_pat");
+            assertContains(sql, "idx_c_ai_chronic_art_type");
+        }
+
+        String gaussdbSql = readSql(GAUSSDB_SQL_DIR.resolve("update_chronic_disease_artifact.sql"));
+        assertContains(gaussdbSql, "CREATE TABLE IF NOT EXISTS c_ai_chronic_artifact");
+        assertNotContains(gaussdbSql, "VARCHAR2");
+        assertNotContains(gaussdbSql, "NUMBER(");
     }
 
     private String readSql(Path path) throws IOException {

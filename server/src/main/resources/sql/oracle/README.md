@@ -70,12 +70,14 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 8. 默认管理员 `admin`
 9. 默认 AI 配置 `CFG001`；DashScope 默认实时模型为 `qwen-audio-3.0-asr-flash-streaming`，实时语音 WebSocket 上游独立保存在 `speech_realtime_url`，自建 FunASR 使用 `speech_provider=funasr-websocket`
 10. 脚本末尾显式 `COMMIT`
+11. `c_ai_chronic_followup` 保存原 `TcdVisitForm` 高血压/糖尿病融合随访：`id_phr/id_record/sd_visit_kind` 独立检索，`form_data_json` 无损保存强类型 DTO；`request_id` 来自 `X-Request-Id`，在平台机构激活记录内幂等。旧通用列暂留作未发布实验表兼容，不再作为业务请求结构
+12. `c_ai_chronic_artifact` 健康处方与年度评估打印留痕快照，固化患者证据截止时间、病种及版本、年度指标、医生确认项和打印医生
 
 说明：
 
 1. 默认 AI 配置仅用于打通 `register -> bootstrap -> audit` 的启动联调链路
 2. 真正的上游 AI 地址、密钥、模型请在删库重建后再通过管理端修改；HTTP 批量转写地址与 `speech_realtime_url` 实时 WebSocket 地址必须分开配置
-3. 新建库仍采用“目标 schema 初始化/重建 + 重跑 `init.sql`”；本次按明确交付要求额外保留 `update_his_org_statistics.sql`，用于存量库补齐 `c_ai_config.speech_realtime_url`、HIS 机构统计字段、问诊轮次字段及其索引，不作为通用升级脚本目录
+3. 新建库仍采用“目标 schema 初始化/重建 + 重跑 `init.sql`”；定向保留 `update_his_org_statistics.sql`、`update_chronic_disease_followup.sql` 与 `update_chronic_disease_artifact.sql`，分别用于补齐 HIS 统计契约、两慢病随访表和打印留痕快照表，不作为通用升级脚本目录
 4. 执行 `init.sql` 前请确认当前登录 schema 就是 `RBMH_AI`；脚本本身不再依赖 SQL*Plus 变量做前置校验
 5. 区域与机构的 `sd_status` 是启用/停用状态；`fg_active` 只表示逻辑删除/无效记录。管理端统计筛选只统计 `fg_active='1' AND sd_status='1'` 的区域和机构。
 
@@ -94,6 +96,13 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 
 ```sql
 @update_his_org_statistics.sql
+```
+
+两慢病随访上线到存量库前执行：
+
+```sql
+@update_chronic_disease_followup.sql
+@update_chronic_disease_artifact.sql
 ```
 
 ## 如果暂时继续使用 `SYSTEM`

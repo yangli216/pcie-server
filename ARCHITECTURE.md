@@ -260,10 +260,10 @@ pcie-server/
 ### 5.3 审计链路
 
 1. 客户端本地缓存事件
-2. 客户端对区域化操作日志不再依赖本地 SQLite，直接调用 `POST /v1/client/audit/events/batch`；启动时补传遗留队列，新事件入队后异步立即尝试一次，失败或离线时继续保留队列并按固定周期重试
+2. 客户端对远端操作日志不再依赖本地 SQLite，直接调用 `POST /v1/client/audit/events/batch`；启动时补传遗留队列，新事件入队后异步立即尝试一次，失败或离线时继续保留队列并按固定周期重试
 3. 客户端对 `operation` 事件优先上报 `{ module, action, title, sourceModule, scene, result, operationType, operationName, details }`，并在事件外层携带事件产生时的 `hisOrgId/hisOrgName`；其中 `module/action/title/sourceModule/scene/result` 与 HIS 机构会被服务端提取到结构化列，`operationType/operationName/details` 继续保留在原始 payload
 4. AI 调用类 `operation` 事件必须同时保留摘要与完整出入参：`details.requestSummary/responseSummary` 用于列表摘要，`details.requestPayload/responsePayload` 用于详情排障。`requestPayload` 应记录实际发送给 `/v1/ai/chat` 或语音代理的业务请求体；`responsePayload` 应记录业务回文或错误对象。API Key、Bearer Token 等凭据不得进入 payload；语音原始 base64 / 二进制音频不得进入 payload。
-5. 客户端本地只保留轻量失败重试队列，不再把区域化操作日志落本地 SQLite；服务端仍按同一批量接口落库
+5. 客户端本地只保留轻量失败重试队列，不再把远端操作日志落本地 SQLite；服务端仍按同一批量接口落库
 6. 服务端兼容旧载荷：若未显式提供 `module/action/title/sourceModule/scene/result`，则回退从 `operationType/operationName/success` 与 `details.traceId / details.consultationId` 等字段推导
 7. 服务端写入 `c_ai_op_log`；`id_org` 继续来自设备鉴权，`id_his_org/na_his_org` 来自桌面端 SDK handshake 上下文，两者不得互相覆盖
 8. 管理端提供分页查询，并支持按 `module/action/title/sourceModule/scene/traceId/consultationId/result` 结构化筛选；详情弹窗必须把完整入参、完整出参与原始 payload 分区展示，不能只展示摘要字段。JSON 默认使用可折叠的结构化视图，完整 JSON 字符串字段递归解析为对象或数组，普通长文本按真实换行折行展示；超大内容的结构化视图使用全树节点预算并在工具栏提示截断，原文仍保留完整内容供查看和复制。
@@ -536,6 +536,20 @@ GaussDB/openGauss 初始化：
 3. 发布结果为单个 Spring Boot 服务，前后端同端口、同域名、同进程。
 4. 开发阶段允许保留 Vite 独立调试能力，但这不再是默认交付形态。
 5. 管理端表单交互优先复用 `floating-ball` 现有设置页的分组式信息架构：按“基础信息 / 主模型 / 语音 / 知识库 / 审查模型 / 作用域与功能开关”分段展示，避免把所有配置字段平铺在单一网格中。
-6. 语音配置页必须区分“服务端实际转写地址/密钥/模型”和“桌面端感知的 provider/model”：前者用于服务端上游语音协议选择与调用，后者用于 `floating-ball` 区域化设置页展示与策略选择。
+6. 语音配置页必须区分“服务端实际转写地址/密钥/模型”和“桌面端感知的 provider/model”：前者用于服务端上游语音协议选择与调用，后者用于 `floating-ball` 设置页展示与策略选择。
 7. 服务端 AI / 语音上游出站请求允许通过 `floating-ball.ai.proxy.*` 配置显式走 HTTP 代理；在 macOS 开发环境下同时建议启用 Netty 的 native DNS 解析依赖，避免 Java 进程与终端 `curl` 的网络行为不一致。
 8. AI 配置页应提供“服务端到上游 LLM”的单独测试入口，用于区分“floating-ball -> server”链路故障与“server -> LLM”链路故障。
+
+## 10. 两慢病随访持久化
+
+`modules/chronicdisease` 为医生桌面端提供高血压与 2 型糖尿病随访保存能力：
+
+1. `ClientChronicDiseaseController` 暴露签名保护的 `/v1/client/chronic-disease/*`。
+2. `ChronicDiseaseFollowUpRequest` 逐字段声明原始 `TcdVisitForm.getFormData()` 输出；不接受 `Map` 或可替代整条记录的任意 `payload`。原始字典值按字符串透传，服务端只校验实例代码能够确认的值域和联动规则。
+3. `ChronicDiseaseFollowUpService` 负责 `sdVisitKind` 病种组合、阶段 `status`、数值范围、条件必填、多选互斥、药品空行过滤和 `X-Request-Id` 幂等；联合随访只插入一条记录。
+4. `c_ai_chronic_followup` 固化 `id_phr/id_record/sd_visit_kind` 等检索锚点和完整 `form_data_json`。JSON 是强类型 DTO 的无损持久化结果，不是接收任意业务结构的入口。
+5. Oracle 与 GaussDB 初始化基线同步维护表、注释、索引和唯一幂等索引；Oracle、GaussDB 与达梦 DM8 存量库分别提供同名定向升级脚本 `update_chronic_disease_followup.sql`。
+6. 实际插入由 `ChronicDiseaseFollowUpWriter` 在独立事务中完成；并发唯一键冲突先回滚写事务，再由外层服务读取已提交记录，避免 GaussDB/openGauss 事务进入失败态后仍继续查询。
+7. `POST /v1/client/chronic-disease/artifact-snapshots` 保存健康处方或年度评估打印前快照；DTO 使用固定字段和强类型确认项，服务端序列化确认项但不接受任意业务 payload，`requestId` 在机构内幂等。
+8. `c_ai_chronic_artifact` 固化患者锚点、病种集合、数据截至时间、模板/路径/依据/规则版本、年度指标、医生确认项及打印医生。
+9. 一期不增加管理端页面；正式模板与临床路径由代码仓库受审清单发布，AI 和医生均无规则发布权限。
