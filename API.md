@@ -3000,9 +3000,16 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 
 - `Content-Disposition: attachment; filename*=UTF-8''user-activity-*.xlsx`
 
-### 5.61 POST `/v1/client/chronic-disease/follow-ups`
+### 5.61-5.62 已移除：区域后端慢病保存接口
 
-用途：保存医生确认后的高血压、2 型糖尿病或两病联合融合随访记录。
+以下区域后端接口已删除，不得再调用：
+
+- `POST /v1/client/chronic-disease/follow-ups`
+- `POST /v1/client/chronic-disease/artifact-snapshots`
+
+正式随访由桌面端以 `[TcdVisitForm]` 直接调用 Adapter 的 `api/phis.aiAdapterService/saveTcdForm`。健康处方和年度评估由医生确认后在桌面端本地打印，不保存区域后端快照。
+
+<!-- 以下为已废止契约的历史说明，不属于当前 API。
 
 本接口业务正文严格对应对接系统原始 `TcdVisitForm.getFormData()` 输出，不再接受 `diseaseType`、`systolicPressure`、`symptomCodes` 等平台替代字段。单病种和联合随访都只调用一次、保存一条融合记录。
 
@@ -3167,9 +3174,9 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 
 这里的响应是区域平台适配层保存确认，不冒充原 `chis.tcdService/saveTcdForm` 的未知响应。提供的实例代码没有给出该上游服务的完整出参 schema。
 
-### 5.62 POST `/v1/client/chronic-disease/artifact-snapshots`
+### 5.62 已移除：POST `/v1/client/chronic-disease/artifact-snapshots`
 
-用途：健康处方或年度评估进入系统打印前，保存一份可追溯的医生确认快照。客户端只有在本接口成功返回后才可调用打印。
+> 本区域后端接口已删除，不得再调用。健康处方和年度评估由桌面端医生确认后本地打印，不再保存区域后端快照；以下内容仅保留为已废止契约的历史说明。
 
 鉴权：
 
@@ -3247,3 +3254,4 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 - `401`：device token 或 ECDSA 签名无效
 - `409`：相同 `requestId` 已存在但患者/病种关键字段冲突
 - `500`：服务端保存失败；客户端保留表单现场并允许使用同一 `requestId` 重试
+-->

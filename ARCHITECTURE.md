@@ -541,16 +541,13 @@ GaussDB/openGauss 初始化：
 7. 服务端 AI / 语音上游出站请求允许通过 `floating-ball.ai.proxy.*` 配置显式走 HTTP 代理；在 macOS 开发环境下同时建议启用 Netty 的 native DNS 解析依赖，避免 Java 进程与终端 `curl` 的网络行为不一致。
 8. AI 配置页应提供“服务端到上游 LLM”的单独测试入口，用于区分“floating-ball -> server”链路故障与“server -> LLM”链路故障。
 
-## 10. 两慢病随访持久化
+## 10. 两慢病真实业务系统边界
 
-`modules/chronicdisease` 为医生桌面端提供高血压与 2 型糖尿病随访保存能力：
+两慢病公卫体征、历史随访和正式随访记录由既有业务系统负责，全医慧助（PCIE）不在区域后端复制保存：
 
-1. `ClientChronicDiseaseController` 暴露签名保护的 `/v1/client/chronic-disease/*`。
-2. `ChronicDiseaseFollowUpRequest` 逐字段声明原始 `TcdVisitForm.getFormData()` 输出；不接受 `Map` 或可替代整条记录的任意 `payload`。原始字典值按字符串透传，服务端只校验实例代码能够确认的值域和联动规则。
-3. `ChronicDiseaseFollowUpService` 负责 `sdVisitKind` 病种组合、阶段 `status`、数值范围、条件必填、多选互斥、药品空行过滤和 `X-Request-Id` 幂等；联合随访只插入一条记录。
-4. `c_ai_chronic_followup` 固化 `id_phr/id_record/sd_visit_kind` 等检索锚点和完整 `form_data_json`。JSON 是强类型 DTO 的无损持久化结果，不是接收任意业务结构的入口。
-5. Oracle 与 GaussDB 初始化基线同步维护表、注释、索引和唯一幂等索引；Oracle、GaussDB 与达梦 DM8 存量库分别提供同名定向升级脚本 `update_chronic_disease_followup.sql`。
-6. 实际插入由 `ChronicDiseaseFollowUpWriter` 在独立事务中完成；并发唯一键冲突先回滚写事务，再由外层服务读取已提交记录，避免 GaussDB/openGauss 事务进入失败态后仍继续查询。
-7. `POST /v1/client/chronic-disease/artifact-snapshots` 保存健康处方或年度评估打印前快照；DTO 使用固定字段和强类型确认项，服务端序列化确认项但不接受任意业务 payload，`requestId` 在机构内幂等。
-8. `c_ai_chronic_artifact` 固化患者锚点、病种集合、数据截至时间、模板/路径/依据/规则版本、年度指标、医生确认项及打印医生。
-9. 一期不增加管理端页面；正式模板与临床路径由代码仓库受审清单发布，AI 和医生均无规则发布权限。
+1. 桌面端取得 `idCard` 后，通过 HIS Adapter 的 `queryPatientVisitHistoryData` 查询正式业务数据，请求体为 `[{"idCard":"..."}]`。
+2. 医生确认随访后，通过 HIS Adapter 的 `saveTcdForm` 直接提交原始 `TcdVisitForm`；字段名、嵌套结构和字典值均以正式接口文档为准，不增加翻译层。
+3. `floating-ball-server` 不再提供 `/v1/client/chronic-disease/follow-ups` 和 `/v1/client/chronic-disease/artifact-snapshots`，也不校验、转存或返回慢病保存结果。
+4. 服务端不保留 `modules/chronicdisease`、`c_ai_chronic_followup`、`c_ai_chronic_artifact` 及其 Mapper、升级脚本和初始化基线。
+5. 健康处方和年度评估可由桌面端本地生成、医生确认并打印，但不向区域后端保存慢病快照。
+6. 已部署数据库中的历史冗余表应由 DBA 在备份和变更审批后一次性删除；仓库不保留长期 `DROP TABLE` 脚本。
