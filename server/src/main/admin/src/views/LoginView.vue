@@ -3,10 +3,10 @@
     <section class="login-shell" aria-labelledby="login-title">
       <div class="login-context">
         <div class="brand-row">
-          <span class="brand-mark" aria-hidden="true">医</span>
+          <span class="brand-mark" aria-hidden="true">慧</span>
           <div class="brand-copy">
-            <h1 id="login-title">区域智能后台</h1>
-            <p>floating-ball-server</p>
+            <h1 id="login-title">全医慧助管理端</h1>
+            <p>PCIE · Primary Care Intelligent Expert</p>
           </div>
         </div>
         <div class="system-facts" aria-label="系统范围">

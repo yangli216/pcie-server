@@ -94,7 +94,7 @@ router.beforeEach((to, from, next) => {
 
 router.afterEach(to => {
   if (typeof document !== 'undefined') {
-    document.title = `${to.meta.title || '管理端'} - floating-ball-server`
+    document.title = `${to.meta.title || '管理端'} - 全医慧助（PCIE）`
   }
 })
 

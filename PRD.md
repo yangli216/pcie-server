@@ -1,8 +1,12 @@
-# floating-ball-server 需求基线
+# 全医慧助（PCIE）服务端需求基线
+
+> 正式英文名称：Primary Care Intelligent Expert
+>
+> 工程名：`floating-ball-server`
 
 ## 两慢病插件一期
 
-一期为 `floating-ball` 医生桌面端提供高血压与 2 型糖尿病慢病随访持久化，不包含患者端，也不建设管理端规则配置页。
+一期为全医慧助 `floating-ball` 医生桌面端提供高血压与 2 型糖尿病慢病随访持久化，不包含患者端，也不建设管理端规则配置页。
 
 边界如下：
 

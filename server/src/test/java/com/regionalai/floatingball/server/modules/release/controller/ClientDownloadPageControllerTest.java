@@ -27,6 +27,7 @@ class ClientDownloadPageControllerTest {
 
         ResponseEntity<String> response = controller.downloadPage("production", request);
 
+        assertTrue(response.getBody().contains("全医慧助客户端下载"));
         assertTrue(response.getBody().contains("暂无可下载客户端"));
         assertTrue(response.getBody().contains("/client-download?channel=testing"));
     }
@@ -40,9 +41,9 @@ class ClientDownloadPageControllerTest {
 
         ResponseEntity<String> response = controller.downloadPage("production", request);
 
-        assertTrue(response.getBody().contains("MedHermes_1.2.15_aarch64.app.tar.gz"));
+        assertTrue(response.getBody().contains("PCIE_1.2.15_aarch64.app.tar.gz"));
         assertTrue(response.getBody().contains("darwin-aarch64"));
-        assertTrue(response.getBody().contains("http://release.local/v1/client/releases/production/files/darwin-aarch64/MedHermes_1.2.15_aarch64.app.tar.gz"));
+        assertTrue(response.getBody().contains("http://release.local/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.15_aarch64.app.tar.gz"));
     }
 
     private ReleaseUploadRequest uploadRequest() {
@@ -56,7 +57,7 @@ class ClientDownloadPageControllerTest {
         ));
         request.setFile(new MockMultipartFile(
             "file",
-            "MedHermes_1.2.15_aarch64.app.tar.gz",
+            "PCIE_1.2.15_aarch64.app.tar.gz",
             "application/octet-stream",
             "package-1.2.15".getBytes(StandardCharsets.UTF_8)
         ));
@@ -71,7 +72,7 @@ class ClientDownloadPageControllerTest {
             + "\"platforms\":{"
             + "\"darwin-aarch64\":{"
             + "\"signature\":\"signature-1.2.15\","
-            + "\"url\":\"https://example.com/MedHermes_1.2.15_aarch64.app.tar.gz\""
+            + "\"url\":\"https://example.com/PCIE_1.2.15_aarch64.app.tar.gz\""
             + "}"
             + "}"
             + "}";

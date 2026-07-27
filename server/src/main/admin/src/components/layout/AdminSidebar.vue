@@ -1,8 +1,8 @@
 <template>
   <aside class="admin-sidebar" :class="{ 'is-collapsed': collapsed }" aria-label="管理端导航">
     <div class="admin-sidebar__brand">
-      <span class="admin-sidebar__brand-mark" aria-hidden="true">医</span>
-      <span class="admin-sidebar__brand-text">区域智能后台</span>
+      <span class="admin-sidebar__brand-mark" aria-hidden="true">慧</span>
+      <span class="admin-sidebar__brand-text">全医慧助管理端</span>
     </div>
 
     <nav class="admin-sidebar__nav" aria-label="主导航">

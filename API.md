@@ -1,7 +1,10 @@
-# floating-ball-server API 说明
+# 全医慧助（PCIE）服务端 API 说明
 
-> 更新日期：2026-07-01
-> 范围：`floating-ball` 当前唯一远程业务契约 `/v1/*`；桌面端已取消本地/区域双模式
+> 正式英文名称：Primary Care Intelligent Expert
+>
+> 更新日期：2026-07-24
+>
+> 范围：全医慧助桌面端 `floating-ball` 当前唯一远程业务契约 `/v1/*`；桌面端已取消本地/区域双模式
 
 ## 1. 约束说明
 
@@ -275,7 +278,7 @@ BODY_SHA256
 
 1. 批量发布适合一次性把同一客户端版本发布到测试、正式等多个通道，并同时上传 macOS / Windows 等多个平台包。
 2. 平台 target 不需要管理员手工填写；服务端按上传安装包文件名匹配 `latest.json.platforms.{target}.url` 中的文件名，自动取得 target 和签名。
-3. 若多个 target 的 URL 指向同一个文件名，服务端会把同一个上传文件发布到这些 target；典型场景是 macOS universal 包 `MedHermes_universal.app.tar.gz` 同时匹配 `darwin-aarch64` 与 `darwin-x86_64`。
+3. 若多个 target 的 URL 指向同一个文件名，服务端会把同一个上传文件发布到这些 target；典型场景是 macOS universal 包 `PCIE_universal.app.tar.gz` 同时匹配 `darwin-aarch64` 与 `darwin-x86_64`。
 4. 安装包文件名必须与对应 `latest.json` 平台 URL 指向的文件名一致，否则 Tauri updater 会签名校验失败。
 5. 同一次批量发布内的所有安装包必须解析为同一个版本号；不同版本应拆成多次发布。
 6. 若目标通道当前版本与本次版本不同，服务端会先保存该通道当前快照，再用本次安装包集合生成新的 `latest.json`；若版本相同，则合并或覆盖对应平台。
@@ -291,20 +294,20 @@ BODY_SHA256
     "platforms": [
       {
         "target": "darwin-aarch64",
-        "fileName": "MedHermes_1.2.13_aarch64.app.tar.gz",
+        "fileName": "PCIE_1.2.13_aarch64.app.tar.gz",
         "fileSize": 12345678,
-        "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/MedHermes_1.2.13_aarch64.app.tar.gz"
+        "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.13_aarch64.app.tar.gz"
       },
       {
         "target": "windows-x86_64",
-        "fileName": "MedHermes_1.2.13_x64-setup.nsis.zip",
+        "fileName": "PCIE_1.2.13_x64-setup.nsis.zip",
         "fileSize": 23456789,
-        "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/windows-x86_64/MedHermes_1.2.13_x64-setup.nsis.zip"
+        "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/windows-x86_64/PCIE_1.2.13_x64-setup.nsis.zip"
       }
     ],
     "target": "darwin-aarch64",
-    "fileName": "MedHermes_1.2.13_aarch64.app.tar.gz",
-    "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/MedHermes_1.2.13_aarch64.app.tar.gz",
+    "fileName": "PCIE_1.2.13_aarch64.app.tar.gz",
+    "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.13_aarch64.app.tar.gz",
     "latestJsonUrl": "http://127.0.0.1:8080/v1/client/releases/production/latest.json",
     "policyUrl": "http://127.0.0.1:8080/v1/client/releases/production/policy.json",
     "pubDate": "2026-04-24T10:00:00Z",
@@ -338,7 +341,7 @@ BODY_SHA256
 | forceUpdate | boolean | 否 | 是否强制更新；为 `true` 时，低于本次发布版本的客户端只能访问更新检查和安装包下载 |
 | file | file | 是 | 安装包或更新包文件，通常为 Tauri bundle 产物 |
 
-说明：运维推荐只选择 `latest.json` 与对应安装包文件；`version`、`target`、`signature` 仅作为解析失败或多平台歧义时的兜底覆盖项。安装包文件名必须与 `latest.json.platforms.{target}.url` 中的文件名一致，例如签名对应 `MedHermes.app.tar.gz` 时不能上传 `MedHermes.dmg`，否则 Tauri updater 会签名校验失败。勾选强制更新前，必须确认该通道所有实际部署平台的安装包均已上传到当前 `latest.json`，否则旧客户端会被禁止使用但无法下载对应平台更新。
+说明：运维推荐只选择 `latest.json` 与对应安装包文件；`version`、`target`、`signature` 仅作为解析失败或多平台歧义时的兜底覆盖项。安装包文件名必须与 `latest.json.platforms.{target}.url` 中的文件名一致，例如签名对应 `PCIE.app.tar.gz` 时不能上传 `PCIE.dmg`，否则 Tauri updater 会签名校验失败。勾选强制更新前，必须确认该通道所有实际部署平台的安装包均已上传到当前 `latest.json`，否则旧客户端会被禁止使用但无法下载对应平台更新。
 
 部署说明：生产/内网环境推荐设置 `FB_RELEASE_PUBLIC_BASE_URL=http://后端内网IP:8080`，确保管理端展示、复制的更新源以及 `latest.json` 内下载地址都不出现 `localhost`。
 
@@ -351,9 +354,9 @@ BODY_SHA256
   "channel": "production",
   "version": "1.2.13",
   "target": "darwin-aarch64",
-  "fileName": "MedHermes_1.2.13_aarch64.dmg",
+  "fileName": "PCIE_1.2.13_aarch64.dmg",
   "fileSize": 12345678,
-  "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/MedHermes_1.2.13_aarch64.dmg",
+  "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.13_aarch64.dmg",
   "latestJsonUrl": "http://127.0.0.1:8080/v1/client/releases/production/latest.json",
   "policyUrl": "http://127.0.0.1:8080/v1/client/releases/production/policy.json",
   "pubDate": "2026-04-24T10:00:00Z",
@@ -410,7 +413,7 @@ BODY_SHA256
     "forceUpdate": false,
     "minSupportedVersion": null,
     "targets": ["darwin-aarch64", "windows-x86_64"],
-    "fileNames": ["MedHermes_1.2.13_aarch64.app.tar.gz", "MedHermes_1.2.13_x64-setup.nsis.zip"],
+    "fileNames": ["PCIE_1.2.13_aarch64.app.tar.gz", "PCIE_1.2.13_x64-setup.nsis.zip"],
     "notes": "修复内网升级流程",
     "pubDate": "2026-04-24T10:00:00Z",
     "updatedAt": 1777250000000
@@ -520,7 +523,7 @@ Content-Type: application/json
   "platforms": {
     "darwin-aarch64": {
       "signature": "...",
-      "url": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/MedHermes_1.2.13_aarch64.dmg"
+      "url": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.13_aarch64.dmg"
     }
   }
 }

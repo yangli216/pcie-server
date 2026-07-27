@@ -1,8 +1,8 @@
 # AGENTS.md
 
-`floating-ball-server` 项目的协作规则。
+全医慧助（PCIE，Primary Care Intelligent Expert）服务端工程 `floating-ball-server` 的协作规则。
 
-本项目是 `floating-ball` 的配套后台，当前采用：
+本项目是全医慧助桌面端 `floating-ball` 的配套后台，当前采用：
 
 1. `server/`：Spring Boot 2.7 + Java 8 + MyBatis-Plus；数据库支持 Oracle 19c 与华为高斯 GaussDB/openGauss PostgreSQL 兼容模式，新增数据库适配优先保证 GaussDB
 2. `server/src/main/admin/`：Vue 2 + Element UI 管理端源码，由 `server/` 统一托管
@@ -10,10 +10,11 @@
 
 ## 必读顺序
 
-1. 先读 [ARCHITECTURE.md](./ARCHITECTURE.md)
-2. 再读 [API.md](./API.md)
-3. 涉及需求来源时，读 [../rbmh-ai-platform/PRD.md](../rbmh-ai-platform/PRD.md)
-4. 涉及桌面端真实调用时，读：
+1. 先读 [HARNESS.md](./HARNESS.md) 明确项目内执行流程和跨仓升级条件
+2. 再读 [ARCHITECTURE.md](./ARCHITECTURE.md)
+3. 再读 [API.md](./API.md)
+4. 涉及需求边界时，以用户明确要求和当前代码为准；形成长期基线时写入本项目 `PRD.md`，不引用历史占位目录。
+5. 涉及桌面端真实调用时，补读 [../development-harness/HARNESS.md](../development-harness/HARNESS.md)、[../floating-ball/HARNESS.md](../floating-ball/HARNESS.md) 和：
    - [../floating-ball/src/services/regionalClient.ts](../floating-ball/src/services/regionalClient.ts)
    - [../floating-ball/src/services/llm.ts](../floating-ball/src/services/llm.ts)
    - [../floating-ball/src/services/templateService.ts](../floating-ball/src/services/templateService.ts)
@@ -25,7 +26,7 @@
 
 1. 文档先行：架构、接口、数据模型、目录职责变化，先改文档再改代码。
 2. 契约优先：`/v1/*` 契约变更时，必须同时更新 `API.md` 与 `floating-ball` 调用方。
-3. 交付顺序：`ARCHITECTURE/API/AGENTS -> 代码 -> 构建/测试验证`
+3. 交付顺序：`HARNESS/ARCHITECTURE/API/AGENTS -> 代码 -> 构建/测试验证`
 4. 管理端目录、构建命令、托管入口变化时，必须同步更新 `ARCHITECTURE.md` 与本文件。
 
 ## 硬约束

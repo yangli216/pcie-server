@@ -5,7 +5,7 @@ spring:
   application:
     name: floating-ball-server
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:oracle}
+    active: ${SPRING_PROFILES_ACTIVE:development}
   datasource:
     driver-class-name: ${FB_DB_DRIVER:oracle.jdbc.OracleDriver}
     url: ${FB_DB_URL:jdbc:oracle:thin:@10.17.66.45:1521:phis}
