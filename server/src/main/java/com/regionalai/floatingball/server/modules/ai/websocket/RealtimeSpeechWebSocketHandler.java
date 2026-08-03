@@ -162,13 +162,10 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
             return model;
         }
         String lowerModel = model.toLowerCase();
-        if ((lowerModel.startsWith("fun-asr") && lowerModel.contains("realtime"))
-            || lowerModel.startsWith("paraformer-realtime")
-            || "gummy-realtime-v1".equals(lowerModel)
-            || "gummy-chat-v1".equals(lowerModel)) {
-            return model;
+        if (lowerModel.startsWith("qwen3-asr-flash-realtime")) {
+            return DEFAULT_REALTIME_MODEL;
         }
-        return DEFAULT_REALTIME_MODEL;
+        return model;
     }
 
     private String resolveRealtimeWsUrl(ResolvedAiConfig config) {

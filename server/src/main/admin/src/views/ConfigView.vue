@@ -113,22 +113,12 @@
           </section>
 
           <section class="config-section">
-            <h3>语音配置</h3>
+            <h3>语音识别</h3>
+            <p class="config-section__summary">桌面端优先使用实时流式识别；实时连接不可用时，录音结束后自动改用整段转写。</p>
+
             <div class="form-grid">
-              <el-form-item label="转写服务地址">
-                <el-input v-model.trim="form.audioBaseUrl" maxlength="500" placeholder="留空则复用主模型服务地址…" />
-                <p class="form-hint">服务端实际语音上游 Base URL；OpenAI 兼容走 /audio/transcriptions，DashScope 走 /chat/completions。</p>
-              </el-form-item>
-              <el-form-item label="语音接口密钥">
-                <el-input v-model.trim="form.audioApiKey" show-password maxlength="1000" placeholder="留空则复用主模型接口密钥…" />
-                <p class="form-hint">用于批量转写上游；FunASR 原生实时连接不使用该密钥。</p>
-              </el-form-item>
-              <el-form-item label="转写模型">
-                <el-input v-model.trim="form.audioModel" maxlength="128" placeholder="例如 whisper-1" />
-                <p class="form-hint">服务端实际提交给上游的语音转写模型；留空默认 whisper-1。</p>
-              </el-form-item>
-              <el-form-item label="桌面端提供方">
-                <el-select v-model="form.speechProvider" placeholder="选择桌面端语音提供方…" @change="handleSpeechProviderChange">
+              <el-form-item label="语音提供方">
+                <el-select v-model="form.speechProvider" placeholder="选择语音提供方…" @change="handleSpeechProviderChange">
                   <el-option
                     v-for="item in speechProviderOptions"
                     :key="item.value"
@@ -138,19 +128,53 @@
                 </el-select>
                 <p class="form-hint">{{ speechProviderHint }}</p>
               </el-form-item>
-              <el-form-item label="实时识别地址" prop="speechRealtimeUrl" :rules="speechRealtimeUrlRules">
-                <el-input
-                  v-model.trim="form.speechRealtimeUrl"
-                  maxlength="500"
-                  :disabled="!isRealtimeSpeechProvider"
-                  :placeholder="speechRealtimeUrlPlaceholder"
-                />
-                <p class="form-hint">服务端连接的 WebSocket 地址；FunASR 必填，DashScope 留空时使用官方地址。</p>
+              <el-form-item label="语音服务密钥">
+                <el-input v-model.trim="form.audioApiKey" show-password maxlength="1000" placeholder="留空则复用主模型接口密钥…" />
+                <p class="form-hint">{{ speechApiKeyHint }}</p>
               </el-form-item>
-              <el-form-item label="桌面端显示模型">
-                <el-input v-model.trim="form.speechModel" maxlength="128" :placeholder="speechModelPlaceholder" />
-                <p class="form-hint">DashScope 默认为 paraformer-realtime-v2；FunASR 默认为 funasr-2pass；OpenAI 兼容时仅用于桌面端展示。</p>
-              </el-form-item>
+            </div>
+
+            <div class="config-subsection">
+              <div class="config-subsection__title">
+                <span>实时流式识别（优先）</span>
+                <status-pill :tone="isRealtimeSpeechProvider ? 'success' : 'muted'" :label="isRealtimeSpeechProvider ? '已启用' : '未启用'" />
+              </div>
+              <div class="form-grid">
+                <el-form-item label="实时识别地址" prop="speechRealtimeUrl" :rules="speechRealtimeUrlRules">
+                  <el-input
+                    v-model.trim="form.speechRealtimeUrl"
+                    maxlength="500"
+                    :disabled="!isRealtimeSpeechProvider"
+                    :placeholder="speechRealtimeUrlPlaceholder"
+                  />
+                  <p class="form-hint">{{ speechRealtimeUrlHint }}</p>
+                </el-form-item>
+                <el-form-item label="实时识别模型" prop="speechModel" :rules="speechModelRules">
+                  <el-input
+                    v-model.trim="form.speechModel"
+                    maxlength="128"
+                    :disabled="!isRealtimeSpeechProvider"
+                    :placeholder="speechModelPlaceholder"
+                  />
+                  <p class="form-hint">{{ speechModelHint }}</p>
+                </el-form-item>
+              </div>
+            </div>
+
+            <div class="config-subsection">
+              <div class="config-subsection__title">
+                <span>整段录音转写<span v-if="isRealtimeSpeechProvider">（实时失败时兜底）</span></span>
+              </div>
+              <div class="form-grid">
+                <el-form-item label="批量转写地址">
+                  <el-input v-model.trim="form.audioBaseUrl" maxlength="500" placeholder="留空则复用主模型服务地址…" />
+                  <p class="form-hint">{{ batchSpeechUrlHint }}</p>
+                </el-form-item>
+                <el-form-item label="批量转写模型">
+                  <el-input v-model.trim="form.audioModel" maxlength="128" :placeholder="audioModelPlaceholder" />
+                  <p class="form-hint">{{ audioModelHint }}</p>
+                </el-form-item>
+              </div>
             </div>
           </section>
 
@@ -271,17 +295,17 @@ const SPEECH_PROVIDER_OPTIONS = [
   {
     value: DEFAULT_SPEECH_PROVIDER,
     label: 'OpenAI 兼容接口',
-    description: '区域后台统一批量转写，默认使用 /audio/transcriptions。'
+    description: '仅在录音结束后进行整段转写，不启用实时 WebSocket。'
   },
   {
     value: ALIYUN_SPEECH_PROVIDER,
     label: '阿里云 DashScope',
-    description: '通过区域后台代理 DashScope 实时语音协议。'
+    description: '实时识别走 DashScope WebSocket，整段转写走兼容模式接口。'
   },
   {
     value: FUNASR_SPEECH_PROVIDER,
     label: 'FunASR WebSocket',
-    description: '通过区域后台连接自建 FunASR 原生 2pass WebSocket 服务。'
+    description: '实时识别走自建 FunASR 2pass WebSocket，整段兜底需另外配置转写接口。'
   }
 ]
 
@@ -298,12 +322,8 @@ function normalizeSpeechProvider(value) {
 
 function resolveSpeechModel(provider, speechModel, audioModel) {
   const normalizedProvider = normalizeSpeechProvider(provider)
-  if (speechModel) {
-    if (normalizedProvider === ALIYUN_SPEECH_PROVIDER && !isDashScopeInferenceRealtimeModel(speechModel)) {
-      return DEFAULT_DASHSCOPE_REALTIME_MODEL
-    }
-    return speechModel
-  }
+  const normalizedModel = String(speechModel || '').trim()
+  if (normalizedModel) return normalizedModel
   if (normalizedProvider === ALIYUN_SPEECH_PROVIDER) {
     return DEFAULT_DASHSCOPE_REALTIME_MODEL
   }
@@ -313,12 +333,8 @@ function resolveSpeechModel(provider, speechModel, audioModel) {
   return audioModel || DEFAULT_AUDIO_MODEL
 }
 
-function isDashScopeInferenceRealtimeModel(model) {
-  const normalized = String(model || '').trim().toLowerCase()
-  return (normalized.indexOf('fun-asr') === 0 && normalized.indexOf('realtime') > -1)
-    || normalized.indexOf('paraformer-realtime') === 0
-    || normalized === 'gummy-realtime-v1'
-    || normalized === 'gummy-chat-v1'
+function isUnsupportedDashScopeRealtimeModel(model) {
+  return String(model || '').trim().toLowerCase().indexOf('qwen3-asr-flash-realtime') === 0
 }
 
 function createDefaultForm() {
@@ -399,6 +415,16 @@ export default {
       const option = SPEECH_PROVIDER_OPTIONS.find(item => item.value === provider)
       return option ? option.description : ''
     },
+    speechApiKeyHint() {
+      const provider = normalizeSpeechProvider(this.form.speechProvider)
+      if (provider === ALIYUN_SPEECH_PROVIDER) {
+        return '用于 DashScope 实时识别和整段转写；留空则复用主模型密钥。'
+      }
+      if (provider === FUNASR_SPEECH_PROVIDER) {
+        return '仅用于整段兜底转写；FunASR 实时连接不携带该密钥。'
+      }
+      return '用于整段录音转写；留空则复用主模型密钥。'
+    },
     isFunAsrProvider() {
       return normalizeSpeechProvider(this.form.speechProvider) === FUNASR_SPEECH_PROVIDER
     },
@@ -410,6 +436,15 @@ export default {
         return '例如 ws://funasr.internal:10095'
       }
       return this.isRealtimeSpeechProvider ? '留空则使用 DashScope 官方地址…' : '当前提供方不使用实时地址'
+    },
+    speechRealtimeUrlHint() {
+      if (this.isFunAsrProvider) {
+        return '后台实际连接的 FunASR WebSocket 地址，必填。'
+      }
+      if (this.isRealtimeSpeechProvider) {
+        return '后台实际连接的 DashScope WebSocket 地址；留空使用官方地址。'
+      }
+      return '选择 DashScope 或 FunASR 后可配置实时识别。'
     },
     speechRealtimeUrlRules() {
       const rules = []
@@ -423,11 +458,55 @@ export default {
       })
       return rules
     },
+    speechModelRules() {
+      return [{
+        validator: (rule, value, callback) => {
+          const provider = normalizeSpeechProvider(this.form.speechProvider)
+          if (provider === ALIYUN_SPEECH_PROVIDER && isUnsupportedDashScopeRealtimeModel(value)) {
+            callback(new Error('qwen3-asr-flash-realtime 协议暂不支持，请填写 DashScope run-task 协议模型'))
+            return
+          }
+          callback()
+        },
+        trigger: 'blur'
+      }]
+    },
     speechModelPlaceholder() {
       const provider = normalizeSpeechProvider(this.form.speechProvider)
       if (provider === ALIYUN_SPEECH_PROVIDER) return DEFAULT_DASHSCOPE_REALTIME_MODEL
       if (provider === FUNASR_SPEECH_PROVIDER) return DEFAULT_FUNASR_REALTIME_MODEL
       return this.form.audioModel || DEFAULT_AUDIO_MODEL
+    },
+    speechModelHint() {
+      const provider = normalizeSpeechProvider(this.form.speechProvider)
+      if (provider === ALIYUN_SPEECH_PROVIDER) {
+        return '实际提交给 DashScope run-task 协议；默认 paraformer-realtime-v2。qwen3-asr-flash-realtime 的协议暂不支持。'
+      }
+      if (provider === FUNASR_SPEECH_PROVIDER) {
+        return '用于配置识别和日志展示；实际模型由 FunASR 服务部署决定。'
+      }
+      return '当前提供方不启用实时识别。'
+    },
+    audioModelPlaceholder() {
+      return normalizeSpeechProvider(this.form.speechProvider) === ALIYUN_SPEECH_PROVIDER
+        ? DEFAULT_DASHSCOPE_AUDIO_MODEL
+        : DEFAULT_AUDIO_MODEL
+    },
+    batchSpeechUrlHint() {
+      const provider = normalizeSpeechProvider(this.form.speechProvider)
+      if (provider === ALIYUN_SPEECH_PROVIDER) {
+        return 'DashScope 兼容模式 Base URL，后台调用 /chat/completions。'
+      }
+      return 'OpenAI 兼容 Base URL，后台调用 /audio/transcriptions。'
+    },
+    audioModelHint() {
+      const provider = normalizeSpeechProvider(this.form.speechProvider)
+      if (provider === ALIYUN_SPEECH_PROVIDER) {
+        return '用于整段录音转写和实时失败兜底；默认 qwen3-asr-flash。'
+      }
+      return this.isRealtimeSpeechProvider
+        ? '用于整段录音转写和实时失败兜底；默认 whisper-1。'
+        : '用于整段录音转写；默认 whisper-1。'
     }
   },
   async mounted() {
@@ -546,10 +625,13 @@ export default {
           this.form.audioModel = DEFAULT_AUDIO_MODEL
         }
       }
-      if (!this.form.speechModel || defaultModels.indexOf(this.form.speechModel) > -1) {
-        this.form.speechModel = resolveSpeechModel(normalized, '', this.form.audioModel)
-      }
-      this.$nextTick(() => this.$refs.formRef && this.$refs.formRef.clearValidate('speechRealtimeUrl'))
+      this.form.speechRealtimeUrl = ''
+      this.form.speechModel = resolveSpeechModel(normalized, '', this.form.audioModel)
+      this.$nextTick(() => {
+        if (this.$refs.formRef) {
+          this.$refs.formRef.clearValidate(['speechRealtimeUrl', 'speechModel'])
+        }
+      })
     },
     resetForm() {
       this.form = createDefaultForm()
@@ -707,6 +789,13 @@ export default {
   font-size: 13px;
   font-weight: 500;
   color: #2C2C2A;
+}
+
+.config-section__summary {
+  margin: -4px 0 16px;
+  color: #5F636B;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .config-subsection {

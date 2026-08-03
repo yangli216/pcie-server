@@ -140,11 +140,11 @@ class ConfigServiceTest {
     }
 
     @Test
-    void resolveByDeviceShouldKeepDashScopeInferenceRealtimeSpeechModel() {
+    void resolveByDeviceShouldKeepCustomDashScopeRunTaskModel() {
         AiConfig config = buildConfig("ORG001", "REG001", "https://llm.example.com/", "secret-key", "deepseek-chat");
         config.setSpeechProvider("dashscope");
         config.setAudioModel("qwen3-asr-flash");
-        config.setSpeechModel("fun-asr-realtime");
+        config.setSpeechModel("hospital-realtime-asr-v1");
 
         when(aiConfigMapper.selectList(any())).thenReturn(Arrays.asList(config));
 
@@ -156,7 +156,39 @@ class ConfigServiceTest {
 
         assertEquals("aliyun-dashscope", resolved.getSpeechProvider());
         assertEquals("qwen3-asr-flash", resolved.getAudioModel());
-        assertEquals("fun-asr-realtime", resolved.getSpeechModel());
+        assertEquals("hospital-realtime-asr-v1", resolved.getSpeechModel());
+    }
+
+    @Test
+    void saveShouldPersistCustomDashScopeRunTaskModelWithoutSilentFallback() {
+        AiConfigSaveRequest request = new AiConfigSaveRequest();
+        request.setNaConfig("阿里云语音配置");
+        request.setApiBaseUrl("https://llm.example.com");
+        request.setModelName("deepseek-chat");
+        request.setSpeechProvider("aliyun-dashscope");
+        request.setSpeechModel("hospital-realtime-asr-v1");
+
+        AiConfigView view = configService.save(request);
+
+        org.mockito.ArgumentCaptor<AiConfig> captor = org.mockito.ArgumentCaptor.forClass(AiConfig.class);
+        verify(aiConfigMapper).insert(captor.capture());
+        assertEquals("hospital-realtime-asr-v1", captor.getValue().getSpeechModel());
+        assertEquals("hospital-realtime-asr-v1", view.getSpeechModel());
+    }
+
+    @Test
+    void saveShouldRejectDashScopeRealtimeSessionModel() {
+        AiConfigSaveRequest request = new AiConfigSaveRequest();
+        request.setNaConfig("阿里云语音配置");
+        request.setApiBaseUrl("https://llm.example.com");
+        request.setModelName("deepseek-chat");
+        request.setSpeechProvider("aliyun-dashscope");
+        request.setSpeechModel("qwen3-asr-flash-realtime");
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> configService.save(request));
+
+        assertEquals("qwen3-asr-flash-realtime 使用不同的实时语音协议，当前仅支持 DashScope run-task 协议模型", ex.getMessage());
+        verify(aiConfigMapper, never()).insert(any(AiConfig.class));
     }
 
     @Test

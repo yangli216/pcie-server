@@ -1,6 +1,6 @@
 # floating-ball-server 架构说明
 
-> 更新日期：2026-07-14
+> 更新日期：2026-08-03
 
 ## 1. 项目定位
 
@@ -251,7 +251,7 @@ floating-ball-server/
 4. 服务端应保留录音元数据（`mimeType`、`format`、`fileName`、`scene`）用于排障和审计，但不在日志中落原始音频内容
 5. 语音代理日志中的录音内容需要单独落为文件，默认写入 `floating-ball.audit.speech-file-dir` 指定目录；`c_ai_op_log` 只保存该录音文件路径，不把 base64 或二进制音频写入 `payload_json`
 6. 服务端批量访问语音上游时使用 `audio_base_url` / `audio_model` / `audio_api_key_encrypted`；语音独立密钥为空时回退主模型 `api_key_encrypted`。实时上游独立使用 `speech_realtime_url`，不得再把 WebSocket 地址填入 `audio_base_url`
-7. `speech_provider` / `speech_model` 作为 bootstrap 下发给桌面端的语音提供方与实时识别模型；`aliyun-dashscope` 使用 DashScope `/api-ws/v1/inference` 的 `run-task` 协议，`funasr-websocket` 使用 FunASR 原生 `2pass` 协议。FunASR 首帧固定声明 `pcm`、16 kHz、单声道采样，结束时发送 `is_speaking=false`，服务端把 `2pass-online` / `2pass-offline` / `offline` 结果归一化为桌面端既有 `text/final/error` 帧；结束请求后的 offline 帧即使携带 `is_final=false` 也必须触发最终收口
+7. `speech_provider` / `speech_model` 作为 bootstrap 下发给桌面端的语音提供方与实时识别模型；`aliyun-dashscope` 使用 DashScope `/api-ws/v1/inference` 的 `run-task` 协议，服务端必须保留并实际上送管理员填写的兼容模型名，不得因模型名不在内置列表而静默回退默认值；已知使用其他 WebSocket 协议的模型应在保存时明确拒绝。`funasr-websocket` 使用 FunASR 原生 `2pass` 协议。FunASR 首帧固定声明 `pcm`、16 kHz、单声道采样，结束时发送 `is_speaking=false`，服务端把 `2pass-online` / `2pass-offline` / `offline` 结果归一化为桌面端既有 `text/final/error` 帧；结束请求后的 offline 帧即使携带 `is_final=false` 也必须触发最终收口
 8. 批量语音转写 HTTP 出站与实时语音 WebSocket 出站都必须经过同一 host allowlist、私网拦截、限流与熔断策略；`ws` 仅在 `allow-insecure-http=true` 时允许，生产公网链路应使用 `wss`
 
 ### 5.3 审计链路

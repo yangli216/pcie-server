@@ -241,6 +241,10 @@ public class ConfigService {
         if (FUNASR_SPEECH_PROVIDER.equals(speechProvider) && !StringUtils.hasText(request.getSpeechRealtimeUrl())) {
             throw new BusinessException("FunASR 实时识别地址不能为空");
         }
+        if (ALIYUN_SPEECH_PROVIDER.equals(speechProvider)
+            && isUnsupportedDashScopeRealtimeModel(request.getSpeechModel())) {
+            throw new BusinessException("qwen3-asr-flash-realtime 使用不同的实时语音协议，当前仅支持 DashScope run-task 协议模型");
+        }
         if (StringUtils.hasText(request.getSpeechRealtimeUrl())) {
             validateWebSocketUrl(request.getSpeechRealtimeUrl());
         }
@@ -391,13 +395,7 @@ public class ConfigService {
     private String resolveSpeechModel(String speechProvider, String speechModel, String audioModel) {
         String model = StringUtils.hasText(speechModel) ? speechModel.trim() : null;
         if (StringUtils.hasText(model)) {
-            if (!ALIYUN_SPEECH_PROVIDER.equals(speechProvider)) {
-                return model;
-            }
-            String lowerModel = model.toLowerCase();
-            if (isDashScopeInferenceRealtimeModel(lowerModel)) {
-                return model;
-            }
+            return model;
         }
         if (ALIYUN_SPEECH_PROVIDER.equals(speechProvider)) {
             return DEFAULT_DASHSCOPE_REALTIME_MODEL;
@@ -408,11 +406,9 @@ public class ConfigService {
         return resolveAudioModel(speechProvider, audioModel);
     }
 
-    private boolean isDashScopeInferenceRealtimeModel(String lowerModel) {
-        return (lowerModel.startsWith("fun-asr") && lowerModel.contains("realtime"))
-            || lowerModel.startsWith("paraformer-realtime")
-            || "gummy-realtime-v1".equals(lowerModel)
-            || "gummy-chat-v1".equals(lowerModel);
+    private boolean isUnsupportedDashScopeRealtimeModel(String model) {
+        return StringUtils.hasText(model)
+            && model.trim().toLowerCase().startsWith("qwen3-asr-flash-realtime");
     }
 
     private String normalizeSpeechProvider(String value) {
