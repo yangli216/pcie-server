@@ -1,8 +1,8 @@
 # AGENTS.md
 
-`floating-ball-server` 项目的协作规则。
+`pcie-server`（全医慧助服务端 / PCIE Server）项目的协作规则。
 
-本项目是 `floating-ball` 的配套后台，当前采用：
+本项目是“全医慧助（PCIE）”桌面端的配套后台，当前采用：
 
 1. `server/`：Spring Boot 2.7 + Java 8 + MyBatis-Plus；数据库支持 Oracle 19c 与华为高斯 GaussDB/openGauss PostgreSQL 兼容模式，新增数据库适配优先保证 GaussDB
 2. `server/src/main/admin/`：Vue 2 + Element UI 管理端源码，由 `server/` 统一托管
@@ -36,6 +36,7 @@
 4. `bootstrap`、`templates/mappings delta`、审计事件结构必须优先兼容 `floating-ball` 现有实现。
 5. 未经明确要求，不引入 Redis、RocketMQ、微服务拆分等额外依赖。
 6. **请求签名校验禁止绕过**：`DeviceAuthFilter` 和 `RealtimeSpeechHandshakeInterceptor` 必须校验 ECDSA P-256 签名；新增 `/v1/*` 接口必须经过 `DeviceAuthFilter`，不得私自添加绕过路径。
+7. **品牌与运行兼容标识禁止混改**：正式服务端名称统一为“全医慧助服务端（PCIE Server）”，仓库与 Maven 工程使用 `pcie-server`；Java 包 `com.regionalai.floatingball.server`、`floating-ball.*` 配置键、`FB_*` 环境变量、数据库对象及现有现场部署目录属于兼容契约，未经迁移方案和现场验证不得改名。
 
 ## 数据库 SQL 交付规则
 

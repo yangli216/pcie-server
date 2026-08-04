@@ -1,11 +1,13 @@
-# floating-ball-server API 说明
+# 全医慧助服务端（PCIE Server）API 说明
 
-> 更新日期：2026-08-03
-> 范围：`floating-ball` 当前唯一远程业务契约 `/v1/*`；桌面端已取消本地/区域双模式
+> 更新日期：2026-08-04
+> 范围：全医慧助（PCIE）桌面端当前唯一远程业务契约 `/v1/*`；桌面端已取消本地/区域双模式
+>
+> 仓库与 Maven 工程已更名为 `pcie-server`；为兼容既有部署，`/v1/*`、`/admin/api/*`、`floating-ball.*` 配置键、`FB_*` 环境变量和数据库结构保持不变。
 
 ## 1. 约束说明
 
-1. 本文档只描述远端接口，不包含 `floating-ball` 本地 `/api/consultation/*`。
+1. 本文档只描述远端接口，不包含全医慧助（PCIE）桌面端本地 `/api/consultation/*`。
 2. 接口实现必须同时兼容以下调用方：
    - `floating-ball/src/services/regionalClient.ts`
    - `floating-ball/src/services/llm.ts`
@@ -275,7 +277,7 @@ BODY_SHA256
 
 1. 批量发布适合一次性把同一客户端版本发布到测试、正式等多个通道，并同时上传 macOS / Windows 等多个平台包。
 2. 平台 target 不需要管理员手工填写；服务端按上传安装包文件名匹配 `latest.json.platforms.{target}.url` 中的文件名，自动取得 target 和签名。
-3. 若多个 target 的 URL 指向同一个文件名，服务端会把同一个上传文件发布到这些 target；典型场景是 macOS universal 包 `MedHermes_universal.app.tar.gz` 同时匹配 `darwin-aarch64` 与 `darwin-x86_64`。
+3. 若多个 target 的 URL 指向同一个文件名，服务端会把同一个上传文件发布到这些 target；典型场景是 macOS universal 包 `PCIE_universal.app.tar.gz` 同时匹配 `darwin-aarch64` 与 `darwin-x86_64`。
 4. 安装包文件名必须与对应 `latest.json` 平台 URL 指向的文件名一致，否则 Tauri updater 会签名校验失败。
 5. 同一次批量发布内的所有安装包必须解析为同一个版本号；不同版本应拆成多次发布。
 6. 若目标通道当前版本与本次版本不同，服务端会先保存该通道当前快照，再用本次安装包集合生成新的 `latest.json`；若版本相同，则合并或覆盖对应平台。
@@ -291,20 +293,20 @@ BODY_SHA256
     "platforms": [
       {
         "target": "darwin-aarch64",
-        "fileName": "MedHermes_1.2.13_aarch64.app.tar.gz",
+        "fileName": "PCIE_1.2.13_aarch64.app.tar.gz",
         "fileSize": 12345678,
-        "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/MedHermes_1.2.13_aarch64.app.tar.gz"
+        "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.13_aarch64.app.tar.gz"
       },
       {
         "target": "windows-x86_64",
-        "fileName": "MedHermes_1.2.13_x64-setup.nsis.zip",
+        "fileName": "PCIE_1.2.13_x64-setup.nsis.zip",
         "fileSize": 23456789,
-        "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/windows-x86_64/MedHermes_1.2.13_x64-setup.nsis.zip"
+        "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/windows-x86_64/PCIE_1.2.13_x64-setup.nsis.zip"
       }
     ],
     "target": "darwin-aarch64",
-    "fileName": "MedHermes_1.2.13_aarch64.app.tar.gz",
-    "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/MedHermes_1.2.13_aarch64.app.tar.gz",
+    "fileName": "PCIE_1.2.13_aarch64.app.tar.gz",
+    "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.13_aarch64.app.tar.gz",
     "latestJsonUrl": "http://127.0.0.1:8080/v1/client/releases/production/latest.json",
     "policyUrl": "http://127.0.0.1:8080/v1/client/releases/production/policy.json",
     "pubDate": "2026-04-24T10:00:00Z",
@@ -338,7 +340,7 @@ BODY_SHA256
 | forceUpdate | boolean | 否 | 是否强制更新；为 `true` 时，低于本次发布版本的客户端只能访问更新检查和安装包下载 |
 | file | file | 是 | 安装包或更新包文件，通常为 Tauri bundle 产物 |
 
-说明：运维推荐只选择 `latest.json` 与对应安装包文件；`version`、`target`、`signature` 仅作为解析失败或多平台歧义时的兜底覆盖项。安装包文件名必须与 `latest.json.platforms.{target}.url` 中的文件名一致，例如签名对应 `MedHermes.app.tar.gz` 时不能上传 `MedHermes.dmg`，否则 Tauri updater 会签名校验失败。勾选强制更新前，必须确认该通道所有实际部署平台的安装包均已上传到当前 `latest.json`，否则旧客户端会被禁止使用但无法下载对应平台更新。
+说明：运维推荐只选择 `latest.json` 与对应安装包文件；`version`、`target`、`signature` 仅作为解析失败或多平台歧义时的兜底覆盖项。安装包文件名必须与 `latest.json.platforms.{target}.url` 中的文件名一致，例如签名对应 `PCIE.app.tar.gz` 时不能上传 `PCIE.dmg`，否则 Tauri updater 会签名校验失败。勾选强制更新前，必须确认该通道所有实际部署平台的安装包均已上传到当前 `latest.json`，否则旧客户端会被禁止使用但无法下载对应平台更新。
 
 部署说明：生产/内网环境推荐设置 `FB_RELEASE_PUBLIC_BASE_URL=http://后端内网IP:8080`，确保管理端展示、复制的更新源以及 `latest.json` 内下载地址都不出现 `localhost`。
 
@@ -351,9 +353,9 @@ BODY_SHA256
   "channel": "production",
   "version": "1.2.13",
   "target": "darwin-aarch64",
-  "fileName": "MedHermes_1.2.13_aarch64.dmg",
+  "fileName": "PCIE_1.2.13_aarch64.dmg",
   "fileSize": 12345678,
-  "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/MedHermes_1.2.13_aarch64.dmg",
+  "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.13_aarch64.dmg",
   "latestJsonUrl": "http://127.0.0.1:8080/v1/client/releases/production/latest.json",
   "policyUrl": "http://127.0.0.1:8080/v1/client/releases/production/policy.json",
   "pubDate": "2026-04-24T10:00:00Z",
@@ -410,7 +412,7 @@ BODY_SHA256
     "forceUpdate": false,
     "minSupportedVersion": null,
     "targets": ["darwin-aarch64", "windows-x86_64"],
-    "fileNames": ["MedHermes_1.2.13_aarch64.app.tar.gz", "MedHermes_1.2.13_x64-setup.nsis.zip"],
+    "fileNames": ["PCIE_1.2.13_aarch64.app.tar.gz", "PCIE_1.2.13_x64-setup.nsis.zip"],
     "notes": "修复内网升级流程",
     "pubDate": "2026-04-24T10:00:00Z",
     "updatedAt": 1777250000000
@@ -520,7 +522,7 @@ Content-Type: application/json
   "platforms": {
     "darwin-aarch64": {
       "signature": "...",
-      "url": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/MedHermes_1.2.13_aarch64.dmg"
+      "url": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.13_aarch64.dmg"
     }
   }
 }
@@ -543,7 +545,7 @@ Content-Type: application/json
 ```json
 {
   "cdDevice": "9C:4E:36:AA:BB:CC",
-  "naDevice": "FloatingBall-win32",
+  "naDevice": "PCIE-win32",
   "cdOrg": "ORG001",
   "clientVersion": "0.1.0",
   "updateChannel": "production",
@@ -643,7 +645,7 @@ Content-Type: application/json
 - `llm.audioModel`：服务端实际提交给上游的语音模型；`openai-compatible` 默认 `whisper-1`，`aliyun-dashscope` 默认 `qwen3-asr-flash`
 - `speech.provider`：下发给 `floating-ball` 的语音提供方标识，当前兼容 `openai-compatible`、`aliyun-dashscope`、`funasr-websocket`
 - `speech.model`：下发给 `floating-ball` 的实时语音模型标识；`aliyun-dashscope` 默认 `paraformer-realtime-v2`，服务端会把管理端填写的模型名原样提交给 `/api-ws/v1/inference` `run-task` 协议，不做模型名白名单回退；`funasr-websocket` 默认 `funasr-2pass`。是否启用 `/v1/ai/speech/realtime/ws` 由 `speech.provider` 决定
-- 上游 `baseUrl`、`audioBaseUrl`、`speechRealtimeUrl`、知识库地址、`apiKey`、`audioApiKey` 均不下发给桌面端，由 `floating-ball-server` 统一托管
+- 上游 `baseUrl`、`audioBaseUrl`、`speechRealtimeUrl`、知识库地址、`apiKey`、`audioApiKey` 均不下发给桌面端，由全医慧助服务端（PCIE Server）统一托管
 
 配置优先级：机构级 > 区域级 > 全局级。
 
@@ -1981,6 +1983,24 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 3. 同一 host 的出站请求会被本地限流与熔断保护；超过阈值或短时间连续失败时，配置测试、AI 代理、语音代理和 PMPHAI 代理都会被拒绝访问上游。
 4. `application.yml`、`development`、`test`、`product` profile 当前均默认放开 host 白名单、HTTP / WS、私网地址与代理 fake-ip；host 被拒绝通常表示部署环境显式覆盖了对应开关。
 
+### 5.31.1 POST `/admin/api/configs/test`
+用途：使用管理端当前草稿配置测试主模型连通性与可用性，不保存配置。
+
+### 5.31.2 POST `/admin/api/configs/test/speech/realtime`
+用途：测试实时语音地址、密钥、协议和模型是否可用，不保存配置。
+
+处理规则：
+
+1. `aliyun-dashscope` 会实际建立 WebSocket、发送 `run-task`，收到 `task-started` 才判定模型可用。
+2. `funasr-websocket` 由上游部署决定模型，测试实际 WebSocket 握手是否成功。
+3. `openai-compatible` 不启用实时 WebSocket，调用本接口返回明确的不支持提示。
+4. 请求体复用 `AiConfigSaveRequest`；新建配置使用当前填写密钥，编辑已保存配置时可通过 `idConfig` 复用原有加密密钥。
+
+### 5.31.3 POST `/admin/api/configs/test/speech/batch`
+用途：测试批量转写地址、密钥和模型是否可用，不保存配置。
+
+服务端生成一段极短的静音 WAV 作为测试载荷；`aliyun-dashscope` 调用兼容模式 `/chat/completions`，其他提供方调用 OpenAI 兼容 `/audio/transcriptions`。测试不写入语音审计文件，不返回上游原始响应或密钥。
+
 ### 5.32 PUT `/admin/api/configs/{idConfig}`
 用途：修改 AI 配置；`apiKey`、`audioApiKey`、`reviewerApiKey`、`pmphaiAppKey`、`pmphaiAppSecret` 为空时保留原值。`speechRealtimeUrl` 为空表示清空自定义实时地址；当提供方为 `aliyun-dashscope` 时回退官方地址，当提供方为 `funasr-websocket` 时校验不通过。
 
@@ -2967,7 +2987,7 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
     {
       "idDevice": "uuid",
       "cdDevice": "9C:4E:36:AA:BB:CC",
-      "naDevice": "FloatingBall-win32",
+      "naDevice": "PCIE-win32",
       "idOrg": "ORG001",
       "naOrg": "区域中心医院",
       "hisOrgId": "HIS-ORG-001",

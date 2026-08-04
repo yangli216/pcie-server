@@ -39,8 +39,8 @@ class ReleaseServiceTest {
 
     @Test
     void uploadShouldSnapshotPreviousVersionAndRollback() {
-        upload("1.2.15", "darwin-aarch64", "MedHermes_1.2.15_aarch64.app.tar.gz", false);
-        upload("1.2.16", "windows-x86_64", "MedHermes_1.2.16_x64-setup.nsis.zip", true);
+        upload("1.2.15", "darwin-aarch64", "PCIE_1.2.15_aarch64.app.tar.gz", false);
+        upload("1.2.16", "windows-x86_64", "PCIE_1.2.16_x64-setup.nsis.zip", true);
 
         TauriLatestJson latestAfterUpload = releaseService.getLatestJson("production");
         assertEquals("1.2.16", latestAfterUpload.getVersion());
@@ -67,7 +67,7 @@ class ReleaseServiceTest {
 
     @Test
     void updatePolicyShouldToggleForceUpdateForCurrentVersion() {
-        upload("1.2.15", "darwin-aarch64", "MedHermes_1.2.15_aarch64.app.tar.gz", false);
+        upload("1.2.15", "darwin-aarch64", "PCIE_1.2.15_aarch64.app.tar.gz", false);
 
         ReleasePolicyUpdateRequest enableRequest = new ReleasePolicyUpdateRequest();
         enableRequest.setChannel("production");
@@ -90,8 +90,8 @@ class ReleaseServiceTest {
 
     @Test
     void downloadItemsShouldExposeCurrentReleaseFilesForFirstInstall() {
-        upload("1.2.15", "darwin-aarch64", "MedHermes_1.2.15_aarch64.app.tar.gz", false);
-        upload("1.2.15", "windows-x86_64", "MedHermes_1.2.15_x64-setup.nsis.zip", false);
+        upload("1.2.15", "darwin-aarch64", "PCIE_1.2.15_aarch64.app.tar.gz", false);
+        upload("1.2.15", "windows-x86_64", "PCIE_1.2.15_x64-setup.nsis.zip", false);
 
         List<ReleaseDownloadItem> items = releaseService.downloadItems("production", "http://release.lan:8080");
 
@@ -101,7 +101,7 @@ class ReleaseServiceTest {
             .findFirst()
             .orElseThrow(AssertionError::new);
         assertEquals("1.2.15", macItem.getVersion());
-        assertEquals("MedHermes_1.2.15_aarch64.app.tar.gz", macItem.getFileName());
+        assertEquals("PCIE_1.2.15_aarch64.app.tar.gz", macItem.getFileName());
         assertTrue(macItem.getDownloadUrl().startsWith("http://release.lan:8080/v1/client/releases/production/files/darwin-aarch64/"));
         assertTrue(macItem.getFileSize() > 0);
     }
@@ -118,21 +118,21 @@ class ReleaseServiceTest {
             buildLatestJson(
                 "1.3.0",
                 "darwin-aarch64",
-                "MedHermes_1.3.0_aarch64.app.tar.gz",
+                "PCIE_1.3.0_aarch64.app.tar.gz",
                 "windows-x86_64",
-                "MedHermes_1.3.0_x64-setup.nsis.zip"
+                "PCIE_1.3.0_x64-setup.nsis.zip"
             ).getBytes(StandardCharsets.UTF_8)
         ));
         request.setFiles(Arrays.asList(
             new MockMultipartFile(
                 "files",
-                "MedHermes_1.3.0_x64-setup.nsis.zip",
+                "PCIE_1.3.0_x64-setup.nsis.zip",
                 "application/octet-stream",
                 "package-win".getBytes(StandardCharsets.UTF_8)
             ),
             new MockMultipartFile(
                 "files",
-                "MedHermes_1.3.0_aarch64.app.tar.gz",
+                "PCIE_1.3.0_aarch64.app.tar.gz",
                 "application/octet-stream",
                 "package-mac".getBytes(StandardCharsets.UTF_8)
             )
@@ -171,15 +171,15 @@ class ReleaseServiceTest {
             buildLatestJson(
                 "1.3.1",
                 "darwin-aarch64",
-                "MedHermes_universal.app.tar.gz",
+                "PCIE_universal.app.tar.gz",
                 "darwin-x86_64",
-                "MedHermes_universal.app.tar.gz"
+                "PCIE_universal.app.tar.gz"
             ).getBytes(StandardCharsets.UTF_8)
         ));
         request.setFiles(Arrays.asList(
             new MockMultipartFile(
                 "files",
-                "MedHermes_universal.app.tar.gz",
+                "PCIE_universal.app.tar.gz",
                 "application/octet-stream",
                 "package-universal".getBytes(StandardCharsets.UTF_8)
             )
@@ -193,8 +193,8 @@ class ReleaseServiceTest {
         assertEquals(2, latestJson.getPlatforms().size());
         assertTrue(latestJson.getPlatforms().containsKey("darwin-aarch64"));
         assertTrue(latestJson.getPlatforms().containsKey("darwin-x86_64"));
-        assertTrue(latestJson.getPlatforms().get("darwin-aarch64").getUrl().contains("/darwin-aarch64/MedHermes_universal.app.tar.gz"));
-        assertTrue(latestJson.getPlatforms().get("darwin-x86_64").getUrl().contains("/darwin-x86_64/MedHermes_universal.app.tar.gz"));
+        assertTrue(latestJson.getPlatforms().get("darwin-aarch64").getUrl().contains("/darwin-aarch64/PCIE_universal.app.tar.gz"));
+        assertTrue(latestJson.getPlatforms().get("darwin-x86_64").getUrl().contains("/darwin-x86_64/PCIE_universal.app.tar.gz"));
         assertEquals("signature-darwin-aarch64", latestJson.getPlatforms().get("darwin-aarch64").getSignature());
         assertEquals("signature-darwin-x86_64", latestJson.getPlatforms().get("darwin-x86_64").getSignature());
         assertEquals(2, views.get(0).getPlatforms().size());

@@ -12,7 +12,7 @@ FB_DB_URL=jdbc:opengauss://<host>:<port>/<database>
 FB_DB_USERNAME=rbmh_ai
 FB_DB_PASSWORD=******
 FB_LOG_PATH=/opt/floating-ball-server/logs
-java -jar floating-ball-server.jar
+java -jar pcie-server.jar
 ```
 
 默认驱动为 `org.opengauss.Driver`，默认 MyBatis-Plus 方言为 `opengauss`。如现场使用兼容 PostgreSQL 协议的 GaussDB 实例，优先保持该驱动；不要在同一运行包中再额外混入 PostgreSQL JDBC 驱动，避免 openGauss 驱动与 PostgreSQL 驱动的类名空间冲突。

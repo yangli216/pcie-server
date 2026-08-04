@@ -137,7 +137,16 @@
             <div class="config-subsection">
               <div class="config-subsection__title">
                 <span>实时流式识别（优先）</span>
-                <status-pill :tone="isRealtimeSpeechProvider ? 'success' : 'muted'" :label="isRealtimeSpeechProvider ? '已启用' : '未启用'" />
+                <div class="config-subsection__actions">
+                  <status-pill :tone="isRealtimeSpeechProvider ? 'success' : 'muted'" :label="isRealtimeSpeechProvider ? '已启用' : '未启用'" />
+                  <el-button
+                    size="mini"
+                    plain
+                    :disabled="!isRealtimeSpeechProvider || testingBatchSpeech"
+                    :loading="testingRealtimeSpeech"
+                    @click="testRealtimeSpeech"
+                  >{{ testingRealtimeSpeech ? '测试中…' : '测试实时模型' }}</el-button>
+                </div>
               </div>
               <div class="form-grid">
                 <el-form-item label="实时识别地址" prop="speechRealtimeUrl" :rules="speechRealtimeUrlRules">
@@ -159,11 +168,26 @@
                   <p class="form-hint">{{ speechModelHint }}</p>
                 </el-form-item>
               </div>
+              <div
+                v-if="realtimeSpeechTestResult"
+                :class="['speech-test-result', realtimeSpeechTestResult.success ? 'success' : 'error']"
+                role="status"
+              >
+                <i :class="realtimeSpeechTestResult.success ? 'el-icon-success' : 'el-icon-error'" />
+                <span>{{ realtimeSpeechTestResult.message }}</span>
+              </div>
             </div>
 
             <div class="config-subsection">
               <div class="config-subsection__title">
                 <span>整段录音转写<span v-if="isRealtimeSpeechProvider">（实时失败时兜底）</span></span>
+                <el-button
+                  size="mini"
+                  plain
+                  :disabled="testingRealtimeSpeech"
+                  :loading="testingBatchSpeech"
+                  @click="testBatchSpeech"
+                >{{ testingBatchSpeech ? '测试中…' : '测试批量模型' }}</el-button>
               </div>
               <div class="form-grid">
                 <el-form-item label="批量转写地址">
@@ -174,6 +198,14 @@
                   <el-input v-model.trim="form.audioModel" maxlength="128" :placeholder="audioModelPlaceholder" />
                   <p class="form-hint">{{ audioModelHint }}</p>
                 </el-form-item>
+              </div>
+              <div
+                v-if="batchSpeechTestResult"
+                :class="['speech-test-result', batchSpeechTestResult.success ? 'success' : 'error']"
+                role="status"
+              >
+                <i :class="batchSpeechTestResult.success ? 'el-icon-success' : 'el-icon-error'" />
+                <span>{{ batchSpeechTestResult.message }}</span>
               </div>
             </div>
           </section>
@@ -384,6 +416,8 @@ export default {
       loading: false,
       saving: false,
       testingConnection: false,
+      testingRealtimeSpeech: false,
+      testingBatchSpeech: false,
       dialogVisible: false,
       dialogMode: 'create',
       keyword: '',
@@ -396,6 +430,8 @@ export default {
       regionMap: {},
       orgMap: {},
       testResult: null,
+      realtimeSpeechTestResult: null,
+      batchSpeechTestResult: null,
       speechProviderOptions: SPEECH_PROVIDER_OPTIONS,
       statusOptions: configStatusOptions,
       form: createDefaultForm(),
@@ -507,6 +543,23 @@ export default {
       return this.isRealtimeSpeechProvider
         ? '用于整段录音转写和实时失败兜底；默认 whisper-1。'
         : '用于整段录音转写；默认 whisper-1。'
+    },
+    speechTestFingerprint() {
+      return [
+        this.form.speechProvider,
+        this.form.speechRealtimeUrl,
+        this.form.speechModel,
+        this.form.audioBaseUrl,
+        this.form.audioModel,
+        this.form.audioApiKey,
+        this.form.apiKey
+      ].join('|')
+    }
+  },
+  watch: {
+    speechTestFingerprint() {
+      this.realtimeSpeechTestResult = null
+      this.batchSpeechTestResult = null
     }
   },
   async mounted() {
@@ -559,6 +612,8 @@ export default {
       this.dialogMode = 'create'
       this.form = createDefaultForm()
       this.testResult = null
+      this.realtimeSpeechTestResult = null
+      this.batchSpeechTestResult = null
       this.dialogVisible = true
     },
     openEdit(row) {
@@ -598,6 +653,8 @@ export default {
         sdStatus: row.sdStatus || '1'
       }
       this.testResult = null
+      this.realtimeSpeechTestResult = null
+      this.batchSpeechTestResult = null
       this.dialogVisible = true
     },
     syncRegionByOrg(idOrg) {
@@ -627,6 +684,8 @@ export default {
       }
       this.form.speechRealtimeUrl = ''
       this.form.speechModel = resolveSpeechModel(normalized, '', this.form.audioModel)
+      this.realtimeSpeechTestResult = null
+      this.batchSpeechTestResult = null
       this.$nextTick(() => {
         if (this.$refs.formRef) {
           this.$refs.formRef.clearValidate(['speechRealtimeUrl', 'speechModel'])
@@ -636,6 +695,8 @@ export default {
     resetForm() {
       this.form = createDefaultForm()
       this.testResult = null
+      this.realtimeSpeechTestResult = null
+      this.batchSpeechTestResult = null
       if (this.$refs.formRef) {
         this.$refs.formRef.resetFields()
       }
@@ -662,6 +723,67 @@ export default {
         }
       } finally {
         this.testingConnection = false
+      }
+    },
+    buildSpeechTestPayload() {
+      const speechProvider = normalizeSpeechProvider(this.form.speechProvider)
+      const audioModel = this.form.audioModel || (speechProvider === ALIYUN_SPEECH_PROVIDER
+        ? DEFAULT_DASHSCOPE_AUDIO_MODEL
+        : DEFAULT_AUDIO_MODEL)
+      return {
+        idConfig: this.form.idConfig || undefined,
+        apiBaseUrl: this.form.apiBaseUrl,
+        apiKey: this.form.apiKey,
+        audioBaseUrl: this.form.audioBaseUrl,
+        audioApiKey: this.form.audioApiKey,
+        audioModel,
+        speechProvider,
+        speechRealtimeUrl: this.form.speechRealtimeUrl,
+        speechModel: resolveSpeechModel(speechProvider, this.form.speechModel, audioModel)
+      }
+    },
+    async testRealtimeSpeech() {
+      this.testingRealtimeSpeech = true
+      this.realtimeSpeechTestResult = null
+      const fingerprint = this.speechTestFingerprint
+      const payload = this.buildSpeechTestPayload()
+      try {
+        const result = await http.post('/admin/api/configs/test/speech/realtime', payload)
+        if (fingerprint !== this.speechTestFingerprint) return
+        this.realtimeSpeechTestResult = {
+          success: true,
+          message: `${result.message || '实时识别模型可用'}：${result.modelName || payload.speechModel}`
+        }
+      } catch (error) {
+        if (fingerprint !== this.speechTestFingerprint) return
+        this.realtimeSpeechTestResult = {
+          success: false,
+          message: error.message || '实时识别模型不可用'
+        }
+      } finally {
+        this.testingRealtimeSpeech = false
+      }
+    },
+    async testBatchSpeech() {
+      this.testingBatchSpeech = true
+      this.batchSpeechTestResult = null
+      const fingerprint = this.speechTestFingerprint
+      const payload = this.buildSpeechTestPayload()
+      try {
+        const result = await http.post('/admin/api/configs/test/speech/batch', payload)
+        if (fingerprint !== this.speechTestFingerprint) return
+        this.batchSpeechTestResult = {
+          success: true,
+          message: `${result.message || '批量转写模型可用'}：${result.modelName || payload.audioModel}`
+        }
+      } catch (error) {
+        if (fingerprint !== this.speechTestFingerprint) return
+        this.batchSpeechTestResult = {
+          success: false,
+          message: error.message || '批量转写模型不可用'
+        }
+      } finally {
+        this.testingBatchSpeech = false
       }
     },
     submitForm() {
@@ -811,6 +933,33 @@ export default {
   font-size: 13px;
   font-weight: 500;
   color: #2C2C2A;
+}
+
+.config-subsection__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.speech-test-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: -6px 0 16px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.speech-test-result i {
+  margin-top: 2px;
+}
+
+.speech-test-result.success {
+  color: #0F6E56;
+}
+
+.speech-test-result.error {
+  color: #A32D2D;
 }
 
 .test-connection-row {

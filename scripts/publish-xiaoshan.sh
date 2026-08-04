@@ -658,7 +658,7 @@ fi
 JAR_FILES=()
 while IFS= read -r packaged_jar; do
   JAR_FILES+=("${packaged_jar}")
-done < <(find "${SERVER_DIR}/target" -maxdepth 1 -type f -name 'floating-ball-server-*.jar' ! -name '*.original' | sort)
+done < <(find "${SERVER_DIR}/target" -maxdepth 1 -type f -name 'pcie-server-*.jar' ! -name '*.original' | sort)
 
 if [[ "${#JAR_FILES[@]}" -ne 1 ]]; then
   echo "Expected exactly one packaged jar under ${SERVER_DIR}/target; found ${#JAR_FILES[@]}." >&2

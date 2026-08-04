@@ -12,15 +12,15 @@
     </parent>
 
     <groupId>com.regionalai</groupId>
-    <artifactId>floating-ball-server</artifactId>
+    <artifactId>pcie-server</artifactId>
     <version>0.2.0-SNAPSHOT</version>
-    <name>floating-ball-server</name>
-    <description>Floating Ball companion backend service</description>
+    <name>全医慧助服务端（PCIE Server）</name>
+    <description>Primary Care Intelligent Expert backend and administration platform</description>
 
     <scm>
-        <connection>scm:git:https://github.com/yangli216/floating-ball-server.git</connection>
-        <developerConnection>scm:git:https://github.com/yangli216/floating-ball-server.git</developerConnection>
-        <url>https://github.com/yangli216/floating-ball-server</url>
+        <connection>scm:git:https://github.com/yangli216/pcie-server.git</connection>
+        <developerConnection>scm:git:https://github.com/yangli216/pcie-server.git</developerConnection>
+        <url>https://github.com/yangli216/pcie-server</url>
         <tag>HEAD</tag>
     </scm>
 

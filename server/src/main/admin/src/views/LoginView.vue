@@ -5,8 +5,8 @@
         <div class="brand-row">
           <span class="brand-mark" aria-hidden="true">医</span>
           <div class="brand-copy">
-            <h1 id="login-title">区域智能后台</h1>
-            <p>floating-ball-server</p>
+            <h1 id="login-title">全医慧助（PCIE）</h1>
+            <p>Primary Care Intelligent Expert</p>
           </div>
         </div>
         <div class="system-facts" aria-label="系统范围">

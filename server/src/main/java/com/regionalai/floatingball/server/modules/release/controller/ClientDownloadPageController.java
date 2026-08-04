@@ -39,7 +39,7 @@ public class ClientDownloadPageController {
     }
 
     private String renderPage(String selectedChannel, List<ReleaseDownloadItem> items) {
-        String title = "客户端下载";
+        String title = "全医慧助（PCIE）客户端下载";
         StringBuilder html = new StringBuilder(8192);
         html.append("<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">")
             .append("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">")

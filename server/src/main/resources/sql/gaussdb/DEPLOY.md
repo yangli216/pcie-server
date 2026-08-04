@@ -29,7 +29,7 @@ mvn -f server/pom.xml package
 将生成的 jar 上传到服务器：
 
 ```bash
-server/target/floating-ball-server-0.2.0-SNAPSHOT.jar
+server/target/pcie-server-0.2.0-SNAPSHOT.jar
 ```
 
 ## 环境变量
@@ -78,7 +78,7 @@ cd /opt/floating-ball-server/app
 set -a
 . ./floating-ball-server.env
 set +a
-java -jar floating-ball-server-0.2.0-SNAPSHOT.jar
+java -jar pcie-server-0.2.0-SNAPSHOT.jar
 ```
 
 ## 后台启动
@@ -88,7 +88,7 @@ cd /opt/floating-ball-server/app
 set -a
 . ./floating-ball-server.env
 set +a
-nohup java -jar floating-ball-server-0.2.0-SNAPSHOT.jar \
+nohup java -jar pcie-server-0.2.0-SNAPSHOT.jar \
   > /opt/floating-ball-server/logs/console.log 2>&1 &
 echo $! > /opt/floating-ball-server/app/floating-ball-server.pid
 ```
@@ -119,7 +119,7 @@ After=network.target
 Type=simple
 WorkingDirectory=/opt/floating-ball-server/app
 EnvironmentFile=/opt/floating-ball-server/app/floating-ball-server.env
-ExecStart=/usr/bin/java -jar /opt/floating-ball-server/app/floating-ball-server-0.2.0-SNAPSHOT.jar
+ExecStart=/usr/bin/java -jar /opt/floating-ball-server/app/pcie-server-0.2.0-SNAPSHOT.jar
 Restart=on-failure
 RestartSec=5
 SuccessExitStatus=143

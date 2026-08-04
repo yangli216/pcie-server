@@ -93,6 +93,113 @@ public class AiProxyService {
         return chatOnce(upstreamConfig, Collections.<Map<String, Object>>singletonList(userMessage));
     }
 
+    public String testSpeechConnection(String speechProvider,
+                                       String baseUrl,
+                                       String apiKey,
+                                       String model) {
+        if (!StringUtils.hasText(baseUrl)) {
+            throw new BusinessException("请先填写批量转写地址");
+        }
+        if (!StringUtils.hasText(apiKey)) {
+            throw new BusinessException("请先填写语音服务密钥");
+        }
+        if (!StringUtils.hasText(model)) {
+            throw new BusinessException("请先填写批量转写模型");
+        }
+
+        byte[] sourcePcm = new byte[3200];
+        byte[] silentWav = wrapPcmAsWav(sourcePcm, 16000, (short) 1, (short) 16);
+        PreparedSpeechFile preparedFile = new PreparedSpeechFile(
+            sourcePcm,
+            silentWav,
+            "audio/pcm",
+            "audio/wav",
+            "speech-model-test.pcm",
+            "speech-model-test.wav",
+            true
+        );
+
+        if (ALIYUN_SPEECH_PROVIDER.equalsIgnoreCase(speechProvider)) {
+            testDashScopeSpeechConnection(baseUrl.trim(), apiKey.trim(), model.trim(), preparedFile);
+        } else {
+            testOpenAiSpeechConnection(baseUrl.trim(), apiKey.trim(), model.trim(), preparedFile);
+        }
+        return "批量转写模型可用";
+    }
+
+    private void testDashScopeSpeechConnection(String baseUrl,
+                                                String apiKey,
+                                                String model,
+                                                PreparedSpeechFile preparedFile) {
+        String endpoint = buildDashScopeSpeechEndpoint(baseUrl);
+        OutboundCall outboundCall = null;
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(apiKey);
+            outboundCall = outboundSecurityService.acquireHttp(endpoint, "speech-batch-test");
+            ResponseEntity<JsonNode> response = restTemplate.postForEntity(
+                outboundCall.getUrl(),
+                new HttpEntity<Map<String, Object>>(buildDashScopeSpeechPayload(preparedFile, model), headers),
+                JsonNode.class
+            );
+            if (response.getBody() == null) {
+                throw new BusinessException("批量转写模型响应为空");
+            }
+            outboundCall.success();
+        } catch (HttpStatusCodeException ex) {
+            markOutboundFailure(outboundCall, ex);
+            throw new BusinessException(buildUpstreamErrorMessage("批量转写模型", ex));
+        } catch (ResourceAccessException ex) {
+            markOutboundFailure(outboundCall, ex);
+            throw new BusinessException(buildUpstreamRequestErrorMessage("批量转写模型", ex));
+        } catch (RuntimeException ex) {
+            markOutboundFailure(outboundCall, ex);
+            throw ex;
+        }
+    }
+
+    private void testOpenAiSpeechConnection(String baseUrl,
+                                             String apiKey,
+                                             String model,
+                                             PreparedSpeechFile preparedFile) {
+        String endpoint = buildOpenAiSpeechEndpoint(baseUrl);
+        OutboundCall outboundCall = null;
+        try {
+            MultiValueMap<String, Object> formData = new LinkedMultiValueMap<String, Object>();
+            formData.add("file", new ByteArrayResource(preparedFile.audioBytes) {
+                @Override
+                public String getFilename() {
+                    return preparedFile.fileName;
+                }
+            });
+            formData.add("model", model);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+            headers.setBearerAuth(apiKey);
+            outboundCall = outboundSecurityService.acquireHttp(endpoint, "speech-batch-test");
+            ResponseEntity<JsonNode> response = restTemplate.postForEntity(
+                outboundCall.getUrl(),
+                new HttpEntity<MultiValueMap<String, Object>>(formData, headers),
+                JsonNode.class
+            );
+            if (response.getBody() == null) {
+                throw new BusinessException("批量转写模型响应为空");
+            }
+            outboundCall.success();
+        } catch (HttpStatusCodeException ex) {
+            markOutboundFailure(outboundCall, ex);
+            throw new BusinessException(buildUpstreamErrorMessage("批量转写模型", ex));
+        } catch (ResourceAccessException ex) {
+            markOutboundFailure(outboundCall, ex);
+            throw new BusinessException(buildUpstreamRequestErrorMessage("批量转写模型", ex));
+        } catch (RuntimeException ex) {
+            markOutboundFailure(outboundCall, ex);
+            throw ex;
+        }
+    }
+
     private String chat(AiDevice device, ChatRequest request, UpstreamChatConfig upstreamConfig) {
         return chatOnce(device, request, upstreamConfig, request.getMessages(), request.getTemperature());
     }

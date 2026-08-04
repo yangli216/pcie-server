@@ -3,7 +3,7 @@ server:
 
 spring:
   application:
-    name: floating-ball-server
+    name: pcie-server
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:oracle}
   datasource:

@@ -118,6 +118,36 @@ class AdminConfigControllerTest {
     }
 
     @Test
+    void speechTestsShouldReturnRealtimeAndBatchResults() throws Exception {
+        AiConfigSaveRequest request = request();
+        request.setSpeechProvider("aliyun-dashscope");
+        request.setSpeechModel("qwen-audio-3.0-asr-flash-streaming");
+        request.setAudioModel("qwen3-asr-flash");
+        when(configConnectionTestService.testRealtimeSpeech(any(AiConfigSaveRequest.class)))
+            .thenReturn(new AiConfigTestResult(true, "实时识别模型可用", "wss://speech.example.com", "qwen-audio-3.0-asr-flash-streaming"));
+        when(configConnectionTestService.testBatchSpeech(any(AiConfigSaveRequest.class)))
+            .thenReturn(new AiConfigTestResult(true, "批量转写模型可用", "https://speech.example.com/v1", "qwen3-asr-flash"));
+
+        mockMvc.perform(post("/admin/api/configs/test/speech/realtime")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Request-Id", "RID-speech-realtime-test")
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.requestId").value("RID-speech-realtime-test"))
+            .andExpect(jsonPath("$.data.success").value(true))
+            .andExpect(jsonPath("$.data.modelName").value("qwen-audio-3.0-asr-flash-streaming"));
+
+        mockMvc.perform(post("/admin/api/configs/test/speech/batch")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Request-Id", "RID-speech-batch-test")
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.requestId").value("RID-speech-batch-test"))
+            .andExpect(jsonPath("$.data.success").value(true))
+            .andExpect(jsonPath("$.data.modelName").value("qwen3-asr-flash"));
+    }
+
+    @Test
     void invalidateShouldDelegateAndReturnBusinessErrors() throws Exception {
         mockMvc.perform(delete("/admin/api/configs/CFG001")
                 .header("X-Request-Id", "RID-config-delete"))

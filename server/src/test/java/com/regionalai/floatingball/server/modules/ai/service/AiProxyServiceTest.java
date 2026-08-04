@@ -2,6 +2,7 @@ package com.regionalai.floatingball.server.modules.ai.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
+import com.regionalai.floatingball.server.common.outbound.OutboundSecurityProperties;
 import com.regionalai.floatingball.server.common.outbound.OutboundSecurityService;
 import com.regionalai.floatingball.server.modules.ai.dto.ChatRequest;
 import com.regionalai.floatingball.server.modules.ai.dto.SpeechRequest;
@@ -10,6 +11,9 @@ import com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig;
 import com.regionalai.floatingball.server.modules.config.service.ConfigService;
 import com.regionalai.floatingball.server.modules.device.entity.AiDevice;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
 
@@ -23,6 +27,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class AiProxyServiceTest {
 
@@ -257,6 +266,38 @@ class AiProxyServiceTest {
 
         assertThat(model).isEqualTo("qwen3-asr-flash");
         assertThat(endpoint).isEqualTo("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions");
+    }
+
+    @Test
+    void testSpeechConnectionShouldCallDashScopeWithSilentAudio() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer upstream = MockRestServiceServer.createServer(restTemplate);
+        OutboundSecurityProperties properties = new OutboundSecurityProperties();
+        AiProxyService service = new AiProxyService(
+            mock(ConfigService.class),
+            mock(AuditService.class),
+            restTemplate,
+            new ObjectMapper(),
+            new OutboundSecurityService(properties),
+            Runnable::run
+        );
+
+        upstream.expect(requestTo("http://127.0.0.1:18080/compatible-mode/v1/chat/completions"))
+            .andExpect(method(HttpMethod.POST))
+            .andExpect(header("Authorization", "Bearer speech-key"))
+            .andExpect(jsonPath("$.model").value("qwen3-asr-flash"))
+            .andExpect(jsonPath("$.messages[0].content[0].input_audio.data").exists())
+            .andRespond(withSuccess("{\"choices\":[]}", MediaType.APPLICATION_JSON));
+
+        String result = service.testSpeechConnection(
+            "aliyun-dashscope",
+            "http://127.0.0.1:18080/compatible-mode/v1",
+            "speech-key",
+            "qwen3-asr-flash"
+        );
+
+        assertThat(result).isEqualTo("批量转写模型可用");
+        upstream.verify();
     }
 
     private AiProxyService newService(ConfigService configService, AuditService auditService) {

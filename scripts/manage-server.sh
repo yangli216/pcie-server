@@ -4,7 +4,7 @@ set -Eeuo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVER_DIR="${PROJECT_ROOT}/server"
 TARGET_DIR="${SERVER_DIR}/target"
-APP_NAME="floating-ball-server"
+APP_NAME="pcie-server"
 DEFAULT_ENV="test"
 ENVIRONMENT="${DEFAULT_ENV}"
 PROFILE=""

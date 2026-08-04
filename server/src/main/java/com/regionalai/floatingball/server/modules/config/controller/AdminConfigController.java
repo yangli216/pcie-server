@@ -59,6 +59,18 @@ public class AdminConfigController {
         return ApiResponse.success(configConnectionTestService.testMainModel(body), RequestIdUtils.resolve(request));
     }
 
+    @PostMapping("/test/speech/realtime")
+    public ApiResponse<AiConfigTestResult> testRealtimeSpeech(@RequestBody AiConfigSaveRequest body,
+                                                              HttpServletRequest request) {
+        return ApiResponse.success(configConnectionTestService.testRealtimeSpeech(body), RequestIdUtils.resolve(request));
+    }
+
+    @PostMapping("/test/speech/batch")
+    public ApiResponse<AiConfigTestResult> testBatchSpeech(@RequestBody AiConfigSaveRequest body,
+                                                           HttpServletRequest request) {
+        return ApiResponse.success(configConnectionTestService.testBatchSpeech(body), RequestIdUtils.resolve(request));
+    }
+
     @DeleteMapping("/{idConfig}")
     public ApiResponse<Void> invalidate(@PathVariable String idConfig, HttpServletRequest request) {
         configService.invalidate(idConfig);
