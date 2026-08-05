@@ -31,6 +31,7 @@ public class RealtimeSpeechAvailabilityService {
     private static final String ALIYUN_SPEECH_PROVIDER = "aliyun-dashscope";
     private static final String FUNASR_SPEECH_PROVIDER = "funasr-websocket";
     private static final String DEFAULT_DASHSCOPE_WS_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/inference";
+    private static final String DEFAULT_DASHSCOPE_MODEL = "qwen-audio-3.0-asr-flash-streaming";
     private static final long TEST_TIMEOUT_SECONDS = 8L;
 
     private final ObjectMapper objectMapper;
@@ -151,7 +152,7 @@ public class RealtimeSpeechAvailabilityService {
     private String resolveModel(ResolvedAiConfig config) {
         return StringUtils.hasText(config.getSpeechModel())
             ? config.getSpeechModel().trim()
-            : "paraformer-realtime-v2";
+            : DEFAULT_DASHSCOPE_MODEL;
     }
 
     private String safeMessage(Throwable error) {

@@ -644,7 +644,7 @@ Content-Type: application/json
 - `reviewer.checkExaminationEnabled`：控制是否启用 `check_examination` 独立审查；未显式配置时默认开启，保证旧配置行为不变
 - `llm.audioModel`：服务端实际提交给上游的语音模型；`openai-compatible` 默认 `whisper-1`，`aliyun-dashscope` 默认 `qwen3-asr-flash`
 - `speech.provider`：下发给 `floating-ball` 的语音提供方标识，当前兼容 `openai-compatible`、`aliyun-dashscope`、`funasr-websocket`
-- `speech.model`：下发给 `floating-ball` 的实时语音模型标识；`aliyun-dashscope` 默认 `paraformer-realtime-v2`，服务端会把管理端填写的模型名原样提交给 `/api-ws/v1/inference` `run-task` 协议，不做模型名白名单回退；`funasr-websocket` 默认 `funasr-2pass`。是否启用 `/v1/ai/speech/realtime/ws` 由 `speech.provider` 决定
+- `speech.model`：下发给 `floating-ball` 的实时语音模型标识；`aliyun-dashscope` 默认 `qwen-audio-3.0-asr-flash-streaming`，服务端会把管理端填写的兼容模型名原样提交给 `/api-ws/v1/inference` `run-task` 协议，不做模型名白名单回退；`funasr-websocket` 默认 `funasr-2pass`。是否启用 `/v1/ai/speech/realtime/ws` 由 `speech.provider` 决定
 - 上游 `baseUrl`、`audioBaseUrl`、`speechRealtimeUrl`、知识库地址、`apiKey`、`audioApiKey` 均不下发给桌面端，由全医慧助服务端（PCIE Server）统一托管
 
 配置优先级：机构级 > 区域级 > 全局级。
@@ -1274,7 +1274,7 @@ AI 调用类 `operation` 事件补充约束：
 
 ### 4.3.1 WebSocket `/v1/ai/speech/realtime/ws`
 
-用途：DashScope Paraformer 或自建 FunASR 实时语音识别代理。
+用途：DashScope Qwen-Audio-3.0-ASR-Flash-Streaming、Paraformer 或自建 FunASR 实时语音识别代理。
 
 连接：
 
@@ -1287,10 +1287,10 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 1. 浏览器 WebSocket 无法设置 `Authorization` 请求头，因此本通道通过 `token` query 参数携带设备令牌；服务端握手阶段按 `DeviceService.findActiveByToken` 校验。
 2. `ts / nonce / sig` 为 WebSocket 握手签名参数，签名原文与 HTTP 一致：`GET`、路径 `/v1/ai/speech/realtime/ws`、空 body SHA-256。
 3. `clientVersion / updateChannel` 用于握手阶段强制更新门禁；版本过低时拒绝连接。
-4. `speechProvider=aliyun-dashscope` 时，服务端连接 `speechRealtimeUrl`；该字段留空时默认使用 `wss://dashscope.aliyuncs.com/api-ws/v1/inference`，并使用 `audioApiKey` 或主模型 `apiKey` 作为 Bearer Token。
+4. `speechProvider=aliyun-dashscope` 时，服务端连接 `speechRealtimeUrl`；该字段留空时默认使用中国内地地址 `wss://dashscope.aliyuncs.com/api-ws/v1/inference`，并使用 `audioApiKey` 或主模型 `apiKey` 作为 Bearer Token。国际站使用 `wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference`，密钥必须与服务地域匹配。
 5. `speechProvider=funasr-websocket` 时，`speechRealtimeUrl` 必填且必须为 `ws://` 或 `wss://`；服务端不发送 DashScope Bearer Token，连接后先发送 FunASR 初始化帧 `{mode:"2pass",chunk_size:[5,10,5],chunk_interval:10,wav_name:"microphone",wav_format:"pcm",is_speaking:true,itn:true}`，结束时发送 `{is_speaking:false}`。
 6. FunASR 上游返回的 `2pass-online` 文本作为实时临时结果，`2pass-offline` / `offline` 或 `is_final=true` 文本作为句末结果；部分原生部署在收到 `{is_speaking:false}` 后仍返回 `is_final=false`，服务端必须把结束请求后的首个 offline 结果视为最终结果并立即收口。桌面端协议保持不变。
-7. DashScope `qwen3-asr-flash-realtime` 属于另一套 `/api-ws/v1/realtime` session 协议，不属于当前代理通道；管理端保存该模型时必须明确提示协议不兼容，不得显示保存成功后再静默改回 `paraformer-realtime-v2`。若后续要使用该模型，需要新增独立协议适配。
+7. `qwen-audio-3.0-asr-flash-streaming` 使用本通道现有 `/api-ws/v1/inference` `run-task` 协议，是 DashScope 默认实时模型；模型名必须填写在 `speechModel`，不得填写在批量 `audioModel`。DashScope `qwen3-asr-flash-realtime` 属于另一套 `/api-ws/v1/realtime` session 协议，不属于当前代理通道；管理端保存该模型时必须明确提示协议不兼容，不得静默替换模型。
 8. 上游 WebSocket 地址同样走出站安全门；当前默认允许 `ws` / `wss`、私网地址与空 host 白名单，以适配医院内网实时语音上游；如需收紧，可显式关闭 `allow-insecure-http`、`allow-private-network` 并配置 `allowed-hosts`。
 
 客户端发送：
@@ -1967,7 +1967,7 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 3. `audioApiKey` 为批量语音上游独立密钥；可留空，留空时复用 `apiKey`。FunASR 原生实时连接不发送该密钥；仅当批量转写与主模型供应商或账号不一致时填写。
 4. `audioBaseUrl` 为服务端实际语音转写地址；可留空，留空时复用 `apiBaseUrl`。
 5. `audioModel` 为服务端实际转写模型；可留空，`openai-compatible` 默认 `whisper-1`，`aliyun-dashscope` 默认 `qwen3-asr-flash`。
-6. `speechProvider` / `speechModel` 用于 `/v1/client/bootstrap` 下发给桌面端；支持 `openai-compatible`、`aliyun-dashscope`、`funasr-websocket`。`aliyun-dashscope` 默认实时模型为 `paraformer-realtime-v2`，非空自定义模型名会保留并用于 `run-task` 请求；`qwen3-asr-flash-realtime` 因协议不同会被明确拒绝。`funasr-websocket` 默认标识为 `funasr-2pass`，实际模型由 FunASR WebSocket 服务部署决定。
+6. `speechProvider` / `speechModel` 用于 `/v1/client/bootstrap` 下发给桌面端；支持 `openai-compatible`、`aliyun-dashscope`、`funasr-websocket`。`aliyun-dashscope` 默认实时模型为 `qwen-audio-3.0-asr-flash-streaming`，通过 `/api-ws/v1/inference` `run-task` 协议调用；`qwen3-asr-flash-realtime` 因使用不同 session 协议会被明确拒绝。`funasr-websocket` 默认标识为 `funasr-2pass`，实际模型由 FunASR WebSocket 服务部署决定。
 7. `speechRealtimeUrl` 为服务端连接的实时 WebSocket 上游地址，与批量 HTTP `audioBaseUrl` 分离。`funasr-websocket` 时必填，例如 `ws://funasr.internal:10095`；`aliyun-dashscope` 时可留空并回退官方地址。
 
 语音上游路径：
@@ -1975,6 +1975,8 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 1. `speechProvider=openai-compatible`：服务端将录音文件转为 multipart，调用 `{audioBaseUrl}/audio/transcriptions`。
 2. `speechProvider=aliyun-dashscope`：服务端将录音转为 Data URL，调用 DashScope 兼容模式 `{audioBaseUrl}/chat/completions`；`audioBaseUrl` 建议配置为 `https://dashscope.aliyuncs.com/compatible-mode/v1`。
 3. `speechProvider=funasr-websocket`：实时 PCM 走 `speechRealtimeUrl` 的 FunASR 原生协议；聊天录音和实时失败后的批量兜底仍按 OpenAI 兼容协议调用 `{audioBaseUrl}/audio/transcriptions`。
+
+DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`，实时地址使用中国内地 `wss://dashscope.aliyuncs.com/api-ws/v1/inference`；批量兜底继续使用 `qwen3-asr-flash` 和 `https://dashscope.aliyuncs.com/compatible-mode/v1`。实时模型不能通过兼容模式 `/chat/completions` 调用。
 
 上游地址安全要求：
 

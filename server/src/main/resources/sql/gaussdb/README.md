@@ -71,3 +71,4 @@ FB_DB_PASSWORD=Rbmh_ai@123
 3. 现场旧库不能重建时，由 DBA 基于当前 `init.sql` 与现场结构生成一次性迁移脚本；迁移脚本不作为常驻工程资产提交。
 4. 若需要普通 PostgreSQL 运行，优先复用本目录结构作为 PG 兼容基线，再结合现场版本验证 JSON、表达式索引和时间函数兼容性。
 5. 本次按明确交付要求保留 `update_his_org_statistics.sql`。存量库使用当前应用账号执行 `\i update_his_org_statistics.sql`，补齐可能遗漏的 `c_ai_config.speech_realtime_url`、`c_ai_user_consultation_log.id_his_org`、`consultation_round_id`、问诊轮次索引，以及操作日志和功能事件 HIS 机构字段、索引与可确定关联的数据回填；新建库仍只执行 `init.sql`。若现场已存在重复的激活 `generated` 轮次，须先清理重复数据再创建轮次唯一索引。
+6. `init.sql` 默认 AI 配置 `CFG001` 使用 DashScope `qwen-audio-3.0-asr-flash-streaming` 作为实时模型；存量库需在管理端修改对应配置，不通过常驻升级脚本覆盖现场模型选择。

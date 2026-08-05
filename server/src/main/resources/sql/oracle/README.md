@@ -68,7 +68,7 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 6. 默认区域 `REGION001`
 7. 默认机构 `ORG001`；`c_ai_org.cd_org` 必填，并通过 `uk_c_ai_org_code_active` 保证激活机构编码唯一
 8. 默认管理员 `admin`
-9. 默认 AI 配置 `CFG001`；实时语音 WebSocket 上游独立保存在 `speech_realtime_url`，自建 FunASR 使用 `speech_provider=funasr-websocket`
+9. 默认 AI 配置 `CFG001`；DashScope 默认实时模型为 `qwen-audio-3.0-asr-flash-streaming`，实时语音 WebSocket 上游独立保存在 `speech_realtime_url`，自建 FunASR 使用 `speech_provider=funasr-websocket`
 10. 脚本末尾显式 `COMMIT`
 
 说明：

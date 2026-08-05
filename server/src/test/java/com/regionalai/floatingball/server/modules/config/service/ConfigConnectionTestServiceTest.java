@@ -1,6 +1,7 @@
 package com.regionalai.floatingball.server.modules.config.service;
 
 import com.regionalai.floatingball.server.common.util.AesUtils;
+import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.ai.service.AiProxyService;
 import com.regionalai.floatingball.server.modules.ai.websocket.RealtimeSpeechAvailabilityService;
 import com.regionalai.floatingball.server.modules.config.dto.AiConfigSaveRequest;
@@ -16,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -95,5 +97,16 @@ class ConfigConnectionTestServiceTest {
             "saved-audio-key",
             "qwen3-asr-flash"
         );
+    }
+
+    @Test
+    void batchTestShouldRejectRealtimeOnlyModelBeforeCallingUpstream() {
+        AiConfigSaveRequest request = new AiConfigSaveRequest();
+        request.setSpeechProvider("aliyun-dashscope");
+        request.setAudioModel("qwen-audio-3.0-asr-flash-streaming");
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.testBatchSpeech(request));
+
+        assertEquals("该模型仅支持实时 WebSocket，请将它填写到“实时识别模型”；批量转写模型请使用 qwen3-asr-flash", ex.getMessage());
     }
 }

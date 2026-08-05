@@ -1333,7 +1333,7 @@ INSERT INTO c_ai_config (
     'https://dashscope.aliyuncs.com/compatible-mode/v1',
     'qwen3-asr-flash',
     'aliyun-dashscope',
-    'paraformer-realtime-v2',
+    'qwen-audio-3.0-asr-flash-streaming',
     '0',
     '0',
     '0',

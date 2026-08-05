@@ -59,6 +59,7 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "speech_realtime_url      VARCHAR2(500)");
         assertContains(initSql, "pmphai_enabled           CHAR(1) DEFAULT '0' NOT NULL");
         assertContains(initSql, "reviewer_check_examination_enabled CHAR(1) DEFAULT '1' NOT NULL");
+        assertContains(initSql, "'qwen-audio-3.0-asr-flash-streaming'");
 
         assertContains(initSql, "CREATE TABLE c_ai_symptom_template");
         assertContains(initSql, "CREATE TABLE c_ai_symptom_template_change_log");
@@ -153,6 +154,7 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "cd_org               VARCHAR(64) NOT NULL");
         assertContains(initSql, "features_json            TEXT");
         assertContains(initSql, "speech_realtime_url      VARCHAR(500)");
+        assertContains(initSql, "'qwen-audio-3.0-asr-flash-streaming'");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_event");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_agg");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_rec_pref_event_idem");

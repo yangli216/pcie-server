@@ -23,7 +23,7 @@ public class ConfigConnectionTestService {
     private static final String FUNASR_SPEECH_PROVIDER = "funasr-websocket";
     private static final String DEFAULT_AUDIO_MODEL = "whisper-1";
     private static final String DEFAULT_DASHSCOPE_AUDIO_MODEL = "qwen3-asr-flash";
-    private static final String DEFAULT_DASHSCOPE_REALTIME_MODEL = "paraformer-realtime-v2";
+    private static final String DEFAULT_DASHSCOPE_REALTIME_MODEL = "qwen-audio-3.0-asr-flash-streaming";
     private static final String DEFAULT_FUNASR_REALTIME_MODEL = "funasr-2pass";
     private static final String DEFAULT_DASHSCOPE_REALTIME_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/inference";
 
@@ -81,6 +81,9 @@ public class ConfigConnectionTestService {
             ? request.getAudioBaseUrl().trim()
             : normalizeOptional(request.getApiBaseUrl());
         String model = resolveBatchModel(provider, request.getAudioModel());
+        if (ALIYUN_SPEECH_PROVIDER.equals(provider) && isDashScopeRealtimeOnlyModel(model)) {
+            throw new BusinessException("该模型仅支持实时 WebSocket，请将它填写到“实时识别模型”；批量转写模型请使用 qwen3-asr-flash");
+        }
         String apiKey = resolveAudioApiKey(request);
         String message = aiProxyService.testSpeechConnection(provider, baseUrl, apiKey, model);
         log.info("batch speech config test. provider={}, baseUrl={}, model={}, success=true", provider, baseUrl, model);
@@ -158,6 +161,11 @@ public class ConfigConnectionTestService {
 
     private String normalizeOptional(String value) {
         return StringUtils.hasText(value) ? value.trim().replaceAll("/+$", "") : null;
+    }
+
+    private boolean isDashScopeRealtimeOnlyModel(String model) {
+        return StringUtils.hasText(model)
+            && model.trim().toLowerCase().startsWith("qwen-audio-3.0-asr-flash-streaming");
     }
 
     private String resolveApiKey(AiConfigSaveRequest request) {

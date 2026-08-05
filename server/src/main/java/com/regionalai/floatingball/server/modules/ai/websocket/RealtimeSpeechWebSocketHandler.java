@@ -37,7 +37,7 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
 
     private static final String ALIYUN_SPEECH_PROVIDER = "aliyun-dashscope";
     private static final String FUNASR_SPEECH_PROVIDER = "funasr-websocket";
-    private static final String DEFAULT_REALTIME_MODEL = "paraformer-realtime-v2";
+    private static final String DEFAULT_REALTIME_MODEL = "qwen-audio-3.0-asr-flash-streaming";
     private static final String DEFAULT_DASHSCOPE_WS_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/inference";
 
     private final ConfigService configService;
@@ -67,6 +67,12 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
         if (!isRealtimeProvider(config.getSpeechProvider())) {
             log.warn("realtime speech ws: connection rejected, provider does not support realtime. deviceId={}, provider={}", device.getIdDevice(), config.getSpeechProvider());
             sendErrorAndClose(session, "当前语音提供方未启用实时识别");
+            return;
+        }
+        if (isDashScope(config) && isUnsupportedDashScopeSessionModel(resolveRealtimeModel(config))) {
+            log.warn("realtime speech ws: connection rejected, unsupported protocol model. deviceId={}, model={}",
+                device.getIdDevice(), resolveRealtimeModel(config));
+            sendErrorAndClose(session, "qwen3-asr-flash-realtime 使用不同的 session 协议，当前实时地址不支持该模型");
             return;
         }
 
@@ -158,14 +164,12 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
 
     private String resolveRealtimeModel(ResolvedAiConfig config) {
         String model = StringUtils.hasText(config.getSpeechModel()) ? config.getSpeechModel().trim() : DEFAULT_REALTIME_MODEL;
-        if (isFunAsr(config)) {
-            return model;
-        }
-        String lowerModel = model.toLowerCase();
-        if (lowerModel.startsWith("qwen3-asr-flash-realtime")) {
-            return DEFAULT_REALTIME_MODEL;
-        }
         return model;
+    }
+
+    private boolean isUnsupportedDashScopeSessionModel(String model) {
+        return StringUtils.hasText(model)
+            && model.trim().toLowerCase().startsWith("qwen3-asr-flash-realtime");
     }
 
     private String resolveRealtimeWsUrl(ResolvedAiConfig config) {

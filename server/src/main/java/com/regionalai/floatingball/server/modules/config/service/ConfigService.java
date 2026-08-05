@@ -38,7 +38,7 @@ public class ConfigService {
 
     private static final String DEFAULT_AUDIO_MODEL = "whisper-1";
     private static final String DEFAULT_DASHSCOPE_AUDIO_MODEL = "qwen3-asr-flash";
-    private static final String DEFAULT_DASHSCOPE_REALTIME_MODEL = "paraformer-realtime-v2";
+    private static final String DEFAULT_DASHSCOPE_REALTIME_MODEL = "qwen-audio-3.0-asr-flash-streaming";
     private static final String DEFAULT_FUNASR_REALTIME_MODEL = "funasr-2pass";
     private static final String DEFAULT_SPEECH_PROVIDER = "openai-compatible";
     private static final String ALIYUN_SPEECH_PROVIDER = "aliyun-dashscope";
@@ -245,6 +245,10 @@ public class ConfigService {
             && isUnsupportedDashScopeRealtimeModel(request.getSpeechModel())) {
             throw new BusinessException("qwen3-asr-flash-realtime 使用不同的实时语音协议，当前仅支持 DashScope run-task 协议模型");
         }
+        if (ALIYUN_SPEECH_PROVIDER.equals(speechProvider)
+            && isDashScopeRealtimeOnlyModel(request.getAudioModel())) {
+            throw new BusinessException("qwen-audio-3.0-asr-flash-streaming 是实时模型，请填写到“实时识别模型”，批量转写模型请使用 qwen3-asr-flash");
+        }
         if (StringUtils.hasText(request.getSpeechRealtimeUrl())) {
             validateWebSocketUrl(request.getSpeechRealtimeUrl());
         }
@@ -409,6 +413,11 @@ public class ConfigService {
     private boolean isUnsupportedDashScopeRealtimeModel(String model) {
         return StringUtils.hasText(model)
             && model.trim().toLowerCase().startsWith("qwen3-asr-flash-realtime");
+    }
+
+    private boolean isDashScopeRealtimeOnlyModel(String model) {
+        return StringUtils.hasText(model)
+            && model.trim().toLowerCase().startsWith("qwen-audio-3.0-asr-flash-streaming");
     }
 
     private String normalizeSpeechProvider(String value) {

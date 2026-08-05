@@ -194,7 +194,7 @@
                   <el-input v-model.trim="form.audioBaseUrl" maxlength="500" placeholder="留空则复用主模型服务地址…" />
                   <p class="form-hint">{{ batchSpeechUrlHint }}</p>
                 </el-form-item>
-                <el-form-item label="批量转写模型">
+                <el-form-item label="批量转写模型" prop="audioModel" :rules="audioModelRules">
                   <el-input v-model.trim="form.audioModel" maxlength="128" :placeholder="audioModelPlaceholder" />
                   <p class="form-hint">{{ audioModelHint }}</p>
                 </el-form-item>
@@ -317,7 +317,8 @@ import { CodeTag, SegmentedSwitch, StatusPill, TableAction } from '../components
 
 const DEFAULT_AUDIO_MODEL = 'whisper-1'
 const DEFAULT_DASHSCOPE_AUDIO_MODEL = 'qwen3-asr-flash'
-const DEFAULT_DASHSCOPE_REALTIME_MODEL = 'paraformer-realtime-v2'
+const DEFAULT_DASHSCOPE_REALTIME_MODEL = 'qwen-audio-3.0-asr-flash-streaming'
+const LEGACY_DASHSCOPE_REALTIME_MODEL = 'paraformer-realtime-v2'
 const DEFAULT_FUNASR_REALTIME_MODEL = 'funasr-2pass'
 const DEFAULT_DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 const DEFAULT_SPEECH_PROVIDER = 'openai-compatible'
@@ -367,6 +368,10 @@ function resolveSpeechModel(provider, speechModel, audioModel) {
 
 function isUnsupportedDashScopeRealtimeModel(model) {
   return String(model || '').trim().toLowerCase().indexOf('qwen3-asr-flash-realtime') === 0
+}
+
+function isDashScopeRealtimeOnlyModel(model) {
+  return String(model || '').trim().toLowerCase().indexOf('qwen-audio-3.0-asr-flash-streaming') === 0
 }
 
 function createDefaultForm() {
@@ -478,7 +483,7 @@ export default {
         return '后台实际连接的 FunASR WebSocket 地址，必填。'
       }
       if (this.isRealtimeSpeechProvider) {
-        return '后台实际连接的 DashScope WebSocket 地址；留空使用官方地址。'
+        return '中国内地留空即可，默认 wss://dashscope.aliyuncs.com/api-ws/v1/inference；国际站需填写 intl 地址。'
       }
       return '选择 DashScope 或 FunASR 后可配置实时识别。'
     },
@@ -516,7 +521,7 @@ export default {
     speechModelHint() {
       const provider = normalizeSpeechProvider(this.form.speechProvider)
       if (provider === ALIYUN_SPEECH_PROVIDER) {
-        return '实际提交给 DashScope run-task 协议；默认 paraformer-realtime-v2。qwen3-asr-flash-realtime 的协议暂不支持。'
+        return '推荐 qwen-audio-3.0-asr-flash-streaming，走 DashScope run-task WebSocket；不要填到批量转写模型。'
       }
       if (provider === FUNASR_SPEECH_PROVIDER) {
         return '用于配置识别和日志展示；实际模型由 FunASR 服务部署决定。'
@@ -538,11 +543,24 @@ export default {
     audioModelHint() {
       const provider = normalizeSpeechProvider(this.form.speechProvider)
       if (provider === ALIYUN_SPEECH_PROVIDER) {
-        return '用于整段录音转写和实时失败兜底；默认 qwen3-asr-flash。'
+        return '用于整段录音转写和实时失败兜底；默认 qwen3-asr-flash。不能填写带 -streaming 的实时模型。'
       }
       return this.isRealtimeSpeechProvider
         ? '用于整段录音转写和实时失败兜底；默认 whisper-1。'
         : '用于整段录音转写；默认 whisper-1。'
+    },
+    audioModelRules() {
+      return [{
+        validator: (rule, value, callback) => {
+          const provider = normalizeSpeechProvider(this.form.speechProvider)
+          if (provider === ALIYUN_SPEECH_PROVIDER && isDashScopeRealtimeOnlyModel(value)) {
+            callback(new Error('该模型仅支持实时 WebSocket，请填写到“实时识别模型”'))
+            return
+          }
+          callback()
+        },
+        trigger: 'blur'
+      }]
     },
     speechTestFingerprint() {
       return [
@@ -666,7 +684,7 @@ export default {
     handleSpeechProviderChange(provider) {
       const normalized = normalizeSpeechProvider(provider)
       this.form.speechProvider = normalized
-      const defaultModels = [DEFAULT_AUDIO_MODEL, DEFAULT_DASHSCOPE_AUDIO_MODEL, DEFAULT_DASHSCOPE_REALTIME_MODEL, DEFAULT_FUNASR_REALTIME_MODEL]
+      const defaultModels = [DEFAULT_AUDIO_MODEL, DEFAULT_DASHSCOPE_AUDIO_MODEL, DEFAULT_DASHSCOPE_REALTIME_MODEL, LEGACY_DASHSCOPE_REALTIME_MODEL, DEFAULT_FUNASR_REALTIME_MODEL]
       if (normalized === ALIYUN_SPEECH_PROVIDER) {
         if (!this.form.audioBaseUrl) {
           this.form.audioBaseUrl = DEFAULT_DASHSCOPE_BASE_URL

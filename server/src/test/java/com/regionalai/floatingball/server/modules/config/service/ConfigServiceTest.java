@@ -160,20 +160,35 @@ class ConfigServiceTest {
     }
 
     @Test
-    void saveShouldPersistCustomDashScopeRunTaskModelWithoutSilentFallback() {
+    void saveShouldPersistQwenAudioStreamingModelWithoutSilentFallback() {
         AiConfigSaveRequest request = new AiConfigSaveRequest();
         request.setNaConfig("阿里云语音配置");
         request.setApiBaseUrl("https://llm.example.com");
         request.setModelName("deepseek-chat");
         request.setSpeechProvider("aliyun-dashscope");
-        request.setSpeechModel("hospital-realtime-asr-v1");
+        request.setSpeechModel("qwen-audio-3.0-asr-flash-streaming");
 
         AiConfigView view = configService.save(request);
 
         org.mockito.ArgumentCaptor<AiConfig> captor = org.mockito.ArgumentCaptor.forClass(AiConfig.class);
         verify(aiConfigMapper).insert(captor.capture());
-        assertEquals("hospital-realtime-asr-v1", captor.getValue().getSpeechModel());
-        assertEquals("hospital-realtime-asr-v1", view.getSpeechModel());
+        assertEquals("qwen-audio-3.0-asr-flash-streaming", captor.getValue().getSpeechModel());
+        assertEquals("qwen-audio-3.0-asr-flash-streaming", view.getSpeechModel());
+    }
+
+    @Test
+    void saveShouldRejectQwenAudioStreamingModelInBatchField() {
+        AiConfigSaveRequest request = new AiConfigSaveRequest();
+        request.setNaConfig("阿里云语音配置");
+        request.setApiBaseUrl("https://llm.example.com");
+        request.setModelName("deepseek-chat");
+        request.setSpeechProvider("aliyun-dashscope");
+        request.setAudioModel("qwen-audio-3.0-asr-flash-streaming");
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> configService.save(request));
+
+        assertEquals("qwen-audio-3.0-asr-flash-streaming 是实时模型，请填写到“实时识别模型”，批量转写模型请使用 qwen3-asr-flash", ex.getMessage());
+        verify(aiConfigMapper, never()).insert(any(AiConfig.class));
     }
 
     @Test
@@ -346,7 +361,7 @@ class ConfigServiceTest {
         AiConfig saved = captor.getValue();
         assertEquals("aliyun-dashscope", saved.getSpeechProvider());
         assertEquals("qwen3-asr-flash", saved.getAudioModel());
-        assertEquals("paraformer-realtime-v2", saved.getSpeechModel());
+        assertEquals("qwen-audio-3.0-asr-flash-streaming", saved.getSpeechModel());
         assertEquals("0", saved.getReviewerCheckExaminationEnabled());
         assertEquals("main-key", aesUtils.decrypt(saved.getApiKeyEncrypted()));
         assertEquals("audio-key", aesUtils.decrypt(saved.getAudioApiKeyEncrypted()));
