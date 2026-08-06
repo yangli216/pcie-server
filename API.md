@@ -4,18 +4,18 @@
 >
 > 更新日期：2026-07-24
 >
-> 范围：全医慧助桌面端 `floating-ball` 当前唯一远程业务契约 `/v1/*`；桌面端已取消本地/区域双模式
+> 范围：全医慧助桌面端 `pcie` 当前唯一远程业务契约 `/v1/*`；桌面端已取消本地/区域双模式
 
 ## 1. 约束说明
 
-1. 本文档只描述远端接口，不包含 `floating-ball` 本地 `/api/consultation/*`。
+1. 本文档只描述远端接口，不包含 `pcie` 本地 `/api/consultation/*`。
 2. 接口实现必须同时兼容以下调用方：
-   - `floating-ball/src/services/regionalClient.ts`
-   - `floating-ball/src/services/llm.ts`
-   - `floating-ball/src/services/templateService.ts`
-   - `floating-ball/src/services/medicalData.ts`
-   - `floating-ball/src/services/promptOverride.ts`
-   - `floating-ball/src/services/auditUploader.ts`
+   - `pcie/src/services/regionalClient.ts`
+   - `pcie/src/services/llm.ts`
+   - `pcie/src/services/templateService.ts`
+   - `pcie/src/services/medicalData.ts`
+   - `pcie/src/services/promptOverride.ts`
+   - `pcie/src/services/auditUploader.ts`
 3. 安全模式下，仓库内 `application.yml` 不再内置真实数据库地址、账号口令或 AES key；部署前必须注入 `FB_DB_URL`、`FB_DB_USERNAME`、`FB_DB_PASSWORD`、`FB_AES_KEY`。
 4. 统一响应结构如下：
 
@@ -640,13 +640,13 @@ Content-Type: application/json
 
 语音配置字段说明：
 
-- `llm.fastModel`：供 `floating-ball/src/services/llm.ts` 的 `chatFast()` 使用的独立快速模型；未单独配置时回退 `llm.model`
-- `llm.enableThinking`：由服务端统一托管的思考模式开关；`floating-ball` 只读消费该值，`/v1/ai/chat` 代理转发时会据此决定是否向上游传 `enable_thinking`
+- `llm.fastModel`：供 `pcie/src/services/llm.ts` 的 `chatFast()` 使用的独立快速模型；未单独配置时回退 `llm.model`
+- `llm.enableThinking`：由服务端统一托管的思考模式开关；`pcie` 只读消费该值，`/v1/ai/chat` 代理转发时会据此决定是否向上游传 `enable_thinking`
 - `reviewer.checkExaminationEnabled`：控制是否启用 `check_examination` 独立审查；未显式配置时默认开启，保证旧配置行为不变
 - `llm.audioModel`：服务端实际提交给上游的语音模型；`openai-compatible` 默认 `whisper-1`，`aliyun-dashscope` 默认 `qwen3-asr-flash`
-- `speech.provider`：下发给 `floating-ball` 的语音提供方标识，当前兼容 `openai-compatible`、`aliyun-dashscope`、`funasr-websocket`
-- `speech.model`：下发给 `floating-ball` 的实时语音模型标识；`aliyun-dashscope` 默认 `paraformer-realtime-v2`，`funasr-websocket` 默认 `funasr-2pass`，用于决定桌面端是否启用 `/v1/ai/speech/realtime/ws`
-- 上游 `baseUrl`、`audioBaseUrl`、`speechRealtimeUrl`、知识库地址、`apiKey`、`audioApiKey` 均不下发给桌面端，由 `floating-ball-server` 统一托管
+- `speech.provider`：下发给 `pcie` 的语音提供方标识，当前兼容 `openai-compatible`、`aliyun-dashscope`、`funasr-websocket`
+- `speech.model`：下发给 `pcie` 的实时语音模型标识；`aliyun-dashscope` 默认 `paraformer-realtime-v2`，`funasr-websocket` 默认 `funasr-2pass`，用于决定桌面端是否启用 `/v1/ai/speech/realtime/ws`
+- 上游 `baseUrl`、`audioBaseUrl`、`speechRealtimeUrl`、知识库地址、`apiKey`、`audioApiKey` 均不下发给桌面端，由 `pcie-server` 统一托管
 
 配置优先级：机构级 > 区域级 > 全局级。
 
@@ -1229,7 +1229,7 @@ AI 调用类 `operation` 事件补充约束：
 - 每帧：`data: {"choices":[{"delta":{"content":"..."}}]}\n\n`
 - 结束：`data: [DONE]\n\n`
 
-说明：`floating-ball` 当前 SSE 解析逻辑直接消费 OpenAI 风格 `choices[0].delta.content`。
+说明：`pcie` 当前 SSE 解析逻辑直接消费 OpenAI 风格 `choices[0].delta.content`。
 
 ### 4.2 POST `/v1/ai/speech/transcribe`
 
@@ -1246,14 +1246,14 @@ AI 调用类 `operation` 事件补充约束：
 
 字段说明：
 
-- `audio`：必填，`floating-ball` 端录音文件的 base64 内容，不带 Data URL 前缀
+- `audio`：必填，`pcie` 端录音文件的 base64 内容，不带 Data URL 前缀
 - `mimeType`：可选，录音 MIME 类型；服务端会据此构造上游 multipart 文件内容类型
 - `fileName`：可选，录音文件名；未传时服务端按 MIME 类型自动补默认扩展名
 - `scene`：可选，录音来源场景，如 `chat-input`、`voice-consultation`
 
 服务端处理约束：
 
-1. 先接收 `floating-ball` 上传的 base64 录音
+1. 先接收 `pcie` 上传的 base64 录音
 2. 在服务端解码为真实字节数组
 3. 若收到 `audio/pcm` / `format=pcm`，服务端会先补 WAV 头再标准化为 `.wav`
 4. `speechProvider=openai-compatible` 时，以 `multipart/form-data` 的 `file` 字段转发到上游 `/audio/transcriptions`
@@ -1423,7 +1423,7 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 
 说明：
 
-1. `floating-ball` 当前会在语音录制结束后批量上传整段录音，而不是逐帧 WebSocket 透传。
+1. `pcie` 当前会在语音录制结束后批量上传整段录音，而不是逐帧 WebSocket 透传。
 2. 服务端处理方式与 `/v1/ai/speech/transcribe` 一致：先接收 base64 录音，再解码为真实文件后转发给上游语音转写接口。
 3. 对 `pcm` 原始录音，服务端会补 WAV 头后再上传，兼容常见 OpenAI 兼容转写服务。
 4. `format` 主要用于标记原始采样格式，当前常见值为 `pcm`。

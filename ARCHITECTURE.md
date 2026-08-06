@@ -2,19 +2,21 @@
 
 > 正式英文名称：Primary Care Intelligent Expert
 >
-> 工程名：`floating-ball-server`
+> 工程名：`pcie-server`
+
+> 兼容说明：仓库和本地工程目录使用 `pcie-server`；Maven `artifactId`、现有 jar 名、`floating-ball.*` 配置前缀、部署目录、日志名和 systemd 服务名继续保留，待独立迁移方案覆盖现场升级与回滚后再调整。
 >
 > 更新日期：2026-07-24
 
 ## 1. 项目定位
 
-`floating-ball-server` 是全医慧助（PCIE）桌面端 `floating-ball` 当前唯一的远程业务后端。桌面端已取消本地/区域双模式，AI、语音、知识库、配置、审计和统计能力固定经本服务，第三方凭据不下发客户端。服务端承担三类职责：
+`pcie-server` 是全医慧助（PCIE）桌面端 `pcie` 当前唯一的远程业务后端。桌面端已取消本地/区域双模式，AI、语音、知识库、配置、审计和统计能力固定经本服务，第三方凭据不下发客户端。服务端承担三类职责：
 
 1. 面向桌面端的远端客户端能力：设备注册、配置引导、Prompt / 数据包增量下发、AI 代理、审计上报
 2. 面向管理员的后台管理能力：区域、机构、令牌、AI 配置、Prompt、症状模板、检验检查结果手工回写、客户端版本发布、日志、推荐偏好观测
 3. 面向平台管理员的基础治理能力：管理员登录、用户、角色、概览统计
 
-本项目不承接 `floating-ball` 的本地 HIS 桥接，不替代 `floating-ball/api.md` 中的 `/api/consultation/*`。
+本项目不承接 `pcie` 的本地 HIS 桥接，不替代 `pcie/api.md` 中的 `/api/consultation/*`。
 
 ## 2. 技术基线
 
@@ -41,7 +43,7 @@
 ## 3. 目录规划
 
 ```text
-floating-ball-server/
+pcie-server/
 ├── AGENTS.md
 ├── ARCHITECTURE.md
 ├── API.md
@@ -131,7 +133,7 @@ floating-ball-server/
 - 负责业务校验、配置分层查找、版本比较、上游代理转发
 - 封装“机构级 > 区域级 > 全局级”的配置查找优先级
 - `modules/config` 中的 AI 配置除主模型地址/密钥外，还负责托管 `chatFast` 独立模型、`enableThinking` 开关、独立审查 AI、`check_examination` 审查开关与 PMPHAI 的服务端密钥；`bootstrap` 只下发非密钥视图
-- `modules/symptom` 负责症状模板的逐条 CRUD、内置模板导入、JSON 模板文件导入、作用域合并、客户端 `templates/delta` 聚合与症状模板修改日志，数据结构对齐 `floating-ball` 的 `SymptomManagement.vue` / disease editor
+- `modules/symptom` 负责症状模板的逐条 CRUD、内置模板导入、JSON 模板文件导入、作用域合并、客户端 `templates/delta` 聚合与症状模板修改日志，数据结构对齐 `pcie` 的 `SymptomManagement.vue` / disease editor
 - `modules/emrtemplate` 负责住院病历 HTML 模板解析结果缓存，客户端按 HIS 传入的 `templateId` 复用已解析字段；缓存记录保存客户端传入的模板主键、模板名称、原生 `htmlContent`、内容 hash 和完整字段列表。管理端支持查询缓存、源码/HTML 预览模板、停用/删除缓存、手动调整字段是否由 AI 生成、维护字段 AI 生成提示词，并展示字段规则生成的默认提示词；默认提示词会包含模板名称、记录类型、字段名称、所属段落和字段含义。字段提示词覆盖和 AI 生成类型会在客户端解析缓存命中或上传模板解析结果时与本次客户端字段合并后返回，供桌面端生成住院病历预览。
 - `modules/lisresult` 负责面向管理端的检验检查结果手动录入与第三方回写模拟：只查询 `hi_ods_apply` 中检验/检查类、未报告/未作废的申请单；面向 PHIS 多版本表结构差异，申请单列表、报告查看和回写前校验查询必须显式选择界面展示或逻辑处理需要的最小列，避免实体映射中的扩展字段参与运行时查询；检验录入后将报告组 ID 写回 `hi_ods_apply.id_result`，并把每个检验指标写入 `hi_ods_apply_lis_report`；检查录入后将报告 ID 写回 `hi_ods_apply.id_result`，并把报告结果、临床印象、影像诊断、阴阳性等字段写入 `hi_ods_apply_pacs_report`。该功能不接管业务系统产生申请单的链路，也不新增本地 `/api/consultation/*` 能力。
 - `modules/prompt` 负责 Prompt 配置化的逐步迁移：保留桌面端 `prompts/delta` 读取链路，管理端提供 Prompt 列表、新增、编辑、发布、归档和停用；服务端内置首批语音问诊默认 Prompt，配置表存在已发布覆盖时按机构级 > 区域级 > 全局级优先级生效。
@@ -185,7 +187,7 @@ floating-ball-server/
 - 服务端 Excel 导出按单元格文本长度估算列宽，不调用依赖操作系统字体的 POI 自动测宽，保证无字体的服务器环境也能完成导出
 - 图表类页面必须为 loading、空数据和重绘状态提供稳定视觉反馈；ECharts resize 监听由页面统一绑定和释放，不得在每次渲染时重复追加
 - 列表 CRUD 页新增状态、编码、分段开关时优先复用 `StatusPill`、`CodeTag`、`SegmentedSwitch`；确有复杂交互时可在页面内组合，但不得重新定义同义状态样式
-- 远端 `/v1/*` 默认 CORS 需要兼容 `floating-ball` 的 Tauri dev / desktop WebView origin，且 `OPTIONS` 预检请求不能被设备鉴权拦截
+- 远端 `/v1/*` 默认 CORS 需要兼容 `pcie` 的 Tauri dev / desktop WebView origin，且 `OPTIONS` 预检请求不能被设备鉴权拦截
 - `floating-ball.cors.allowed-origins` 的本地配置只能做增量补充，不能覆盖掉桌面端默认 origin（`tauri://localhost`、`asset://localhost`、`https://tauri.localhost`、`http://tauri.localhost`、本地 localhost/127.0.0.1`），否则桌面端会在浏览器 Fetch 层直接报 `Load failed`
 
 ### 4.4.1 后台发布版本号
@@ -194,7 +196,7 @@ floating-ball-server/
 - `maven-release-plugin` 负责正式发布：从 `*-SNAPSHOT` 切到正式 `x.y.z`、执行 `test`、创建 `v@{project.version}` 标签，再推进到下一轮 `*-SNAPSHOT` 开发版本。
 - 当前 `maven-release-plugin` 配置 `pushChanges=false`，避免 release 命令自动推送远端；本地 tag 和提交确认后再人工执行 `git push && git push origin vX.Y.Z`。
 - `versions-maven-plugin` 负责手工调整开发版本号，默认不生成 `pom.xml.versionsBackup`。
-- 后台 Git tag 属于 `floating-ball-server` 独立仓库，不与桌面端客户端版本发布或内网安装包通道混用。
+- 后台 Git tag 属于 `pcie-server` 独立仓库，不与桌面端客户端版本发布或内网安装包通道混用。
 
 ### 4.5 错误信息出口
 
@@ -206,7 +208,7 @@ floating-ball-server/
 
 ### 5.1 客户端启动链路
 
-1. `floating-ball` 首次启动调用 `POST /v1/client/register`
+1. `pcie` 首次启动调用 `POST /v1/client/register`
 2. 服务端返回 `deviceToken`
 3. 客户端查询当前更新通道的 `GET /v1/client/releases/{channel}/policy.json`，若命中强制更新门禁，则仅保留检查更新与下载安装能力
 4. 客户端带 `Bearer deviceToken`、`X-Client-Version` 和 `X-Update-Channel` 调用 `GET /v1/client/bootstrap`
@@ -249,7 +251,7 @@ floating-ball-server/
 
 语音代理补充约束：
 
-1. `floating-ball` 的聊天录音与语音兜底批量转写通过 `/v1/ai/speech/transcribe`、`/v1/ai/speech/realtime` 上传 base64 录音内容；DashScope 与自建 FunASR 实时语音通过 `/v1/ai/speech/realtime/ws` WebSocket 逐帧代理 PCM 音频
+1. `pcie` 的聊天录音与语音兜底批量转写通过 `/v1/ai/speech/transcribe`、`/v1/ai/speech/realtime` 上传 base64 录音内容；DashScope 与自建 FunASR 实时语音通过 `/v1/ai/speech/realtime/ws` WebSocket 逐帧代理 PCM 音频
 2. 服务端必须先把 base64 录音解码为真实字节数组，再按 `speech_provider` 选择批量上游协议：`openai-compatible` 与 `funasr-websocket` 组装为 `multipart/form-data` 调用 `/audio/transcriptions`，`aliyun-dashscope` 组装为 DashScope 兼容模式 chat completion 音频请求；`funasr-websocket` 的原生协议只用于实时链路，批量兜底仍由独立 `audio_base_url` 提供
 3. 对原始 PCM 录音，服务端先补 WAV 头后再上游转发，避免不同语音供应商对裸 PCM 兼容不一致
 4. 服务端应保留录音元数据（`mimeType`、`format`、`fileName`、`scene`）用于排障和审计，但不在日志中落原始音频内容
@@ -536,10 +538,10 @@ GaussDB/openGauss 初始化：
 2. 管理端源码迁入 `server` 模块，由同一套 Maven / Spring Boot 工程承载。
 3. 发布结果为单个 Spring Boot 服务，前后端同端口、同域名、同进程。
 4. 开发阶段允许保留 Vite 独立调试能力，但这不再是默认交付形态。
-5. 管理端表单交互优先复用 `floating-ball` 现有设置页的分组式信息架构：按“基础信息 / 主模型 / 语音 / 知识库 / 审查模型 / 作用域与功能开关”分段展示，避免把所有配置字段平铺在单一网格中。
-6. 语音配置页必须区分“服务端实际转写地址/密钥/模型”和“桌面端感知的 provider/model”：前者用于服务端上游语音协议选择与调用，后者用于 `floating-ball` 设置页展示与策略选择。
+5. 管理端表单交互优先复用 `pcie` 现有设置页的分组式信息架构：按“基础信息 / 主模型 / 语音 / 知识库 / 审查模型 / 作用域与功能开关”分段展示，避免把所有配置字段平铺在单一网格中。
+6. 语音配置页必须区分“服务端实际转写地址/密钥/模型”和“桌面端感知的 provider/model”：前者用于服务端上游语音协议选择与调用，后者用于 `pcie` 设置页展示与策略选择。
 7. 服务端 AI / 语音上游出站请求允许通过 `floating-ball.ai.proxy.*` 配置显式走 HTTP 代理；在 macOS 开发环境下同时建议启用 Netty 的 native DNS 解析依赖，避免 Java 进程与终端 `curl` 的网络行为不一致。
-8. AI 配置页应提供“服务端到上游 LLM”的单独测试入口，用于区分“floating-ball -> server”链路故障与“server -> LLM”链路故障。
+8. AI 配置页应提供“服务端到上游 LLM”的单独测试入口，用于区分“pcie -> server”链路故障与“server -> LLM”链路故障。
 
 ## 10. 两慢病真实业务系统边界
 
@@ -547,7 +549,7 @@ GaussDB/openGauss 初始化：
 
 1. 桌面端取得 `idCard` 后，通过 HIS Adapter 的 `queryPatientVisitHistoryData` 查询正式业务数据，请求体为 `[{"idCard":"..."}]`。
 2. 医生确认随访后，通过 HIS Adapter 的 `saveTcdForm` 直接提交原始 `TcdVisitForm`；字段名、嵌套结构和字典值均以正式接口文档为准，不增加翻译层。
-3. `floating-ball-server` 不再提供 `/v1/client/chronic-disease/follow-ups` 和 `/v1/client/chronic-disease/artifact-snapshots`，也不校验、转存或返回慢病保存结果。
+3. `pcie-server` 不再提供 `/v1/client/chronic-disease/follow-ups` 和 `/v1/client/chronic-disease/artifact-snapshots`，也不校验、转存或返回慢病保存结果。
 4. 服务端不保留 `modules/chronicdisease`、`c_ai_chronic_followup`、`c_ai_chronic_artifact` 及其 Mapper、升级脚本和初始化基线。
 5. 健康处方和年度评估可由桌面端本地生成、医生确认并打印，但不向区域后端保存慢病快照。
 6. 已部署数据库中的历史冗余表应由 DBA 在备份和变更审批后一次性删除；仓库不保留长期 `DROP TABLE` 脚本。

@@ -18,9 +18,9 @@
     <description>Primary Care Intelligent Expert companion backend service</description>
 
     <scm>
-        <connection>scm:git:https://github.com/yangli216/floating-ball-server.git</connection>
-        <developerConnection>scm:git:https://github.com/yangli216/floating-ball-server.git</developerConnection>
-        <url>https://github.com/yangli216/floating-ball-server</url>
+        <connection>scm:git:https://github.com/yangli216/pcie-server.git</connection>
+        <developerConnection>scm:git:https://github.com/yangli216/pcie-server.git</developerConnection>
+        <url>https://github.com/yangli216/pcie-server</url>
         <tag>HEAD</tag>
     </scm>
 
