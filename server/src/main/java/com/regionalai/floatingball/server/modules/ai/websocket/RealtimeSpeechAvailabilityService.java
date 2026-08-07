@@ -6,6 +6,7 @@ import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.outbound.OutboundSecurityService;
 import com.regionalai.floatingball.server.common.outbound.OutboundSecurityService.OutboundCall;
 import com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.socket.CloseStatus;
@@ -38,6 +39,7 @@ public class RealtimeSpeechAvailabilityService {
     private final OutboundSecurityService outboundSecurityService;
     private final StandardWebSocketClient webSocketClient;
 
+    @Autowired
     public RealtimeSpeechAvailabilityService(ObjectMapper objectMapper,
                                              OutboundSecurityService outboundSecurityService) {
         this(objectMapper, outboundSecurityService, new StandardWebSocketClient());
@@ -112,6 +114,7 @@ public class RealtimeSpeechAvailabilityService {
         Map<String, Object> parameters = new LinkedHashMap<String, Object>();
         parameters.put("format", "pcm");
         parameters.put("sample_rate", 16000);
+        parameters.put("heartbeat", true);
 
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("task_group", "audio");

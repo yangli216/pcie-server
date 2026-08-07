@@ -1292,6 +1292,7 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 6. FunASR 上游返回的 `2pass-online` 文本作为实时临时结果，`2pass-offline` / `offline` 或 `is_final=true` 文本作为句末结果；部分原生部署在收到 `{is_speaking:false}` 后仍返回 `is_final=false`，服务端必须把结束请求后的首个 offline 结果视为最终结果并立即收口。桌面端协议保持不变。
 7. `qwen-audio-3.0-asr-flash-streaming` 使用本通道现有 `/api-ws/v1/inference` `run-task` 协议，是 DashScope 默认实时模型；模型名必须填写在 `speechModel`，不得填写在批量 `audioModel`。DashScope `qwen3-asr-flash-realtime` 属于另一套 `/api-ws/v1/realtime` session 协议，不属于当前代理通道；管理端保存该模型时必须明确提示协议不兼容，不得静默替换模型。
 8. 上游 WebSocket 地址同样走出站安全门；当前默认允许 `ws` / `wss`、私网地址与空 host 白名单，以适配医院内网实时语音上游；如需收紧，可显式关闭 `allow-insecure-http`、`allow-private-network` 并配置 `allowed-hosts`。
+9. DashScope `run-task.payload.parameters` 固定包含 `heartbeat: true`，与生产实时链路和管理端模型可用性探测保持一致。服务端收到上游 `task-failed` 或非主动关闭时返回一次 `error` 后关闭客户端连接；正常 `task-finished` 返回一次 `final` 后关闭连接。桌面端在仍处于录音状态时收到这些终止信号会自动重新建立本接口，重连期间暂存 PCM；发生过中断的整段录音在停止后通过 `POST /v1/ai/speech/realtime` 批量补录。
 
 客户端发送：
 

@@ -6,6 +6,7 @@ import com.regionalai.floatingball.server.common.outbound.OutboundSecurityProper
 import com.regionalai.floatingball.server.common.outbound.OutboundSecurityService;
 import com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.http.HttpHeaders;
 import org.springframework.util.concurrent.ListenableFuture;
 import org.springframework.util.concurrent.SettableListenableFuture;
@@ -29,6 +30,22 @@ import static org.mockito.Mockito.when;
 class RealtimeSpeechAvailabilityServiceTest {
 
     @Test
+    void shouldBeCreatedBySpringWithProductionConstructor() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.getBeanFactory().registerSingleton("objectMapper", new ObjectMapper());
+            context.getBeanFactory().registerSingleton(
+                "outboundSecurityService",
+                mock(OutboundSecurityService.class)
+            );
+            context.register(RealtimeSpeechAvailabilityService.class);
+
+            context.refresh();
+
+            assertThat(context.getBean(RealtimeSpeechAvailabilityService.class)).isNotNull();
+        }
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void runTaskPayloadShouldCarryDraftModelAndPcmParameters() {
         RealtimeSpeechAvailabilityService service = new RealtimeSpeechAvailabilityService(
@@ -50,6 +67,7 @@ class RealtimeSpeechAvailabilityServiceTest {
         assertThat(payload.get("model")).isEqualTo("qwen-audio-3.0-asr-flash-streaming");
         assertThat(parameters.get("format")).isEqualTo("pcm");
         assertThat(parameters.get("sample_rate")).isEqualTo(16000);
+        assertThat(parameters.get("heartbeat")).isEqualTo(true);
     }
 
     @Test
