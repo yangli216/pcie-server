@@ -1,6 +1,6 @@
 # 全医慧助服务端（PCIE Server）架构说明
 
-> 更新日期：2026-08-04
+> 更新日期：2026-08-07
 
 ## 1. 项目定位
 
@@ -253,9 +253,10 @@ pcie-server/
 4. 服务端应保留录音元数据（`mimeType`、`format`、`fileName`、`scene`）用于排障和审计，但不在日志中落原始音频内容
 5. 语音代理日志中的录音内容需要单独落为文件，默认写入 `floating-ball.audit.speech-file-dir` 指定目录；`c_ai_op_log` 只保存该录音文件路径，不把 base64 或二进制音频写入 `payload_json`
 6. 服务端批量访问语音上游时使用 `audio_base_url` / `audio_model` / `audio_api_key_encrypted`；语音独立密钥为空时回退主模型 `api_key_encrypted`。实时上游独立使用 `speech_realtime_url`，不得再把 WebSocket 地址填入 `audio_base_url`
-7. `speech_provider` / `speech_model` 作为 bootstrap 下发给桌面端的语音提供方与实时识别模型；`aliyun-dashscope` 默认使用 `qwen-audio-3.0-asr-flash-streaming`，通过 DashScope `/api-ws/v1/inference` 的 `run-task` 协议发送 16 kHz 单声道 PCM 二进制帧，服务端必须保留并实际上送管理员填写的兼容模型名，不得因模型名不在内置列表而静默回退默认值；`qwen3-asr-flash-realtime` 等使用 `/api-ws/v1/realtime` session 协议的模型应在保存时明确拒绝。`funasr-websocket` 使用 FunASR 原生 `2pass` 协议。FunASR 首帧固定声明 `pcm`、16 kHz、单声道采样，结束时发送 `is_speaking=false`，服务端把 `2pass-online` / `2pass-offline` / `offline` 结果归一化为桌面端既有 `text/final/error` 帧；结束请求后的 offline 帧即使携带 `is_final=false` 也必须触发最终收口
+7. `speech_provider` / `speech_model` 作为 bootstrap 下发给桌面端的语音提供方与实时识别模型；`aliyun-dashscope` 默认使用 `qwen-audio-3.0-asr-flash-streaming`，通过 DashScope `/api-ws/v1/inference` 的 `run-task` 协议发送 16 kHz 单声道 PCM 二进制帧，并在 `parameters` 中固定启用 `heartbeat=true`，避免长会话或静音窗口在约 60 秒边界被上游回收。服务端必须保留并实际上送管理员填写的兼容模型名，不得因模型名不在内置列表而静默回退默认值；`qwen3-asr-flash-realtime` 等使用 `/api-ws/v1/realtime` session 协议的模型应在保存时明确拒绝。`funasr-websocket` 使用 FunASR 原生 `2pass` 协议。FunASR 首帧固定声明 `pcm`、16 kHz、单声道采样，结束时发送 `is_speaking=false`，服务端把 `2pass-online` / `2pass-offline` / `offline` 结果归一化为桌面端既有 `text/final/error` 帧；结束请求后的 offline 帧即使携带 `is_final=false` 也必须触发最终收口
 8. 批量语音转写 HTTP 出站与实时语音 WebSocket 出站都必须经过同一 host allowlist、私网拦截、限流与熔断策略；`ws` 仅在 `allow-insecure-http=true` 时允许，生产公网链路应使用 `wss`
-9. 管理端语音可用性测试直接使用当前表单草稿且不保存配置：DashScope 实时测试建立 WebSocket 并等待 `task-started`，FunASR 实时测试验证握手，批量测试向实际上游发送极短静音 WAV；三类测试均复用统一出站安全门，且不得生成语音审计文件。
+9. 管理端语音可用性测试直接使用当前表单草稿且不保存配置：DashScope 实时测试建立 WebSocket、携带与生产一致的心跳参数并等待 `task-started`，FunASR 实时测试验证握手，批量测试向实际上游发送极短静音 WAV；三类测试均复用统一出站安全门，且不得生成语音审计文件。该快速探测只证明建链和模型启动成功，不代表超过 60 秒的持续识别已通过。
+10. 实时代理必须把上游 `task-failed` 的模型、任务 ID、错误码/错误信息以及上游关闭码写入服务日志，但不得记录音频内容或凭据。客户端主动关闭时先标记下游已关闭再清理上游，禁止上游关闭回调向已关闭客户端补发 `final`；上游非主动结束时只向客户端发送一次 `error` 或 `final` 并关闭下游，由桌面端重连。
 
 ### 5.3 审计链路
 

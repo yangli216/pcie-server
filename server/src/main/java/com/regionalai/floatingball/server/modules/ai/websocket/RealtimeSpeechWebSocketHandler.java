@@ -128,7 +128,7 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
         log.info("realtime speech ws: connection closed. sessionId={}, status={}", session.getId(), status);
         RealtimeProxySession proxySession = resolveProxySession(session);
         if (proxySession != null) {
-            proxySession.closeUpstream();
+            proxySession.onClientClosed(status);
         }
     }
 
@@ -137,8 +137,7 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
         log.error("realtime speech ws: transport error. sessionId={}, error={}", session.getId(), exception.getMessage());
         RealtimeProxySession proxySession = resolveProxySession(session);
         if (proxySession != null) {
-            proxySession.sendError("实时语音连接异常：" + exception.getMessage());
-            proxySession.closeUpstream();
+            proxySession.onClientTransportError(exception);
         }
     }
 
@@ -195,6 +194,10 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
         return payload;
     }
 
+    private String safeMessage(Throwable error) {
+        return error != null && StringUtils.hasText(error.getMessage()) ? error.getMessage() : "未知错误";
+    }
+
     private void sendJson(WebSocketSession session, Map<String, Object> payload) throws IOException {
         if (session.isOpen()) {
             session.sendMessage(new TextMessage(objectMapper.writeValueAsString(payload)));
@@ -217,6 +220,7 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
         private boolean finishRequested;
         private boolean finalSent;
         private boolean closed;
+        private boolean clientClosed;
 
         private RealtimeProxySession(WebSocketSession clientSession, ResolvedAiConfig config) {
             this.clientSession = clientSession;
@@ -254,7 +258,7 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
 
         private void onUpstreamConnectFailed(Throwable error) {
             markOutboundFailure(error);
-            sendError("实时语音连接失败：" + error.getMessage());
+            terminateWithError("实时语音连接失败：" + safeMessage(error), null, null);
         }
 
         private synchronized void forwardAudio(byte[] bytes) {
@@ -273,6 +277,20 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
             if (taskStarted && upstreamSession != null && upstreamSession.isOpen()) {
                 sendFinishMessage();
             }
+        }
+
+        private synchronized void onClientClosed(CloseStatus status) {
+            clientClosed = true;
+            log.info("realtime speech downstream closed. taskId={}, model={}, status={}",
+                taskId, resolveRealtimeModel(config), status);
+            closeUpstream();
+        }
+
+        private synchronized void onClientTransportError(Throwable error) {
+            clientClosed = true;
+            log.warn("realtime speech downstream transport error. taskId={}, model={}, error={}",
+                taskId, resolveRealtimeModel(config), safeMessage(error));
+            closeUpstream();
         }
 
         private synchronized void closeUpstream() {
@@ -322,17 +340,20 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
                     return;
                 }
                 if ("task-finished".equals(event)) {
+                    log.info("realtime speech upstream task finished. taskId={}, model={}",
+                        taskId, resolveRealtimeModel(config));
                     sendFinal();
                     closeUpstream();
+                    closeClient(CloseStatus.NORMAL);
                     return;
                 }
                 if ("task-failed".equals(event)) {
+                    String errorCode = header.path("error_code").asText("");
                     String message = header.path("error_message").asText(header.path("message").asText("DashScope 实时语音识别失败"));
-                    sendError(message);
-                    closeUpstream();
+                    terminateWithError(message, errorCode, null);
                 }
             } catch (Exception ex) {
-                sendError("DashScope 实时语音响应解析失败：" + ex.getMessage());
+                terminateWithError("DashScope 实时语音响应解析失败：" + safeMessage(ex), null, ex);
             }
         }
 
@@ -352,10 +373,18 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
             }
         }
 
-        private void onUpstreamClosed() {
-            if (!finalSent && clientSession.isOpen()) {
-                sendFinal();
+        private synchronized void onUpstreamClosed(CloseStatus status) {
+            log.info("realtime speech upstream closed. taskId={}, model={}, status={}, finishRequested={}, clientClosed={}",
+                taskId, resolveRealtimeModel(config), status, finishRequested, clientClosed);
+            if (clientClosed || finalSent) {
+                return;
             }
+            if (finishRequested) {
+                sendFinal();
+                closeClient(CloseStatus.NORMAL);
+                return;
+            }
+            terminateWithError("实时语音上游连接已关闭，请重新连接后继续识别", null, null);
         }
 
         private void sendStartMessage() throws IOException {
@@ -372,27 +401,9 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
         }
 
         private void sendRunTask() throws IOException {
-            Map<String, Object> header = new LinkedHashMap<String, Object>();
-            header.put("action", "run-task");
-            header.put("task_id", taskId);
-            header.put("streaming", "duplex");
-
-            Map<String, Object> parameters = new LinkedHashMap<String, Object>();
-            parameters.put("format", "pcm");
-            parameters.put("sample_rate", 16000);
-
-            Map<String, Object> body = new LinkedHashMap<String, Object>();
-            body.put("task_group", "audio");
-            body.put("task", "asr");
-            body.put("function", "recognition");
-            body.put("model", resolveRealtimeModel(config));
-            body.put("parameters", parameters);
-            body.put("input", Collections.emptyMap());
-
-            Map<String, Object> message = new LinkedHashMap<String, Object>();
-            message.put("header", header);
-            message.put("payload", body);
-            upstreamSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(message)));
+            upstreamSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(
+                buildDashScopeRunTaskPayload(resolveRealtimeModel(config), taskId)
+            )));
         }
 
         private void sendFinishMessage() {
@@ -429,7 +440,7 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
             try {
                 upstreamSession.sendMessage(new BinaryMessage(bytes));
             } catch (IOException ex) {
-                sendError("实时语音音频帧发送失败：" + ex.getMessage());
+                terminateWithError("实时语音音频帧发送失败：" + safeMessage(ex), null, ex);
             }
         }
 
@@ -456,6 +467,36 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
             sendClient(errorPayload(message));
         }
 
+        private synchronized void terminateWithError(String message, String errorCode, Throwable error) {
+            if (finalSent || clientClosed) {
+                return;
+            }
+            finalSent = true;
+            if (error != null) {
+                markOutboundFailure(error);
+            }
+            log.warn("realtime speech upstream failed. taskId={}, model={}, errorCode={}, message={}",
+                taskId, resolveRealtimeModel(config), StringUtils.hasText(errorCode) ? errorCode : "unknown", message);
+            sendError(message);
+            closeUpstream();
+            closeClient(CloseStatus.SERVER_ERROR);
+        }
+
+        private synchronized void closeClient(CloseStatus status) {
+            if (clientClosed) {
+                return;
+            }
+            clientClosed = true;
+            if (clientSession.isOpen()) {
+                try {
+                    clientSession.close(status);
+                } catch (IOException | IllegalStateException ex) {
+                    log.debug("realtime speech ws: failed to close downstream session. taskId={}, error={}",
+                        taskId, ex.getMessage());
+                }
+            }
+        }
+
         private void markOutboundSuccess() {
             if (outboundCall != null) {
                 outboundCall.success();
@@ -469,9 +510,12 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
         }
 
         private void sendClient(Map<String, Object> payload) {
+            if (clientClosed || !clientSession.isOpen()) {
+                return;
+            }
             try {
                 sendJson(clientSession, payload);
-            } catch (IOException ex) {
+            } catch (IOException | IllegalStateException ex) {
                 log.debug("realtime speech ws: failed to send client payload. error={}", ex.getMessage());
             }
         }
@@ -494,13 +538,37 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
 
         @Override
         public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-            proxySession.onUpstreamClosed();
+            proxySession.onUpstreamClosed(status);
         }
 
         @Override
         public void handleTransportError(WebSocketSession session, Throwable exception) {
-            proxySession.markOutboundFailure(exception);
-            proxySession.sendError("实时语音连接异常：" + exception.getMessage());
+            proxySession.terminateWithError("实时语音连接异常：" + safeMessage(exception), null, exception);
         }
+    }
+
+    Map<String, Object> buildDashScopeRunTaskPayload(String model, String taskId) {
+        Map<String, Object> header = new LinkedHashMap<String, Object>();
+        header.put("action", "run-task");
+        header.put("task_id", taskId);
+        header.put("streaming", "duplex");
+
+        Map<String, Object> parameters = new LinkedHashMap<String, Object>();
+        parameters.put("format", "pcm");
+        parameters.put("sample_rate", 16000);
+        parameters.put("heartbeat", true);
+
+        Map<String, Object> body = new LinkedHashMap<String, Object>();
+        body.put("task_group", "audio");
+        body.put("task", "asr");
+        body.put("function", "recognition");
+        body.put("model", model);
+        body.put("parameters", parameters);
+        body.put("input", Collections.emptyMap());
+
+        Map<String, Object> message = new LinkedHashMap<String, Object>();
+        message.put("header", header);
+        message.put("payload", body);
+        return message;
     }
 }
