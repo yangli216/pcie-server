@@ -392,6 +392,7 @@ public class UserConsultationLogService {
         entity.setHisOrgId(firstNonBlank(request.getHisOrgId(), entity.getHisOrgId()));
         entity.setNaOrg(firstNonBlank(request.getOrgName(), entity.getNaOrg()));
         entity.setIdDoctor(firstNonBlank(request.getDoctorId(), entity.getIdDoctor()));
+        entity.setDoctorWorkNo(firstNonBlank(request.getDoctorWorkNo(), entity.getDoctorWorkNo()));
         entity.setNaDoctor(firstNonBlank(request.getDoctorName(), entity.getNaDoctor()));
         entity.setIdDept(firstNonBlank(request.getDeptId(), entity.getIdDept()));
         entity.setNaDept(firstNonBlank(request.getDeptName(), entity.getNaDept()));
@@ -565,6 +566,7 @@ public class UserConsultationLogService {
             item.setHisOrgId(record.getHisOrgId());
             item.setNaOrg(record.getNaOrg());
             item.setIdDoctor(record.getIdDoctor());
+            item.setDoctorWorkNo(record.getDoctorWorkNo());
             item.setNaDoctor(record.getNaDoctor());
             item.setConsultationType(record.getConsultationType());
             item.setConsultationTime(record.getConsultationTime());

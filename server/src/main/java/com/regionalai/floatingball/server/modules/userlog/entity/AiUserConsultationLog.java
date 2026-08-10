@@ -40,6 +40,9 @@ public class AiUserConsultationLog extends BaseEntity {
     @TableField("id_doctor")
     private String idDoctor;
 
+    @TableField("cd_doctor")
+    private String doctorWorkNo;
+
     @TableField("na_doctor")
     private String naDoctor;
 

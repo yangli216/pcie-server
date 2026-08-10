@@ -68,7 +68,11 @@ public class ClientController {
     public ApiResponse<HeartbeatResponse> heartbeat(@RequestBody(required = false) HeartbeatRequest request,
                                                     HttpServletRequest httpServletRequest) {
         AiDevice device = DeviceContextHolder.get();
-        deviceService.heartbeat(device, ClientIpUtils.resolve(httpServletRequest));
+        deviceService.heartbeat(
+            device,
+            ClientIpUtils.resolve(httpServletRequest),
+            httpServletRequest.getHeader("X-Client-Version")
+        );
         return ApiResponse.success(new HeartbeatResponse("ok", System.currentTimeMillis()), RequestIdUtils.resolve(httpServletRequest));
     }
 

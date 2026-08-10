@@ -5,6 +5,7 @@ import com.regionalai.floatingball.server.modules.device.entity.AiDevice;
 import com.regionalai.floatingball.server.modules.device.service.DeviceService;
 import com.regionalai.floatingball.server.modules.release.service.ReleaseService;
 import com.regionalai.floatingball.server.modules.security.service.SecurityRejectionLogService;
+import com.regionalai.floatingball.server.security.nonce.InMemoryNonceStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
@@ -45,7 +46,7 @@ class DeviceAuthFilterTest {
         filter = new DeviceAuthFilter(
             deviceService,
             releaseService,
-            new RequestSignatureVerifier(),
+            new RequestSignatureVerifier(new InMemoryNonceStore()),
             rejectionLogService,
             new ObjectMapper()
         );
@@ -110,6 +111,37 @@ class DeviceAuthFilterTest {
 
         assertEquals(200, response.getStatus());
         verify(rejectionLogService, never()).logRejection(any());
+    }
+
+    @Test
+    void shouldReturnSecurity503WhenNonceStoreIsUnavailable() throws Exception {
+        RequestSignatureVerifier signatureVerifier = mock(RequestSignatureVerifier.class);
+        when(signatureVerifier.verify(
+            any(), any(), any(), any(), any(), any(), any(), any()
+        )).thenReturn(RequestSignatureVerifier.VerificationResult.storeUnavailable());
+        filter = new DeviceAuthFilter(
+            deviceService,
+            releaseService,
+            signatureVerifier,
+            rejectionLogService,
+            new ObjectMapper()
+        );
+
+        String body = "{\"message\":\"hello\"}";
+        String bodyHash = sha256Hex(body);
+        MockHttpServletRequest request = signedRequest(body, bodyHash, bodyHash);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        when(deviceService.findActiveByToken("token-1")).thenReturn(device());
+        when(releaseService.isUpdateRequired(eq("production"), eq("1.0.0"))).thenReturn(false);
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertEquals(503, response.getStatus());
+        assertEquals("SECURITY-503",
+            new ObjectMapper().readTree(response.getContentAsString()).get("code").asText());
+        assertEquals("1", response.getHeader("Retry-After"));
+        verify(rejectionLogService).logRejection(any());
     }
 
     private AiDevice device() {

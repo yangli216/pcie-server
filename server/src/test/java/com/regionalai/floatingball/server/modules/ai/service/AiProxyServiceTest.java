@@ -2,6 +2,8 @@ package com.regionalai.floatingball.server.modules.ai.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
+import com.regionalai.floatingball.server.common.exception.ServiceBusyException;
+import com.regionalai.floatingball.server.common.metrics.AiProxyMetrics;
 import com.regionalai.floatingball.server.common.outbound.OutboundSecurityProperties;
 import com.regionalai.floatingball.server.common.outbound.OutboundSecurityService;
 import com.regionalai.floatingball.server.modules.ai.dto.ChatRequest;
@@ -11,21 +13,37 @@ import com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig;
 import com.regionalai.floatingball.server.modules.config.service.ConfigService;
 import com.regionalai.floatingball.server.modules.device.entity.AiDevice;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.core.task.support.TaskExecutorAdapter;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.RequestCallback;
+import org.springframework.web.client.ResponseExtractor;
 import org.springframework.web.client.RestTemplate;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.apache.http.conn.ConnectionPoolTimeoutException;
 
 import java.lang.reflect.Constructor;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
@@ -279,7 +297,8 @@ class AiProxyServiceTest {
             restTemplate,
             new ObjectMapper(),
             new OutboundSecurityService(properties),
-            Runnable::run
+            new TaskExecutorAdapter(Runnable::run),
+            AiProxyMetrics.noop()
         );
 
         upstream.expect(requestTo("http://127.0.0.1:18080/compatible-mode/v1/chat/completions"))
@@ -300,6 +319,174 @@ class AiProxyServiceTest {
         upstream.verify();
     }
 
+    @Test
+    void streamCancellationClosesBodyAndRemovesQueuedFuture() throws Exception {
+        ThreadPoolTaskExecutor executor = singleThreadExecutor();
+        CountDownLatch running = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        executor.submit(() -> await(running, release));
+        assertThat(running.await(2, TimeUnit.SECONDS)).isTrue();
+        Future<?> queued = executor.submit(() -> { });
+        Class<?> lifecycleClass = Class.forName(
+            "com.regionalai.floatingball.server.modules.ai.service.AiProxyService$StreamLifecycle"
+        );
+        Constructor<?> constructor = lifecycleClass.getDeclaredConstructor(AsyncTaskExecutor.class);
+        constructor.setAccessible(true);
+        Object lifecycle = constructor.newInstance(executor);
+        CloseAwareInputStream body = new CloseAwareInputStream();
+
+        ReflectionTestUtils.invokeMethod(lifecycle, "attach", queued);
+        ReflectionTestUtils.invokeMethod(lifecycle, "attach", body);
+        Boolean cancelled = ReflectionTestUtils.invokeMethod(lifecycle, "cancel");
+
+        assertThat(cancelled).isTrue();
+        assertThat(body.closed).isTrue();
+        assertThat(queued.isCancelled()).isTrue();
+        assertThat(executor.getThreadPoolExecutor().getQueue()).isEmpty();
+        release.countDown();
+        executor.shutdown();
+    }
+
+    @Test
+    void rejectedChatStreamDoesNotResolveConfigurationBeforeAdmission() {
+        ConfigService configService = mock(ConfigService.class);
+        AsyncTaskExecutor rejecting = new TaskExecutorAdapter(command -> {
+            throw new java.util.concurrent.RejectedExecutionException("full");
+        });
+        AiProxyService service = new AiProxyService(
+            configService,
+            mock(AuditService.class),
+            new RestTemplate(),
+            new ObjectMapper(),
+            mock(OutboundSecurityService.class),
+            rejecting,
+            AiProxyMetrics.noop()
+        );
+        ChatRequest request = new ChatRequest();
+        request.setStream(Boolean.TRUE);
+
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter = service.chatStream(new AiDevice(), request);
+
+        assertThat(emitter.getTimeout()).isEqualTo(130000L);
+        verifyNoInteractions(configService);
+    }
+
+    @Test
+    void streamErrorFrameMarksOutboundAndMetricsAsFailedWithoutThrowingAnotherFrame() throws Exception {
+        ConfigService configService = mock(ConfigService.class);
+        ResolvedAiConfig resolved = new ResolvedAiConfig();
+        resolved.setBaseUrl("http://localhost/v1");
+        resolved.setApiKey("main-key");
+        resolved.setModel("main-model");
+        when(configService.resolveByDevice(any(AiDevice.class))).thenReturn(resolved);
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer upstream = MockRestServiceServer.bindTo(restTemplate).build();
+        String endpoint = "http://localhost/v1/chat/completions";
+        upstream.expect(requestTo(endpoint)).andRespond(withSuccess(
+            "data: {\"error\":{\"message\":\"upstream overloaded\"}}\n\ndata: [DONE]\n\n",
+            MediaType.TEXT_EVENT_STREAM
+        ));
+        OutboundSecurityProperties outboundProperties = new OutboundSecurityProperties();
+        outboundProperties.setCircuitFailureThreshold(1);
+        outboundProperties.setCircuitOpenMs(60000L);
+        OutboundSecurityService outboundSecurity = new OutboundSecurityService(outboundProperties);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        AiProxyMetrics metrics = new AiProxyMetrics(registry);
+        AiProxyService service = new AiProxyService(
+            configService,
+            mock(AuditService.class),
+            restTemplate,
+            new ObjectMapper(),
+            outboundSecurity,
+            new TaskExecutorAdapter(Runnable::run),
+            metrics
+        );
+        ChatRequest request = new ChatRequest();
+        request.setStream(Boolean.TRUE);
+        request.setMessages(Collections.<Map<String, Object>>emptyList());
+
+        service.chatStream(new AiDevice(), request);
+
+        upstream.verify();
+        verify(configService, times(1)).resolveByDevice(any(AiDevice.class));
+        assertThat(registry.get("pcie.ai.proxy.requests")
+            .tags("mode", "stream", "outcome", "failed").counter().count()).isEqualTo(1D);
+        assertThat(registry.find("pcie.ai.proxy.requests")
+            .tags("mode", "stream", "outcome", "succeeded").counter()).isNull();
+        assertThatThrownBy(() -> outboundSecurity.acquireHttp(endpoint, "ai-chat-stream"))
+            .isInstanceOf(BusinessException.class)
+            .hasMessage("上游服务暂时不可用，请稍后重试");
+    }
+
+    @Test
+    void nonStreamingConnectionPoolTimeoutReturnsBusyInsteadOfBusinessFailure() {
+        ConfigService configService = mock(ConfigService.class);
+        ResolvedAiConfig resolved = mainConfig("http://localhost/v1");
+        when(configService.resolveByDevice(any(AiDevice.class))).thenReturn(resolved);
+        OutboundSecurityService outboundSecurity = new OutboundSecurityService(new OutboundSecurityProperties());
+        AiProxyService service = new AiProxyService(
+            configService,
+            mock(AuditService.class),
+            new PoolExhaustedRestTemplate(),
+            new ObjectMapper(),
+            outboundSecurity,
+            new TaskExecutorAdapter(Runnable::run),
+            AiProxyMetrics.noop()
+        );
+        ChatRequest request = new ChatRequest();
+        request.setMessages(Collections.<Map<String, Object>>emptyList());
+
+        assertThatThrownBy(() -> service.chat(new AiDevice(), request))
+            .isInstanceOf(ServiceBusyException.class)
+            .extracting("code", "retryAfterSeconds")
+            .containsExactly("AI-BUSY", 1);
+
+        assertThat(outboundSecurity.acquireHttp("http://localhost/v1/chat/completions", "ai-chat")).isNotNull();
+    }
+
+    @Test
+    void streamingConnectionPoolTimeoutSendsControlledBusyFrames() {
+        ConfigService configService = mock(ConfigService.class);
+        when(configService.resolveByDevice(any(AiDevice.class))).thenReturn(mainConfig("http://localhost/v1"));
+        OutboundSecurityService outboundSecurity = new OutboundSecurityService(new OutboundSecurityProperties());
+        AiProxyService service = new AiProxyService(
+            configService,
+            mock(AuditService.class),
+            new PoolExhaustedRestTemplate(),
+            new ObjectMapper(),
+            outboundSecurity,
+            new TaskExecutorAdapter(Runnable::run),
+            AiProxyMetrics.noop()
+        );
+        ChatRequest request = new ChatRequest();
+        request.setMessages(Collections.<Map<String, Object>>emptyList());
+
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter = service.chatStream(new AiDevice(), request);
+
+        assertThat(earlyFramePayload(emitter)).contains("AI连接资源繁忙，请稍后重试").contains("[DONE]");
+        assertThat(outboundSecurity.acquireHttp("http://localhost/v1/chat/completions", "ai-chat-stream")).isNotNull();
+    }
+
+    @Test
+    void admittedStreamConfigurationErrorUsesSseErrorContract() {
+        ConfigService configService = mock(ConfigService.class);
+        when(configService.resolveByDevice(any(AiDevice.class))).thenThrow(new BusinessException("未配置 AI 服务地址"));
+        AiProxyService service = new AiProxyService(
+            configService,
+            mock(AuditService.class),
+            new RestTemplate(),
+            new ObjectMapper(),
+            mock(OutboundSecurityService.class),
+            new TaskExecutorAdapter(Runnable::run),
+            AiProxyMetrics.noop()
+        );
+
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter = service.chatStream(new AiDevice(), new ChatRequest());
+
+        assertThat(earlyFramePayload(emitter)).contains("未配置 AI 服务地址").contains("[DONE]");
+        verify(configService, times(1)).resolveByDevice(any(AiDevice.class));
+    }
+
     private AiProxyService newService(ConfigService configService, AuditService auditService) {
         return new AiProxyService(
             configService,
@@ -307,7 +494,73 @@ class AiProxyServiceTest {
             new RestTemplate(),
             new ObjectMapper(),
             mock(OutboundSecurityService.class),
-            Runnable::run
+            new TaskExecutorAdapter(Runnable::run),
+            AiProxyMetrics.noop()
         );
+    }
+
+    private ResolvedAiConfig mainConfig(String baseUrl) {
+        ResolvedAiConfig resolved = new ResolvedAiConfig();
+        resolved.setBaseUrl(baseUrl);
+        resolved.setApiKey("main-key");
+        resolved.setModel("main-model");
+        return resolved;
+    }
+
+    private String earlyFramePayload(org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter) {
+        Set<?> earlyFrames = (Set<?>) ReflectionTestUtils.getField(emitter, "earlySendAttempts");
+        StringBuilder payload = new StringBuilder();
+        for (Object frame : earlyFrames) {
+            payload.append(String.valueOf(ReflectionTestUtils.getField(frame, "data")));
+        }
+        return payload.toString();
+    }
+
+    private ThreadPoolTaskExecutor singleThreadExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(1);
+        executor.initialize();
+        return executor;
+    }
+
+    private void await(CountDownLatch running, CountDownLatch release) {
+        running.countDown();
+        try {
+            release.await();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static final class CloseAwareInputStream extends ByteArrayInputStream {
+
+        private boolean closed;
+
+        private CloseAwareInputStream() {
+            super(new byte[] { 1 });
+        }
+
+        @Override
+        public void close() throws IOException {
+            closed = true;
+            super.close();
+        }
+    }
+
+    private static final class PoolExhaustedRestTemplate extends RestTemplate {
+
+        @Override
+        public <T> T execute(String url,
+                             HttpMethod method,
+                             RequestCallback requestCallback,
+                             ResponseExtractor<T> responseExtractor,
+                             Object... uriVariables) {
+            throw new org.springframework.web.client.ResourceAccessException(
+                "connection pool exhausted",
+                new ConnectionPoolTimeoutException("timeout waiting for connection")
+            );
+        }
     }
 }

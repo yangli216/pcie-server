@@ -1,9 +1,11 @@
 package com.regionalai.floatingball.server.modules.ai.websocket;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.regionalai.floatingball.server.common.metrics.RealtimeSpeechMetrics;
 import com.regionalai.floatingball.server.common.outbound.OutboundSecurityService;
 import com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig;
 import com.regionalai.floatingball.server.modules.config.service.ConfigService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -16,11 +18,7 @@ class RealtimeSpeechWebSocketHandlerTest {
 
     @Test
     void shouldUseQwenAudioStreamingAsDefaultDashScopeModel() {
-        RealtimeSpeechWebSocketHandler handler = new RealtimeSpeechWebSocketHandler(
-            mock(ConfigService.class),
-            new ObjectMapper(),
-            mock(OutboundSecurityService.class)
-        );
+        RealtimeSpeechWebSocketHandler handler = newHandler();
         ResolvedAiConfig config = new ResolvedAiConfig();
         config.setSpeechProvider("aliyun-dashscope");
 
@@ -31,11 +29,7 @@ class RealtimeSpeechWebSocketHandlerTest {
 
     @Test
     void shouldKeepExplicitQwenAudioStreamingModel() {
-        RealtimeSpeechWebSocketHandler handler = new RealtimeSpeechWebSocketHandler(
-            mock(ConfigService.class),
-            new ObjectMapper(),
-            mock(OutboundSecurityService.class)
-        );
+        RealtimeSpeechWebSocketHandler handler = newHandler();
         ResolvedAiConfig config = new ResolvedAiConfig();
         config.setSpeechProvider("aliyun-dashscope");
         config.setSpeechModel("qwen-audio-3.0-asr-flash-streaming");
@@ -48,11 +42,7 @@ class RealtimeSpeechWebSocketHandlerTest {
     @Test
     @SuppressWarnings("unchecked")
     void shouldEnableHeartbeatForDashScopeRunTask() {
-        RealtimeSpeechWebSocketHandler handler = new RealtimeSpeechWebSocketHandler(
-            mock(ConfigService.class),
-            new ObjectMapper(),
-            mock(OutboundSecurityService.class)
-        );
+        RealtimeSpeechWebSocketHandler handler = newHandler();
 
         Map<String, Object> message = handler.buildDashScopeRunTaskPayload(
             "qwen-audio-3.0-asr-flash-streaming",
@@ -64,5 +54,17 @@ class RealtimeSpeechWebSocketHandlerTest {
         assertThat(parameters.get("heartbeat")).isEqualTo(true);
         assertThat(parameters.get("format")).isEqualTo("pcm");
         assertThat(parameters.get("sample_rate")).isEqualTo(16000);
+    }
+
+    private RealtimeSpeechWebSocketHandler newHandler() {
+        return new RealtimeSpeechWebSocketHandler(
+            mock(ConfigService.class),
+            new ObjectMapper(),
+            mock(OutboundSecurityService.class),
+            new RealtimeSpeechMetrics(new SimpleMeterRegistry()),
+            64,
+            2 * 1024 * 1024,
+            10_000L
+        );
     }
 }

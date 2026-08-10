@@ -18,25 +18,29 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AiUserConsultationLogMapperTest {
 
     @Test
-    void mapperShouldKeepLatestUserNameQueryContract() throws Exception {
+    void mapperShouldKeepLatestUserIdentityQueryContract() throws Exception {
         assertTrue(AiUserConsultationLogMapper.class.isAnnotationPresent(Mapper.class));
 
-        Method method = AiUserConsultationLogMapper.class.getMethod("selectLatestUserNames", List.class);
+        Method method = AiUserConsultationLogMapper.class.getMethod("selectLatestUserIdentities", List.class);
         SelectProvider provider = method.getAnnotation(SelectProvider.class);
         assertEquals(UserConsultationLogSqlProvider.class, provider.type());
-        assertEquals("selectLatestUserNames", provider.method());
+        assertEquals("selectLatestUserIdentities", provider.method());
 
         Parameter parameter = method.getParameters()[0];
         assertEquals("deviceIds", parameter.getAnnotation(Param.class).value());
     }
 
     @Test
-    void providerShouldSelectLatestNonBlankNameForEachDevice() {
-        String sql = new UserConsultationLogSqlProvider().selectLatestUserNames();
+    void providerShouldSelectLatestNonBlankDoctorIdentityForEachDevice() {
+        String sql = new UserConsultationLogSqlProvider().selectLatestUserIdentities();
 
         assertTrue(sql.contains("ROW_NUMBER() OVER (PARTITION BY ucl.id_device"));
         assertTrue(sql.contains("ORDER BY ucl.consultation_time DESC, ucl.id_log DESC"));
         assertTrue(sql.contains("LENGTH(TRIM(ucl.na_doctor)) &gt; 0"));
+        assertTrue(sql.contains("LENGTH(TRIM(ucl.cd_doctor)) &gt; 0"));
+        assertTrue(sql.contains("ucl.cd_doctor AS doctorWorkNo"));
+        assertTrue(!sql.contains("ucl.id_doctor AS doctorWorkNo"));
+        assertTrue(sql.contains("ucl.consultation_time AS consultationTime"));
         assertTrue(sql.contains("<foreach collection='deviceIds'"));
         assertTrue(sql.contains("<otherwise>AND 1 = 0</otherwise>"));
         assertTrue(sql.contains(") latest WHERE rowNumber = 1"));

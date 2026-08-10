@@ -70,6 +70,8 @@ BODY_SHA256
 6. 客户端收到 `SIG-401` 且响应带 `timestamp` 时，应先用该服务端时间刷新本地签名偏移并重签重试一次；仍失败时再按设备令牌或密钥异常处理。
 7. 管理端停用设备令牌后，服务端必须同时阻止同机构同 `cdDevice` 通过 `/v1/client/register` 匿名重新注册，避免旧客户端在令牌失效后自动领取新令牌继续使用。
 8. 管理端删除设备令牌只用于异常设备重置：删除会移除该令牌记录并释放同机构同 `cdDevice`，允许客户端重新注册并领取新令牌；若目标是封禁旧客户端，必须使用停用而不是删除。
+9. `X-Nonce` 最大 64 个字符，并按设备在 HTTP 与实时语音 WebSocket 之间共同唯一；集群模式通过数据库唯一约束原子登记，同一已签名请求不能在不同节点各通过一次。
+10. nonce 只在 ECDSA 验签成功后登记。重放仍返回 `SIG-401`；集群 nonce 存储不可用时返回 HTTP 503、`SECURITY-503`，客户端只可稍后使用新的时间戳、nonce 和签名重试，不得按密钥失效触发重新注册。
 
 ### 2.2 管理端接口
 
@@ -295,18 +297,18 @@ BODY_SHA256
         "target": "darwin-aarch64",
         "fileName": "PCIE_1.2.13_aarch64.app.tar.gz",
         "fileSize": 12345678,
-        "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.13_aarch64.app.tar.gz"
+        "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/1.2.13/darwin-aarch64/PCIE_1.2.13_aarch64.app.tar.gz"
       },
       {
         "target": "windows-x86_64",
         "fileName": "PCIE_1.2.13_x64-setup.nsis.zip",
         "fileSize": 23456789,
-        "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/windows-x86_64/PCIE_1.2.13_x64-setup.nsis.zip"
+        "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/1.2.13/windows-x86_64/PCIE_1.2.13_x64-setup.nsis.zip"
       }
     ],
     "target": "darwin-aarch64",
     "fileName": "PCIE_1.2.13_aarch64.app.tar.gz",
-    "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.13_aarch64.app.tar.gz",
+    "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/1.2.13/darwin-aarch64/PCIE_1.2.13_aarch64.app.tar.gz",
     "latestJsonUrl": "http://127.0.0.1:8080/v1/client/releases/production/latest.json",
     "policyUrl": "http://127.0.0.1:8080/v1/client/releases/production/policy.json",
     "pubDate": "2026-04-24T10:00:00Z",
@@ -342,7 +344,7 @@ BODY_SHA256
 
 说明：运维推荐只选择 `latest.json` 与对应安装包文件；`version`、`target`、`signature` 仅作为解析失败或多平台歧义时的兜底覆盖项。安装包文件名必须与 `latest.json.platforms.{target}.url` 中的文件名一致，例如签名对应 `PCIE.app.tar.gz` 时不能上传 `PCIE.dmg`，否则 Tauri updater 会签名校验失败。勾选强制更新前，必须确认该通道所有实际部署平台的安装包均已上传到当前 `latest.json`，否则旧客户端会被禁止使用但无法下载对应平台更新。
 
-部署说明：生产/内网环境推荐设置 `FB_RELEASE_PUBLIC_BASE_URL=http://后端内网IP:8080`，确保管理端展示、复制的更新源以及 `latest.json` 内下载地址都不出现 `localhost`。
+部署说明：生产集群必须设置 `FB_RELEASE_PUBLIC_BASE_URL=https://负载均衡域名`，确保管理端展示、复制的更新源以及 `latest.json` 内下载地址都固定指向 HTTPS 集群入口，不依赖某个节点或 `localhost`。
 
 首次安装说明：管理员上传当前通道安装包后，管理端“版本发布”列表会展示 `downloadUrl`，可直接复制给新电脑浏览器下载；也可访问 `/client-download?channel=production` 打开公开下载页，由使用者按平台选择安装包。
 
@@ -355,7 +357,7 @@ BODY_SHA256
   "target": "darwin-aarch64",
   "fileName": "PCIE_1.2.13_aarch64.dmg",
   "fileSize": 12345678,
-  "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.13_aarch64.dmg",
+  "downloadUrl": "http://127.0.0.1:8080/v1/client/releases/production/files/1.2.13/darwin-aarch64/PCIE_1.2.13_aarch64.dmg",
   "latestJsonUrl": "http://127.0.0.1:8080/v1/client/releases/production/latest.json",
   "policyUrl": "http://127.0.0.1:8080/v1/client/releases/production/policy.json",
   "pubDate": "2026-04-24T10:00:00Z",
@@ -459,7 +461,7 @@ BODY_SHA256
 
 1. 该页面不需要设备令牌或管理员令牌，只展示当前通道的版本号、发布时间、平台 target、文件名和下载按钮。
 2. 若当前通道尚未上传安装包，页面展示“暂无可下载客户端”，并保留正式/测试通道切换入口。
-3. 下载按钮指向同一套公开文件接口：`/v1/client/releases/{channel}/files/{target}/{fileName}`。
+3. 下载按钮指向同一套公开不可变文件接口：`/v1/client/releases/{channel}/files/{version}/{target}/{fileName}`。
 
 ### 3.8 客户端检查更新策略
 
@@ -522,7 +524,7 @@ Content-Type: application/json
   "platforms": {
     "darwin-aarch64": {
       "signature": "...",
-      "url": "http://127.0.0.1:8080/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.13_aarch64.dmg"
+      "url": "http://127.0.0.1:8080/v1/client/releases/production/files/1.2.13/darwin-aarch64/PCIE_1.2.13_aarch64.dmg"
     }
   }
 }
@@ -530,9 +532,11 @@ Content-Type: application/json
 
 ### 3.10 客户端下载安装包
 
-`GET /v1/client/releases/{channel}/files/{target}/{fileName}`
+`GET /v1/client/releases/{channel}/files/{version}/{target}/{fileName}`
 
-用途：公开下载指定通道和平台的安装包文件，供 Tauri updater 下载。
+用途：公开下载指定通道、版本和平台的不可变安装包文件，供 Tauri updater 下载。服务端仍保留不含 `{version}` 的旧路径用于兼容已有元数据和旧目录安装包；只有对应版本目录中的文件真实存在时才重写为带版本路径，历史旧版本回滚后仍保持旧下载路径可用。
+
+发布一致性：`latest.json` 与 `policy.json` 响应由同一份原子当前发布状态派生，两者不能分别成为事实源。兼容缓存刷新失败时，已提交状态仍同时包含同版本安装包元数据与强更策略，其他节点读取不会观察到永久分裂状态。
 
 ## 4. 客户端接口
 
@@ -579,7 +583,7 @@ Content-Type: application/json
 
 ### 3.2 POST `/v1/client/heartbeat`
 
-用途：设备心跳保活。
+用途：设备心跳保活。服务端同时使用已签名请求头 `X-Client-Version` 刷新设备表客户端版本；请求头为空时保留原版本。管理端“客户端使用情况”据此展示最近一次心跳确认的客户端版本。
 
 请求体允许为空，兼容当前客户端也允许带 `idDevice`。
 
@@ -1030,6 +1034,7 @@ AI 调用类 `operation` 事件补充约束：
   "patientGender": "男",
   "patientAge": "45岁",
   "doctorId": "D001",
+  "doctorWorkNo": "0123",
   "doctorName": "张医生",
   "orgCode": "HIS_ORG_CODE",
   "hisOrgId": "HIS_ORG_001",
@@ -1087,7 +1092,7 @@ AI 调用类 `operation` 事件补充约束：
 4. 若同一就诊在回写或放弃后再次发起智能问诊/语音问诊，客户端必须生成新的 `consultationRoundId`，服务端据此创建新的用户日志记录。客户端不需要上报每一次中间编辑，最终快照只代表医生提交/回写或放弃时的最终状态。
 5. `speechText` / `audio` 仅用于语音问诊输入复盘；`audio` 为 base64，不带 Data URL 前缀。`audioFormat` 可选，用于在 `audioMimeType` 缺失时辅助推断文件扩展名。服务端把音频落到 `floating-ball.audit.speech-file-dir`，数据库只保存文件路径、MIME、文件名和大小，不把原始 base64 写入快照 JSON。
 6. `idOrg` 由设备鉴权解析出的后台机构 ID 持久化，用于后台配置、权限范围和平台机构筛选；`hisOrgId` 表示 HIS 端机构 ID，桌面端只能取 SDK handshake `urt.userRoleDepts.orgId`，服务端持久化到 `id_his_org`，用于问诊来源追踪和 HIS 机构统计，不再覆盖 `id_org`，也不再用 `orgCode` 兜底。
-7. `orgName` 桌面端取 SDK handshake `urt.orgPureName`；`deptId` 取 `urt.userRoleDepts.deptId`。
+7. `doctorWorkNo` 桌面端只取 SDK handshake 的真实人员编码 `urt.personCd`，服务端持久化到 `c_ai_user_consultation_log.cd_doctor`；不得用 `doctorId`、`urt.userId / personId / idDoctor` 等内部主键或后台管理员账号兜底。`orgName` 取 `urt.orgPureName`；`deptId` 取 `urt.userRoleDepts.deptId`。
 8. `firstSnapshot` 与 `finalSnapshot` 的病历字段统一包含 `chiefComplaint`、`historyOfPresentIllness`、`pastMedicalHistory`、`personalHistory`、`familyHistory`、`physicalExam`、`precautions`；管理端按这 7 个字段展示首版内容与最终差异。旧客户端缺失新增字段时按空文本兼容。
 
 ### 3.12 POST `/v1/client/feedbacks`
@@ -1189,6 +1194,10 @@ AI 调用类 `operation` 事件补充约束：
 3. 实际生效的主模型 / 快速模型 / 审查模型与 `enableThinking` 开关以服务端当前配置解析结果为准；客户端不应依赖缓存的 `model` 值覆盖服务端配置
 4. 若上游模型服务返回 4xx / 5xx，服务端应尽量提取上游响应体中的可读错误消息，并作为当前接口错误消息返回，避免只暴露 WebClient 堆栈
 5. 实际访问上游前必须通过出站 host allowlist、私网拦截、限流与熔断校验；流式 SSE 由服务端有界线程池转发，上游或线程池拥塞时返回错误帧并结束流。
+6. 非流式请求由有界 AI 执行器异步承载；执行器或连接池饱和时返回 HTTP 503、`AI-BUSY`，处理超过节点异步时限时返回 HTTP 503、`AI-TIMEOUT`；响应仍使用统一 `ApiResponse`，并携带 `Retry-After`。
+7. 流式请求继续使用 OpenAI 风格 SSE；节点拥塞时发送 `error` 数据帧和 `[DONE]` 后结束，不把 JSON 错误外壳混入 SSE。
+8. 客户端断开、SSE 超时或服务端取消时，服务端必须终止排队/执行任务并关闭对应上游读取，不能继续生成无消费者结果。
+9. 当前 `pcie` 的默认重试会对 503 再尝试最多 3 次，且尚未读取 `Retry-After` 或加入 jitter；服务端的有界池能够保护节点，但不能把这一最坏四倍请求放大解释为全部成功容量。正式容量验收必须使用客户端真实重试行为，后续调整客户端时再同步本契约。
 
 请求：
 
@@ -1292,7 +1301,11 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 6. FunASR 上游返回的 `2pass-online` 文本作为实时临时结果，`2pass-offline` / `offline` 或 `is_final=true` 文本作为句末结果；部分原生部署在收到 `{is_speaking:false}` 后仍返回 `is_final=false`，服务端必须把结束请求后的首个 offline 结果视为最终结果并立即收口。桌面端协议保持不变。
 7. `qwen-audio-3.0-asr-flash-streaming` 使用本通道现有 `/api-ws/v1/inference` `run-task` 协议，是 DashScope 默认实时模型；模型名必须填写在 `speechModel`，不得填写在批量 `audioModel`。DashScope `qwen3-asr-flash-realtime` 属于另一套 `/api-ws/v1/realtime` session 协议，不属于当前代理通道；管理端保存该模型时必须明确提示协议不兼容，不得静默替换模型。
 8. 上游 WebSocket 地址同样走出站安全门；当前默认允许 `ws` / `wss`、私网地址与空 host 白名单，以适配医院内网实时语音上游；如需收紧，可显式关闭 `allow-insecure-http`、`allow-private-network` 并配置 `allowed-hosts`。
-9. DashScope `run-task.payload.parameters` 固定包含 `heartbeat: true`，与生产实时链路和管理端模型可用性探测保持一致。服务端收到上游 `task-failed` 或非主动关闭时返回一次 `error` 后关闭客户端连接；正常 `task-finished` 返回一次 `final` 后关闭连接。桌面端在仍处于录音状态时收到这些终止信号会自动重新建立本接口，重连期间暂存 PCM；发生过中断的整段录音在停止后通过 `POST /v1/ai/speech/realtime` 批量补录。
+9. 每个节点最多接受 `floating-ball.ai.realtime.max-active-sessions` 个活跃实时语音会话，默认 `64`；节点舱壁已满时发送 `error` 帧后以 WebSocket `1013` 关闭，客户端应短暂退避后重试或使用批量兜底接口。
+10. 上游连接可发送音频前，每个会话最多缓存 `floating-ball.ai.realtime.max-buffered-audio-bytes` 字节，默认 `2097152`（2 MiB）；缓存超限时发送 `error` 帧并以 WebSocket `1009` 关闭，不再继续接收音频。
+11. 上游握手默认必须在 `floating-ball.ai.realtime.handshake-timeout-ms=10000` 毫秒内完成；下游提前关闭、缓存超限、链路失败或握手超时都会取消未完成的上游握手。取消后仍晚到的上游连接会被立即关闭。
+12. 上游连接失败或握手超时时，服务端发送既有 `error` 帧、清空待发音频并以 `1011` 关闭下游；无论正常关闭、异常关闭、发送/关闭操作抛出运行时异常，或上下游关闭回调重复到达，同一会话都只释放一次节点容量。
+13. DashScope `run-task.payload.parameters` 固定包含 `heartbeat: true`，与生产实时链路和管理端模型可用性探测保持一致。服务端收到上游 `task-failed` 或非主动关闭时返回一次 `error` 后关闭客户端连接；正常 `task-finished` 返回一次 `final` 后关闭连接。桌面端在仍处于录音状态时收到这些终止信号会自动重新建立本接口，重连期间暂存 PCM；发生过中断的整段录音在停止后通过 `POST /v1/ai/speech/realtime` 批量补录。
 
 客户端发送：
 
@@ -1314,6 +1327,8 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 ```
 
 ### 4.4 POST `/v1/knowledge/pmphai/search`
+
+PMPHAI 的 `search`、`clip`、`list`、`kgbases`、`categories` 由独立有界知识执行器异步承载，不占用核心问诊执行池。执行器饱和时返回 HTTP 503、`AI-BUSY` 与 `Retry-After`；处理超过知识检索时限时返回 HTTP 503、`AI-TIMEOUT`。`page-url` 只生成签名 URL、不执行阻塞上游调用，保持同步响应。
 
 用途：人卫 Inside 智能检索代理。
 
@@ -1878,20 +1893,29 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
       "cdDevice": "9C:4E:36:AA:BB:CC",
       "naDevice": "诊室 1 号机",
       "naUser": "张医生",
+      "doctorWorkNo": "0123",
       "idOrg": "ORG001",
+      "naOrg": "示范社区卫生服务中心",
       "idRegion": "REGION001",
       "deviceTokenMasked": "abcd****wxyz",
       "sdStatus": "1",
       "clientVersion": "0.1.0",
       "osInfo": "Windows 10",
       "dtLastHeartbeat": "2026-04-20T12:00:00",
-      "dtRegistered": "2026-04-20T10:00:00"
+      "dtRegistered": "2026-04-20T10:00:00",
+      "lastActiveTime": "2026-04-20T12:00:00"
     }
   ]
 }
 ```
 
-字段说明：`naUser` 为该设备最近一次问诊日志中的非空医生姓名；设备尚未产生问诊记录时返回 `null`。该字段仅用于令牌列表展示，不表示设备与后台管理员账号建立了绑定关系。
+字段说明：
+
+- `naUser` / `doctorWorkNo` 为该设备最近一次医生姓名或真实工号非空的问诊日志中的医生名字与工号；`doctorWorkNo` 只来自客户端上报的 SDK handshake `urt.personCd`，绝不回退 `idDoctor`。设备尚未产生对应身份记录时返回 `null`。这些字段仅用于管理端展示，不表示设备与后台管理员账号建立了绑定关系
+- `dtRegistered` 是终端首次向服务端成功注册的时间，管理端“客户端使用情况”将其显示为“安装客户端时间”，不表示操作系统安装包执行时间
+- `clientVersion` 在注册时写入并随已签名心跳请求的 `X-Client-Version` 刷新，因此表示最近一次成功心跳确认的客户端版本
+- `lastActiveTime` 取 `dtLastHeartbeat` 与上述医生身份记录对应问诊时间中的较晚值；两者均为空时返回 `null`
+- 管理端新增独立“客户端使用情况”页面，复用本接口分页数据，只展示机构名称、医生名字、工号、安装客户端时间、当前使用的客户端版本、最近活跃时间六个字段
 
 ### 5.27 POST `/admin/api/devices`
 用途：手工创建令牌记录。服务端会生成 `deviceToken`，列表仅返回脱敏值。

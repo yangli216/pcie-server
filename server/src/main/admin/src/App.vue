@@ -86,6 +86,7 @@ const menuItems = [
   { path: '/regions', label: '区域', icon: 'el-icon-location' },
   { path: '/orgs', label: '机构', icon: 'el-icon-office-building' },
   { path: '/devices', label: '令牌', icon: 'el-icon-key' },
+  { path: '/client-usage', label: '客户端使用情况', icon: 'el-icon-monitor' },
   { path: '/configs', label: '配置', icon: 'el-icon-setting' },
   { path: '/prompts', label: '提示词', icon: 'el-icon-edit-outline' },
   { path: '/symptom-templates', label: '症状模板', icon: 'el-icon-document-checked' },

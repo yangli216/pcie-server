@@ -1,6 +1,8 @@
 package com.regionalai.floatingball.server.modules.release.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.regionalai.floatingball.server.common.cluster.ClusterProperties;
+import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseBatchUploadRequest;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseDownloadItem;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseHistoryView;
@@ -15,6 +17,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockMultipartFile;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -24,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ReleaseServiceTest {
 
@@ -102,7 +107,7 @@ class ReleaseServiceTest {
             .orElseThrow(AssertionError::new);
         assertEquals("1.2.15", macItem.getVersion());
         assertEquals("PCIE_1.2.15_aarch64.app.tar.gz", macItem.getFileName());
-        assertTrue(macItem.getDownloadUrl().startsWith("http://release.lan:8080/v1/client/releases/production/files/darwin-aarch64/"));
+        assertTrue(macItem.getDownloadUrl().startsWith("http://release.lan:8080/v1/client/releases/production/files/1.2.15/darwin-aarch64/"));
         assertTrue(macItem.getFileSize() > 0);
     }
 
@@ -200,7 +205,233 @@ class ReleaseServiceTest {
         assertEquals(2, views.get(0).getPlatforms().size());
     }
 
+    @Test
+    void releaseMutationShouldFailClosedOnClusterReadOnlyNode() {
+        ClusterProperties clusterProperties = new ClusterProperties();
+        clusterProperties.setEnabled(true);
+        clusterProperties.setNodeId("node-2");
+        clusterProperties.setReleaseWriterNodeId("node-1");
+        ReleaseService readOnlyService = new ReleaseService(
+            tempDir.toString(),
+            "http://release.local",
+            new ObjectMapper(),
+            clusterProperties
+        );
+        ReleasePolicyUpdateRequest request = new ReleasePolicyUpdateRequest();
+        request.setChannel("production");
+        request.setForceUpdate(true);
+
+        BusinessException exception = assertThrows(
+            BusinessException.class,
+            () -> readOnlyService.updatePolicy(request)
+        );
+
+        assertEquals("RELEASE-READ-ONLY", exception.getCode());
+        assertTrue(readOnlyService.list("production").get(0).getPlatforms().isEmpty());
+    }
+
+    @Test
+    void releaseMutationShouldReachBusinessValidationOnDesignatedWriterNode() {
+        ClusterProperties clusterProperties = new ClusterProperties();
+        clusterProperties.setEnabled(true);
+        clusterProperties.setNodeId("node-1");
+        clusterProperties.setReleaseWriterNodeId("node-1");
+        ReleaseService writerService = new ReleaseService(
+            tempDir.toString(),
+            "http://release.local",
+            new ObjectMapper(),
+            clusterProperties
+        );
+        ReleasePolicyUpdateRequest request = new ReleasePolicyUpdateRequest();
+        request.setChannel("production");
+        request.setForceUpdate(true);
+
+        BusinessException exception = assertThrows(
+            BusinessException.class,
+            () -> writerService.updatePolicy(request)
+        );
+
+        assertEquals("RELEASE-404", exception.getCode());
+    }
+
+    @Test
+    void versionedPackagesShouldKeepSameFileNameWithDifferentContentAndRollbackToOldContent() throws Exception {
+        String fileName = "PCIE-setup.zip";
+        uploadWithContent("1.0.0", "windows-x86_64", fileName, "package-v1", false);
+        uploadWithContent("2.0.0", "windows-x86_64", fileName, "package-v2", false);
+
+        assertEquals(
+            "package-v1",
+            new String(Files.readAllBytes(releaseService.resolveFile("production", "1.0.0", "windows-x86_64", fileName)), StandardCharsets.UTF_8)
+        );
+        assertEquals(
+            "package-v2",
+            new String(Files.readAllBytes(releaseService.resolveFile("production", "2.0.0", "windows-x86_64", fileName)), StandardCharsets.UTF_8)
+        );
+        assertTrue(
+            releaseService.getLatestJson("production").getPlatforms().get("windows-x86_64").getUrl()
+                .contains("/files/2.0.0/windows-x86_64/" + fileName)
+        );
+
+        ReleaseRollbackRequest rollbackRequest = new ReleaseRollbackRequest();
+        rollbackRequest.setChannel("production");
+        rollbackRequest.setVersion("1.0.0");
+        releaseService.rollback(rollbackRequest);
+
+        assertEquals(
+            "package-v1",
+            new String(Files.readAllBytes(releaseService.resolveFile("production", "windows-x86_64", fileName)), StandardCharsets.UTF_8)
+        );
+        assertTrue(
+            releaseService.getLatestJson("production").getPlatforms().get("windows-x86_64").getUrl()
+                .contains("/files/1.0.0/windows-x86_64/" + fileName)
+        );
+    }
+
+    @Test
+    void sameVersionPathShouldBeImmutableButAllowIdenticalRetry() {
+        String fileName = "PCIE-setup.zip";
+        uploadWithContent("1.0.0", "windows-x86_64", fileName, "same-package", false);
+
+        uploadWithContent("1.0.0", "windows-x86_64", fileName, "same-package", false);
+        BusinessException exception = assertThrows(
+            BusinessException.class,
+            () -> uploadWithContent("1.0.0", "windows-x86_64", fileName, "evil-package", false)
+        );
+
+        assertEquals("RELEASE-IMMUTABLE", exception.getCode());
+    }
+
+    @Test
+    void independentReaderShouldImmediatelyObservePublishedVersionedPackage() throws Exception {
+        String fileName = "PCIE-setup.zip";
+        uploadWithContent("1.0.0", "windows-x86_64", fileName, "shared-package", false);
+
+        ReleaseService independentReader = new ReleaseService(tempDir.toString(), "http://release.local", new ObjectMapper());
+
+        assertEquals("1.0.0", independentReader.getLatestJson("production").getVersion());
+        assertEquals(
+            "shared-package",
+            new String(
+                Files.readAllBytes(independentReader.resolveFile("production", "1.0.0", "windows-x86_64", fileName)),
+                StandardCharsets.UTF_8
+            )
+        );
+    }
+
+    @Test
+    void legacyCurrentReleaseShouldKeepLegacyDownloadUrlAndRemainDownloadable() throws Exception {
+        writeLegacyRelease("1.0.0", "windows-x86_64", "PCIE-legacy.zip", "legacy-package", false);
+        ReleaseService legacyReader = new ReleaseService(tempDir.toString(), "http://release.local", new ObjectMapper());
+
+        TauriLatestJson latestJson = legacyReader.getLatestJson("production", "http://release.local");
+
+        assertEquals(
+            "http://release.local/v1/client/releases/production/files/windows-x86_64/PCIE-legacy.zip",
+            latestJson.getPlatforms().get("windows-x86_64").getUrl()
+        );
+        assertEquals(
+            "legacy-package",
+            new String(
+                Files.readAllBytes(legacyReader.resolveFile("production", "windows-x86_64", "PCIE-legacy.zip")),
+                StandardCharsets.UTF_8
+            )
+        );
+    }
+
+    @Test
+    void rollbackOfLegacyHistoryShouldRestoreLegacyUrlAndContent() throws Exception {
+        writeLegacyRelease("1.0.0", "windows-x86_64", "PCIE-legacy.zip", "legacy-package", false);
+        releaseService = new ReleaseService(tempDir.toString(), "http://release.local", new ObjectMapper());
+        uploadWithContent("2.0.0", "windows-x86_64", "PCIE-current.zip", "current-package", true);
+
+        ReleaseRollbackRequest rollbackRequest = new ReleaseRollbackRequest();
+        rollbackRequest.setChannel("production");
+        rollbackRequest.setVersion("1.0.0");
+        releaseService.rollback(rollbackRequest);
+
+        TauriLatestJson latestJson = releaseService.getLatestJson("production", "http://release.local");
+        assertEquals(
+            "http://release.local/v1/client/releases/production/files/windows-x86_64/PCIE-legacy.zip",
+            latestJson.getPlatforms().get("windows-x86_64").getUrl()
+        );
+        assertEquals(
+            "legacy-package",
+            new String(
+                Files.readAllBytes(releaseService.resolveFile("production", "windows-x86_64", "PCIE-legacy.zip")),
+                StandardCharsets.UTF_8
+            )
+        );
+    }
+
+    @Test
+    void compatibilityCacheSecondWriteFailureShouldNotSplitAuthoritativeState() throws Exception {
+        uploadWithContent("1.0.0", "windows-x86_64", "PCIE-v1.zip", "package-v1", false);
+        uploadWithContent("2.0.0", "windows-x86_64", "PCIE-v2.zip", "package-v2", true);
+        ReleaseService serviceWithSecondCacheWriteFailure = new ReleaseService(
+            tempDir.toString(),
+            "http://release.local",
+            new ObjectMapper()
+        ) {
+            @Override
+            protected void writeCompatibilityPolicy(String channel, ReleasePolicyView policy) throws IOException {
+                throw new IOException("injected policy cache failure");
+            }
+        };
+        ReleaseRollbackRequest rollbackRequest = new ReleaseRollbackRequest();
+        rollbackRequest.setChannel("production");
+        rollbackRequest.setVersion("1.0.0");
+
+        serviceWithSecondCacheWriteFailure.rollback(rollbackRequest);
+
+        // The compatibility cache is deliberately split: latest points to v1 while the
+        // failed second write leaves the force-update policy at v2. Public reads must never
+        // use this impossible combination.
+        ObjectMapper objectMapper = new ObjectMapper();
+        TauriLatestJson cachedLatest = objectMapper.readValue(
+            tempDir.resolve("production/latest.json").toFile(),
+            TauriLatestJson.class
+        );
+        ReleasePolicyView cachedPolicy = objectMapper.readValue(
+            tempDir.resolve("production/policy.json").toFile(),
+            ReleasePolicyView.class
+        );
+        assertEquals("1.0.0", cachedLatest.getVersion());
+        assertEquals("2.0.0", cachedPolicy.getMinSupportedVersion());
+
+        ReleaseService independentReader = new ReleaseService(tempDir.toString(), "http://release.local", new ObjectMapper());
+
+        assertEquals("1.0.0", independentReader.getLatestJson("production").getVersion());
+        ReleasePolicyView policy = independentReader.getPolicy("production");
+        assertEquals("1.0.0", policy.getLatestVersion());
+        assertNull(policy.getMinSupportedVersion());
+        assertFalse(Boolean.TRUE.equals(policy.getForceUpdate()));
+        assertEquals(
+            "package-v1",
+            new String(
+                Files.readAllBytes(independentReader.resolveFile("production", "1.0.0", "windows-x86_64", "PCIE-v1.zip")),
+                StandardCharsets.UTF_8
+            )
+        );
+    }
+
     private void upload(String version, String target, String fileName, boolean forceUpdate) {
+        uploadWithContent(version, target, fileName, "package-" + version, forceUpdate);
+    }
+
+    private void uploadWithContent(String version,
+                                   String target,
+                                   String fileName,
+                                   String content,
+                                   boolean forceUpdate) {
+        releaseService.upload(uploadRequest(version, target, fileName, content, forceUpdate));
+    }
+
+    private ReleaseUploadRequest uploadRequest(String version,
+                                                String target,
+                                                String fileName,
+                                                String content,
+                                                boolean forceUpdate) {
         ReleaseUploadRequest request = new ReleaseUploadRequest();
         request.setChannel("production");
         request.setForceUpdate(forceUpdate);
@@ -214,9 +445,31 @@ class ReleaseServiceTest {
             "file",
             fileName,
             "application/octet-stream",
-            ("package-" + version).getBytes(StandardCharsets.UTF_8)
+            content.getBytes(StandardCharsets.UTF_8)
         ));
-        releaseService.upload(request);
+        return request;
+    }
+
+    private void writeLegacyRelease(String version,
+                                    String target,
+                                    String fileName,
+                                    String content,
+                                    boolean forceUpdate) throws Exception {
+        Path channelDirectory = tempDir.resolve("production");
+        Path targetDirectory = channelDirectory.resolve(target);
+        Files.createDirectories(targetDirectory);
+        Files.write(targetDirectory.resolve(fileName), content.getBytes(StandardCharsets.UTF_8));
+        Files.write(
+            channelDirectory.resolve("latest.json"),
+            buildLatestJson(version, target, fileName).getBytes(StandardCharsets.UTF_8)
+        );
+        String policyJson = "{"
+            + "\"channel\":\"production\","
+            + "\"latestVersion\":\"" + version + "\","
+            + "\"forceUpdate\":" + forceUpdate + ","
+            + "\"minSupportedVersion\":" + (forceUpdate ? "\"" + version + "\"" : "null")
+            + "}";
+        Files.write(channelDirectory.resolve("policy.json"), policyJson.getBytes(StandardCharsets.UTF_8));
     }
 
     private String buildLatestJson(String version, String target, String fileName) {

@@ -98,7 +98,16 @@ public class RealtimeSpeechHandshakeInterceptor implements HandshakeInterceptor 
             String path = request.getURI().getPath();
 
             RequestSignatureVerifier.VerificationResult result = signatureVerifier.verify(
-                device.getDevicePublicKey(), "GET", path, ts, nonce, EMPTY_STRING_SHA256, sig);
+                device.getIdDevice(), device.getDevicePublicKey(), "GET", path, ts, nonce, EMPTY_STRING_SHA256, sig);
+
+            if (result.isStoreUnavailable()) {
+                log.error("realtime speech ws handshake rejected: nonce store unavailable. deviceId={}",
+                    device.getIdDevice());
+                recordWsRejection("WS_NONCE_STORE_UNAVAILABLE", request, device,
+                    "请求安全校验服务不可用", result.getErrorMessage(), true, ts, nonce);
+                response.setStatusCode(HttpStatus.SERVICE_UNAVAILABLE);
+                return false;
+            }
 
             if (!result.isValid()) {
                 log.warn("realtime speech ws handshake rejected: signature invalid. uri={}, reason={}", safeUri(request.getURI()), result.getErrorMessage());

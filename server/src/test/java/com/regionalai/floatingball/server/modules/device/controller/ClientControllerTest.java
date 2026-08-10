@@ -187,6 +187,7 @@ class ClientControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("X-Request-Id", "RID-client-heartbeat")
                 .header("X-Real-IP", "10.0.0.11")
+                .header("X-Client-Version", "1.3.8")
                 .content("{}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.code").value("0"))
@@ -201,7 +202,7 @@ class ClientControllerTest {
             .andExpect(jsonPath("$.requestId").value("RID-client-audit"))
             .andExpect(jsonPath("$.data.accepted").value(3));
 
-        verify(deviceService).heartbeat(device, "10.0.0.11");
+        verify(deviceService).heartbeat(device, "10.0.0.11", "1.3.8");
         verify(auditService).saveBatch(eq(device), any(AuditBatchRequest.class));
     }
 

@@ -1,0 +1,26 @@
+[Unit]
+Description=PCIE Server node %i
+After=network-online.target remote-fs.target
+Wants=network-online.target
+RequiresMountsFor=/srv/pcie-shared/releases /srv/pcie-shared/speech-audit
+
+[Service]
+Type=simple
+User=pcie
+Group=pcie
+Environment="PCIE_JAVA_OPTS="
+EnvironmentFile=/etc/pcie-server/%i.env
+ExecStart=/usr/bin/java $PCIE_JAVA_OPTS -jar /opt/pcie-server/floating-ball-server.jar
+# 生产必须在 systemd drop-in 中使用压测实测值设置 MemoryMax 和
+# LimitNOFILE，并在 EnvironmentFile 中设置包含 Xms/Xmx/Xss 的
+# PCIE_JAVA_OPTS。本样例不提供可直接照抄的生产资源值。
+SuccessExitStatus=143
+TimeoutStopSec=180
+KillSignal=SIGTERM
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

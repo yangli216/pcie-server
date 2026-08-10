@@ -56,6 +56,19 @@ public class ClientReleaseController {
                                              @PathVariable String target,
                                              @PathVariable String fileName) {
         Path filePath = releaseService.resolveFile(channel, target, fileName);
+        return downloadResponse(fileName, filePath);
+    }
+
+    @GetMapping("/{channel}/files/{version}/{target}/{fileName:.+}")
+    public ResponseEntity<Resource> downloadVersion(@PathVariable String channel,
+                                                    @PathVariable String version,
+                                                    @PathVariable String target,
+                                                    @PathVariable String fileName) {
+        Path filePath = releaseService.resolveFile(channel, version, target, fileName);
+        return downloadResponse(fileName, filePath);
+    }
+
+    private ResponseEntity<Resource> downloadResponse(String fileName, Path filePath) {
         Resource resource = new FileSystemResource(filePath.toFile());
         return ResponseEntity.ok()
             .contentType(MediaType.APPLICATION_OCTET_STREAM)

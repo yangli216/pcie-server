@@ -21,8 +21,8 @@
 - Java 8
 - Spring Boot 2.7.x
 - MyBatis-Plus
-- 数据库支持 Oracle 19c 与华为高斯 GaussDB/openGauss PostgreSQL 兼容模式；新数据库适配优先保证 GaussDB
-- Oracle 运行包必须同时携带 `ojdbc8` 与 `orai18n`，以兼容 `ZHS16GBK` 等非 UTF 数据库字符集；GaussDB 使用 openGauss JDBC 驱动 `org.opengauss.Driver`
+- 数据库支持 Oracle 19c、华为高斯 GaussDB/openGauss PostgreSQL 兼容模式与达梦 DM8 Oracle 兼容模式；新数据库适配优先保证 GaussDB
+- Oracle 运行包必须同时携带 `ojdbc8` 与 `orai18n`，以兼容 `ZHS16GBK` 等非 UTF 数据库字符集；GaussDB 使用 openGauss JDBC 驱动 `org.opengauss.Driver`；DM8 商业 JDBC 驱动和现场 profile 由部署环境受控提供，不进入公共 Maven 依赖或仓库默认配置
 - Maven
 - WebClient / RestTemplate 用于上游 AI 与语音代理
 
@@ -135,7 +135,7 @@ pcie-server/
 - `modules/prompt` 负责 Prompt 配置化的逐步迁移：保留桌面端 `prompts/delta` 读取链路，管理端提供 Prompt 列表、新增、编辑、发布、归档和停用；服务端内置首批语音问诊默认 Prompt，配置表存在已发布覆盖时按机构级 > 区域级 > 全局级优先级生效。
 - `modules/datapackage` 继续负责映射数据包读取；`template` 类型数据包仅作为症状模板表未初始化时的兼容回退来源，管理端不再提供数据包维护入口
 - `modules/recommendationpreference` 负责接收桌面端在目录匹配之后产生的诊断和医嘱标准候选选择事件，按机构/科室/医生聚合偏好分，并为灰度客户端返回带样本置信度与作用域权重的名次 boost；管理端提供只读观测页查看聚合偏好分、样本计数和原始事件，便于确认采集效果与排查上报链路。该模块不学习 AI 原始文案，不注入 Prompt，不生成新的候选项，首版管理端不提供人工编辑偏好分入口
-- `modules/release` 使用服务端本地文件目录托管桌面端安装包、签名文件、`latest.json` 元数据、`policy.json` 发布策略与历史发布快照，不新增数据库表；管理端上传后由客户端通过公开 `/v1/client/releases/{channel}/latest.json` 检测更新，并通过 `/v1/client/releases/{channel}/policy.json` 判断是否必须更新
+- `modules/release` 使用配置文件目录托管桌面端安装包、签名文件、`latest.json` 元数据、`policy.json` 发布策略与历史发布快照，不新增数据库表；单节点可使用本地持久目录，集群必须使用共享挂载。管理端上传后由客户端通过公开 `/v1/client/releases/{channel}/latest.json` 检测更新，并通过 `/v1/client/releases/{channel}/policy.json` 判断是否必须更新
 
 ### 4.2.1 内网客户端版本发布
 
@@ -145,7 +145,7 @@ pcie-server/
 - 管理端通过 `/admin/api/releases` 查看当前发布，通过 `/admin/api/releases/upload/batch` 一次选择多个发布通道和多个 Tauri 安装包；服务端基于同一份 `latest.json` 自动解析版本号、平台 target、签名和更新说明，并分别重写为各通道内网下载地址。平台 target 不再要求运维手工填写，服务端按上传安装包文件名匹配 `latest.json.platforms.{target}.url` 自动识别；若多个 target 指向同一个安装包文件名（例如 macOS universal 包同时覆盖 `darwin-aarch64` 与 `darwin-x86_64`），批量发布会将同一上传文件展开发布到这些 target，并保留各 target 在 `latest.json` 中的签名；`/admin/api/releases/upload` 保留单通道单安装包兼容入口。上传时可勾选强制更新，服务端会把每个目标通道的当前发布版本写入对应 `policy.json` 的 `minSupportedVersion`
 - 管理端“版本发布”列表展示当前安装包的公开下载地址，支持复制链接和浏览器直接打开；首次部署新客户端时可直接访问 `/client-download?channel=production` 选择平台下载安装包，无需 U 盘拷贝
 - 管理端通过 `/admin/api/releases/policy` 独立开启或关闭当前通道强制更新，不需要重新上传安装包；开启时最低可用版本固定为当前通道 `latestVersion`，关闭时清空 `minSupportedVersion`
-- 管理端通过 `/admin/api/releases/history` 查看历史发布快照，通过 `/admin/api/releases/rollback` 回滚到历史版本；回滚只恢复当前通道的 `latest.json` 与 `policy.json`，不会重新上传安装包
+- 管理端通过 `/admin/api/releases/history` 查看历史发布快照，通过 `/admin/api/releases/rollback` 回滚到历史版本；安装包按 `channel/version/target/fileName` 不可变保存，回滚只恢复当前通道的 `latest.json` 与 `policy.json`，不会重新上传或覆盖安装包
 - 每次上传新版本前，服务端会先把目标通道当前发布保存为历史快照；上传后也保存新版本快照。若同一版本分平台多次上传或批量上传，服务端会合并同版本平台；若版本号变化，则每个目标通道都重新开始该版本的 `platforms` 集合，避免把上一版本平台误混入新版本 `latest.json`
 - 客户端更新检测与策略查询不走设备鉴权，避免 Tauri updater 无法附带 `Authorization`；仅暴露静态安装包、Tauri 兼容元数据和强制更新策略，不暴露管理能力
 - 未上传版本的通道在访问 `/v1/client/releases/{channel}/latest.json` 时返回 `204 No Content`，作为 Tauri updater 可识别的“无可用更新”状态，不走业务异常日志
@@ -257,6 +257,9 @@ pcie-server/
 8. 批量语音转写 HTTP 出站与实时语音 WebSocket 出站都必须经过同一 host allowlist、私网拦截、限流与熔断策略；`ws` 仅在 `allow-insecure-http=true` 时允许，生产公网链路应使用 `wss`
 9. 管理端语音可用性测试直接使用当前表单草稿且不保存配置：DashScope 实时测试建立 WebSocket、携带与生产一致的心跳参数并等待 `task-started`，FunASR 实时测试验证握手，批量测试向实际上游发送极短静音 WAV；三类测试均复用统一出站安全门，且不得生成语音审计文件。该快速探测只证明建链和模型启动成功，不代表超过 60 秒的持续识别已通过。
 10. 实时代理必须把上游 `task-failed` 的模型、任务 ID、错误码/错误信息以及上游关闭码写入服务日志，但不得记录音频内容或凭据。客户端主动关闭时先标记下游已关闭再清理上游，禁止上游关闭回调向已关闭客户端补发 `final`；上游非主动结束时只向客户端发送一次 `error` 或 `final` 并关闭下游，由桌面端重连。
+11. 上游 WebSocket 建立并进入可发送状态前，只允许为单个会话缓存最多 `floating-ball.ai.realtime.max-buffered-audio-bytes` 字节音频，默认 `2097152`（2 MiB）；超过上限时清空缓存、关闭上游，并以 `1009 Message Too Big` 关闭下游，避免慢建连把节点堆内存变成无界音频队列。
+12. 上游握手 Future 必须保存在会话状态中，并受 `floating-ball.ai.realtime.handshake-timeout-ms` 限制，默认 `10000` 毫秒；下游关闭、失败、缓存超限或握手超时都必须取消仍未完成的握手。取消后仍晚到的上游连接必须立即关闭，不能成为脱离 64 会话舱壁的孤儿连接。
+13. 上游建连失败、初始化失败、上下游传输异常、正常完成与任一侧关闭都必须清空待发音频并精确释放一次活跃会话计数；终态清理和容量释放必须位于 `finally`，即使发送错误帧或关闭 WebSocket 抛出运行时异常也不能泄漏。重复或竞争回调不得把计数减成负数。实时语音 active 与按 `capacity` / `buffer` 区分的 rejected 指标进入 Micrometer。
 
 ### 5.3 审计链路
 
@@ -388,7 +391,11 @@ pcie-server/
    - 角色分页查询、新增、修改、停用
 4. 概览统计：
    - 首页汇总区域、机构、令牌、配置、Prompt、症状模板、日志、用户、角色数量
-5. 综合概况统计分析（`modules/analytics`）：
+5. 客户端使用情况：
+   - 管理端新增独立只读列表，固定展示机构名称、医生名字、工号、安装客户端时间、当前使用的客户端版本、最近活跃时间
+   - 机构名称、首次注册时间、客户端版本和最后心跳复用 `c_ai_device` 与 `c_ai_org`；客户端版本在注册时写入，并在后续心跳中用已签名请求头 `X-Client-Version` 刷新；医生名字、真实工号和最近一次问诊时间按当前页设备批量读取 `c_ai_user_consultation_log` 的最新非空医生身份记录。真实工号保存于 `cd_doctor`，只接收桌面端 SDK handshake 的 `urt.personCd`，不得用 `id_doctor`、其他内部主键或后台账号替代
+   - “安装客户端时间”定义为终端首次向服务端成功注册的 `dt_registered`；“最近活跃时间”取 `dt_last_heartbeat` 与该医生身份记录对应问诊时间中的较晚值。没有问诊身份记录时医生名字、工号为空，没有心跳和问诊记录时最近活跃时间为空
+6. 综合概况统计分析（`modules/analytics`）：
    - 核心指标卡片：功能调用总量、日均功能调用量、AI诊断建议采纳率、诊断符合率、活跃医生数、问诊总数
    - 服务趋势折线图：按日聚合功能调用量与问诊量趋势
    - 机构分布柱状图：Top 10 机构功能调用量
@@ -436,7 +443,7 @@ pcie-server/
    - 管理端停用令牌会把原记录置为 `fg_active='0'` 且 `sd_status='0'`，该同机构同 `cd_device` 历史记录用于表达后台停用/封禁，注册接口必须拒绝其重新领取 token；若管理员需要恢复该设备，应先新增同 `cd_device` 的激活令牌占位，再由客户端注册补录公钥
    - 管理端删除令牌是异常设备重置操作，会物理移除该设备记录并释放同机构同 `cd_device`；删除后客户端重新注册会生成新的 `id_device`、`device_token` 与公钥绑定
    - `register_ip` 记录注册请求来源 IP，`last_seen_ip` 随注册和心跳刷新；两者用于后台定位旧客户端、异常终端和网段，不参与设备身份认证或签名校验
-   - 管理端令牌列表的“用户姓名”不写入设备表，而是按当前页设备批量读取 `c_ai_user_consultation_log` 中最近一次非空 `na_doctor`；未产生问诊记录的设备不显示姓名
+   - 管理端令牌列表与“客户端使用情况”的医生身份不写入设备表，而是按当前页设备批量读取 `c_ai_user_consultation_log` 中最近一次 `na_doctor` 或 `cd_doctor` 非空的记录；工号固定读取 `cd_doctor`，不把 `id_doctor` 显示为工号。未产生对应医生身份记录的设备不显示医生名字或工号
 4. `c_ai_config`
 5. `c_ai_prompt`
 6. `c_ai_data_package`
@@ -457,6 +464,7 @@ pcie-server/
    - 反馈人身份列：`id_doctor` / `na_doctor` / `id_dept` / `na_dept` / `na_org`；`id_org` 仍来自设备鉴权解析出的后台机构 ID，`na_org` 取 SDK handshake `urt.orgPureName`，`id_dept` 取 `urt.userRoleDepts.deptId`
    - 索引：`idx_c_ai_feedback_kind` / `_doctor` / `_dept`，并通过 `uk_c_ai_feedback_latest_scope` 保证同一设备、同一 `feedback_scope_key` 只有一条激活的最新版反馈
 11. `c_ai_user_consultation_log`
+   - `cd_doctor` 保存 SDK handshake `urt.personCd` 对应的真实人员编码/工号；`id_doctor` 继续保存 HIS 内部医生主键，两者不得互相兜底
    - 按一次问诊聚合运维用户日志，关键列包括后台机构、HIS 机构 ID、医生、患者、问诊类型、问诊时间
    - `id_org` 保存设备鉴权得到的后台机构 ID；`id_his_org` 保存桌面端从 SDK handshake `urt.userRoleDepts.orgId` 上报的 HIS 机构 ID，不参与后台机构级配置解析；`na_org` 来自 `urt.orgPureName`，`id_dept` 来自 `urt.userRoleDepts.deptId`
    - `first_snapshot_json` 保存 AI 首次生成内容，`final_snapshot_json` 保存医生最终修改后内容，`selection_json` 保存诊断/用药/检查/检验最终选中状态
@@ -493,7 +501,7 @@ pcie-server/
 
 ## 8. 数据库初始化约定
 
-本项目保留 Oracle 与 GaussDB/openGauss 两套初始化基线：
+本项目保留 Oracle 与 GaussDB/openGauss 两套全量初始化基线；DM8 使用 Oracle 兼容模式，仅保留经明确交付的幂等定向脚本：
 
 Oracle 初始化拆成两步：
 
@@ -554,3 +562,86 @@ GaussDB/openGauss 初始化：
 7. `POST /v1/client/chronic-disease/artifact-snapshots` 保存健康处方或年度评估打印前快照；DTO 使用固定字段和强类型确认项，服务端序列化确认项但不接受任意业务 payload，`requestId` 在机构内幂等。
 8. `c_ai_chronic_artifact` 固化患者锚点、病种集合、数据截至时间、模板/路径/依据/规则版本、年度指标、医生确认项及打印医生。
 9. 一期不增加管理端页面；正式模板与临床路径由代码仓库受审清单发布，AI 和医生均无规则发布权限。
+
+## 11. 集群运行基线
+
+`pcie-server` 继续保持单体应用交付，但支持多个相同版本实例通过 L7 负载均衡组成 active-active 集群。首轮生产容量基线为三节点、N+1：正常运行三节点，失去一个节点后仍承载 200 个已部署终端中 40 名医生同时进入核心四路 AI 推荐阶段的流量。
+
+### 11.1 无服务端业务 Session
+
+1. 设备与管理员认证不使用 `HttpSession`；普通 HTTP 请求不要求粘性会话。
+2. SSE 和 WebSocket 连接在建立后自然固定在承载该 TCP 连接的节点，节点下线前必须先从 LB 摘除并等待连接排空。
+3. `DeviceContextHolder` / `AdminContextHolder` 仍是单请求 ThreadLocal，不属于需要跨节点复制的状态。
+
+### 11.2 跨节点 nonce 防重放
+
+1. 单节点模式可以使用 JVM 内存 nonce 存储；`floating-ball.cluster.enabled=true` 时必须切换为数据库存储。
+2. 集群模式以 `(id_device, nonce_value)` 数据库唯一约束原子登记 nonce；禁止先查询再插入。
+3. ECDSA 验签成功后才登记 nonce，避免无效签名抢占合法 nonce。
+4. nonce 有效期使用“请求时间戳 + 签名允许偏移”，HTTP 与实时语音 WebSocket 共用同一存储。
+5. 唯一键冲突按重放拒绝；数据库不可用按安全失败关闭返回 `SECURITY-503`，不得回退本地缓存或继续放行。
+6. 过期 nonce 由各节点低频、幂等清理；清理失败只影响存储增长，不改变拒绝重放的安全语义。
+
+### 11.3 共享文件与发布单写
+
+1. 集群模式的 `floating-ball.release.storage-dir` 与 `floating-ball.audit.speech-file-dir` 必须是所有节点以相同绝对路径挂载的共享 POSIX 文件系统，不得使用 `java.io.tmpdir`。
+2. 启动期校验目录、集群 marker、读写和同目录原子移动能力；readiness 持续检查轻量读写。单节点探针不能证明三个节点挂载的是同一存储。
+3. 管理端口额外暴露受控 Actuator `clusterStorageChallenge` 端点，只允许对 `release`、`speech` 两个预定义根目录使用 UUID token/content 创建、读取、删除派生文件名的短生命周期 challenge；不得接收任意路径或文件名，不得暴露到业务端口。challenge 默认 60 秒失效，过期文件按上限清理，活动文件数量有硬上限。
+4. 入池前 preflight 必须对两个根目录分别执行：节点 A 原子写入随机 token/content，节点 B/C 读取并核对，另一节点删除，A/B/C 再确认文件消失。任一步失败都证明共享挂载未建立或不可跨节点一致访问，禁止节点入池。
+5. 安装包按 `channel/version/target/fileName` 不可变保存；生成的下载 URL 包含版本。历史遗留的 `channel/target/fileName` 安装包在未完成安全迁移前继续生成旧兼容下载 URL，不能只改元数据 URL 后让旧包变成不可下载。
+6. 当前发布由同一个 `current-state.json` 原子状态文件同时承载 `latest` 与 `policy`，所有服务端读取均从该事实源派生；`latest.json`、`policy.json` 仅作为兼容缓存。全部安装包与历史快照准备完成后只原子切换一次当前状态，再尽力刷新兼容缓存；任一缓存刷新失败不得形成“新强更策略 + 旧安装包元数据”或相反组合。集群共享文件系统若不支持原子移动，启动校验必须失败，不得静默降级。
+7. 集群所有节点使用同一个 `release-writer-node-id`，只有 `node-id` 与它相等的单一 writer 节点可执行 `/admin/api/releases/**` 写操作；LB 将该路径固定路由到 writer。下载、策略和元数据读取可由全部节点提供。单节点模式不受 writer 配置限制。
+8. 后续如迁移到对象存储，仍需保留单写或数据库版本/CAS 语义，不得把 JVM `synchronized` 当作跨节点锁。
+
+### 11.4 节点身份、探针与下线
+
+1. 集群节点必须提供唯一 `FB_NODE_ID` 和一致的 `FB_CLUSTER_ID`；所有节点使用相同数据库、`FB_AES_KEY` 与共享目录。
+2. Actuator 使用独立管理端口，只暴露 `health`、`info`、`prometheus` 与受限的 `clusterStorageChallenge`；challenge 仅供受控 preflight 使用，管理端默认绑定 loopback，不得向医生终端业务入口公开。
+3. liveness 只判断 JVM 生存；readiness 包含数据库和集群共享存储，不把外部模型云健康直接纳入 readiness，避免外部故障导致全部节点同时被摘除。
+4. Spring Boot 使用 graceful shutdown；滚动发布顺序固定为 LB drain、等待在途请求和长连接、SIGTERM、启动、readiness UP、重新入池。
+5. 负载均衡使用 least-connections；SSE 关闭代理缓冲，WebSocket 透传 Upgrade，不能使用医院 NAT 源 IP 粘性造成节点倾斜。
+
+## 12. 单节点并发治理
+
+单节点改造目标不是无限增加线程，而是把慢 AI I/O 从通用 Tomcat 请求线程隔离，并让连接、执行、排队、取消和拒绝都具有明确上限。
+
+### 12.1 非流式与语音异步隔离
+
+1. `/v1/ai/chat` 非流式、批量语音和 PMPHAI 知识检索入口使用 Spring MVC `DeferredResult`，初始 Servlet 线程完成鉴权、签名和参数解析后释放。
+2. 核心聊天、Reviewer、语音和知识检索分别进入 `aiBlockingExecutor`、`aiReviewerExecutor`、`aiSpeechExecutor` 与 `aiKnowledgeExecutor`；执行器固定核心/最大线程、使用短队列和拒绝策略，不使用公共 `ForkJoinPool` 或无界线程池。
+3. 异步任务必须捕获当前 `AiDevice` 和 requestId，不能在异步线程重新读取已清理的 ThreadLocal。
+4. 队列、超时或节点并发上限命中时返回 HTTP 503、`AI-BUSY`，并携带短 `Retry-After`；不得占用请求线程等待数十秒。
+
+### 12.2 出站 HTTP 连接池
+
+1. 阻塞 AI/语音代理统一使用 Apache HttpClient 4 连接池；显式配置总连接数、每 route 连接数、连接租借超时、建连超时、读取超时和空闲连接回收。
+2. `RestTemplate` 由 Spring Boot 的 `RestTemplateBuilder` 构建，以保留客户端指标定制；禁止为流式响应增加全量缓冲包装。
+3. 出站代理配置同时作用于实际使用的 RestTemplate，不再只配置 WebClient。
+4. 连接池耗尽时快速失败，不能继续占用 AI 执行线程无限等待连接。
+
+### 12.3 SSE 固定并发、短队列和取消
+
+1. `floating-ball.ai.stream.core-pool-size` 与正常运行的 `max-pool-size` 保持一致，默认短队列只吸收瞬时抖动；不再使用“4 核心 + 32 队列”让长流先排队。
+2. `SseEmitter` 的 timeout/error/completion 回调必须取消 Future、移除排队任务并关闭上游输入流。
+3. 正常完成先可靠写入审计，再完成 emitter；客户端断开不计为上游失败，不推动上游熔断。
+4. 节点负载、流式 active/queue/rejected/cancelled 与连接池 leased/pending/available 进入 Micrometer 指标。
+
+### 12.4 200 终端容量参数
+
+首轮基线：
+
+| 维度 | 单节点安全默认 | 三节点生产每节点 |
+| --- | ---: | ---: |
+| 非流式 AI 有界执行并发 | 80 | 96 |
+| 非流式短队列 | 8 | 8 |
+| Reviewer 并发 / 短队列 | 16 / 4 | 16 / 4 |
+| 语音并发 / 短队列 | 8 / 4 | 8 / 4 |
+| 实时语音 WebSocket 活跃会话 | 64 | 64（按压测覆盖） |
+| 单实时语音会话建连前缓存 | 2 MiB | 2 MiB（按音频帧节奏校准） |
+| 知识检索并发 / 短队列 | 16 / 4 | 16 / 4 |
+| 流式执行并发 | 16 | 24 |
+| 流式短队列 | 4 | 4 |
+| HTTP 连接池 max total | 160 | 224 |
+| HTTP 连接池 max per route | 144 | 192 |
+
+三节点生产值通过环境变量覆盖；默认值是压测起点，不是未经验证的容量承诺。健康场景按 40 名医生同时四路生成核算 160 个首波请求；桌面端当前每次调用最多再重试 3 次、没有 jitter 且不读取 `Retry-After`，故障时理论上可放大到 640 attempts。有界池能够保证节点快速拒绝并保持可用，但不能据此承诺 640 次全部成功。正式验收必须覆盖 60 秒响应、当前真实重试策略、N-1 与长时间 soak test；若要把 N-1 下的全部成功作为目标，还必须同步调整 `pcie` 重试策略或重新核算容量。

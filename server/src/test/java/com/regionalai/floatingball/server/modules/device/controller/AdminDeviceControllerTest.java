@@ -1,6 +1,8 @@
 package com.regionalai.floatingball.server.modules.device.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.exception.GlobalExceptionHandler;
@@ -15,7 +17,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 
+import java.time.LocalDateTime;
 import java.util.Collections;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -44,8 +48,11 @@ class AdminDeviceControllerTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
+        objectMapper.registerModule(new JavaTimeModule());
+        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         mockMvc = MockMvcBuilders.standaloneSetup(new AdminDeviceController(deviceService))
             .setControllerAdvice(new GlobalExceptionHandler())
+            .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
             .build();
     }
 
@@ -56,6 +63,7 @@ class AdminDeviceControllerTest {
         device.setCdDevice("clinic-room-1");
         device.setNaDevice("诊室一终端");
         device.setNaUser("张医生");
+        device.setDoctorWorkNo("0123");
         device.setIdOrg("ORG001");
         device.setNaOrg("默认机构");
         device.setIdRegion("REG001");
@@ -64,6 +72,7 @@ class AdminDeviceControllerTest {
         device.setDeviceTokenMasked("abcd****wxyz");
         device.setRegisterIp("10.0.0.10");
         device.setLastSeenIp("10.0.0.11");
+        device.setLastActiveTime(LocalDateTime.of(2026, 8, 6, 9, 15));
 
         PageResponse<AiDeviceView> page = new PageResponse<AiDeviceView>(2, 20, 1, Collections.singletonList(device));
         when(deviceService.list(2, 20, "clinic")).thenReturn(page);
@@ -81,10 +90,12 @@ class AdminDeviceControllerTest {
             .andExpect(jsonPath("$.data.total").value(1))
             .andExpect(jsonPath("$.data.records[0].idDevice").value("DEV001"))
             .andExpect(jsonPath("$.data.records[0].naUser").value("张医生"))
+            .andExpect(jsonPath("$.data.records[0].doctorWorkNo").value("0123"))
             .andExpect(jsonPath("$.data.records[0].naOrg").value("默认机构"))
             .andExpect(jsonPath("$.data.records[0].deviceTokenMasked").value("abcd****wxyz"))
             .andExpect(jsonPath("$.data.records[0].registerIp").value("10.0.0.10"))
-            .andExpect(jsonPath("$.data.records[0].lastSeenIp").value("10.0.0.11"));
+            .andExpect(jsonPath("$.data.records[0].lastSeenIp").value("10.0.0.11"))
+            .andExpect(jsonPath("$.data.records[0].lastActiveTime").value("2026-08-06T09:15:00"));
     }
 
     @Test

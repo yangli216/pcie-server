@@ -126,7 +126,16 @@ public class DeviceAuthFilter extends OncePerRequestFilter {
             }
 
             RequestSignatureVerifier.VerificationResult result = signatureVerifier.verify(
-                device.getDevicePublicKey(), method, path, timestamp, nonce, bodyHash, signature);
+                device.getIdDevice(), device.getDevicePublicKey(), method, path, timestamp, nonce, bodyHash, signature);
+
+            if (result.isStoreUnavailable()) {
+                log.error("device signature nonce store unavailable. uri={}, deviceId={}",
+                    wrappedRequest.getRequestURI(), device.getIdDevice());
+                recordRejection("NONCE_STORE_UNAVAILABLE", wrappedRequest, device,
+                    "请求安全校验服务不可用", result.getErrorMessage(), true, timestamp, nonce);
+                writeSecurityUnavailable(response, wrappedRequest);
+                return;
+            }
 
             if (!result.isValid()) {
                 log.warn("device signature invalid. uri={}, deviceId={}, reason={}", wrappedRequest.getRequestURI(), device.getIdDevice(), result.getErrorMessage());
@@ -256,6 +265,21 @@ public class DeviceAuthFilter extends OncePerRequestFilter {
             ApiResponse.error(
                 "SIG-401",
                 "请求签名验证失败，请重新连接后台；如仍失败，请联系管理员重新注册设备",
+                RequestIdUtils.resolve(request)
+            )
+        ));
+    }
+
+    private void writeSecurityUnavailable(HttpServletResponse response,
+                                          HttpServletRequest request) throws IOException {
+        response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+        response.setHeader("Retry-After", "1");
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding("UTF-8");
+        response.getWriter().write(objectMapper.writeValueAsString(
+            ApiResponse.error(
+                "SECURITY-503",
+                "请求安全校验服务暂时不可用，请稍后重试",
                 RequestIdUtils.resolve(request)
             )
         ));

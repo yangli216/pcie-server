@@ -43,7 +43,7 @@ class ClientDownloadPageControllerTest {
 
         assertTrue(response.getBody().contains("PCIE_1.2.15_aarch64.app.tar.gz"));
         assertTrue(response.getBody().contains("darwin-aarch64"));
-        assertTrue(response.getBody().contains("http://release.local/v1/client/releases/production/files/darwin-aarch64/PCIE_1.2.15_aarch64.app.tar.gz"));
+        assertTrue(response.getBody().contains("http://release.local/v1/client/releases/production/files/1.2.15/darwin-aarch64/PCIE_1.2.15_aarch64.app.tar.gz"));
     }
 
     private ReleaseUploadRequest uploadRequest() {

@@ -63,7 +63,7 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 1. `c_ai_config` 的语音独立密钥、PMPHAI / Reviewer 服务端托管字段、思考模式、fast model 和检查项目独立审查开关
 2. `c_ai_device.device_public_key` 请求签名公钥字段，以及 `register_ip` / `last_seen_ip` 注册与最近访问来源字段
 3. 症状模板、住院病历模板字段缓存、模板变更日志、辅诊功能事件、安全拒绝日志等业务表
-4. 操作日志、问诊日志、反馈日志、推荐偏好事件和推荐偏好聚合的结构化查询列、语音复盘字段、变更摘要字段和并发唯一索引；其中问诊日志唯一索引只约束尚未结束的 `generated` 记录，同一就诊回写或放弃后再次问诊会保留为新的日志轮次
+4. 操作日志、问诊日志、反馈日志、推荐偏好事件和推荐偏好聚合的结构化查询列、语音复盘字段、变更摘要字段和并发唯一索引；其中问诊日志 `cd_doctor` 保存 SDK handshake `urt.personCd` 对应的真实工号，`id_doctor` 仍是 HIS 内部主键；问诊日志唯一索引只约束尚未结束的 `generated` 记录，同一就诊回写或放弃后再次问诊会保留为新的日志轮次
 5. 第三方 ODS 检验检查申请单 `hi_ods_apply`、检验常规报告 `hi_ods_apply_lis_report` 与检查报告 `hi_ods_apply_pacs_report`，用于管理端手工模拟第三方结果回写；不包含未提供结构的 `hi_ods_lis_result` 主表
 6. 默认区域 `REGION001`
 7. 默认机构 `ORG001`；`c_ai_org.cd_org` 必填，并通过 `uk_c_ai_org_code_active` 保证激活机构编码唯一
@@ -72,6 +72,7 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 10. 脚本末尾显式 `COMMIT`
 11. `c_ai_chronic_followup` 保存原 `TcdVisitForm` 高血压/糖尿病融合随访：`id_phr/id_record/sd_visit_kind` 独立检索，`form_data_json` 无损保存强类型 DTO；`request_id` 来自 `X-Request-Id`，在平台机构激活记录内幂等。旧通用列暂留作未发布实验表兼容，不再作为业务请求结构
 12. `c_ai_chronic_artifact` 健康处方与年度评估打印留痕快照，固化患者证据截止时间、病种及版本、年度指标、医生确认项和打印医生
+13. `c_security_request_nonce` 使用 `(id_device, nonce_value)` 主键原子登记已验签请求，供集群节点共同防重放；`idx_c_security_nonce_exp` 支持低频清理过期记录
 
 说明：
 
@@ -90,9 +91,12 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 1. 能重建的开发/联调环境，先备份必要数据，再清理目标 schema 并执行 `init.sql`
 2. 不能重建的生产/准生产环境，由 DBA 基于当前 `init.sql` 与现场库结构生成一次性迁移脚本
 3. 一次性迁移脚本必须先清理重复激活数据，再添加唯一索引，例如机构编码、设备编码、设备令牌、反馈最新版、问诊日志未结束轮次等约束
-4. 迁移完成后，需要确认 `c_ai_config.speech_realtime_url`、`c_ai_device.device_public_key`、`c_ai_device.register_ip`、`c_ai_device.last_seen_ip`、`c_ai_user_consultation_log.id_his_org`、`c_ai_user_consultation_log.consultation_round_id`、`idx_c_ai_user_log_round`、`uk_c_ai_user_log_round_active`、`c_ai_user_consultation_log.change_summary_json`、`c_ai_user_consultation_log.total_changes`、`c_security_rejection_log` 以及安全分析相关索引均已存在
+4. 迁移完成后，需要确认 `c_ai_config.speech_realtime_url`、`c_ai_device.device_public_key`、`c_ai_device.register_ip`、`c_ai_device.last_seen_ip`、`c_ai_user_consultation_log.id_his_org`、`c_ai_user_consultation_log.consultation_round_id`、`idx_c_ai_user_log_round`、`uk_c_ai_user_log_round_active`、`c_ai_user_consultation_log.change_summary_json`、`c_ai_user_consultation_log.total_changes`、`c_security_rejection_log`、`c_security_request_nonce`、`pk_c_security_req_nonce` 与 `idx_c_security_nonce_exp` 均已存在
+5. 启用 `floating-ball.cluster.enabled=true` 前必须先创建 `c_security_request_nonce`；表缺失或数据库不可用时服务端按安全失败关闭返回 `SECURITY-503`，不会回退到 JVM 本地 nonce 缓存
+6. 集群所有节点必须通过 NTP 或 chrony 持续校时并对节点时钟偏差告警；`floating-ball.security.nonce-cleanup-grace-ms` 默认保留 300000 毫秒清理宽限，只用于避免时钟微小偏差导致过早删除，不能替代可靠校时
+7. 集群启动与 `nonceStore` readiness 会先通过 JDBC 元数据确认唯一键精确覆盖 `(id_device, nonce_value)`，再在同一连接的可回滚事务中完成首次插入和同键冲突验证；探针始终回滚，不保留数据。缺约束、缺 INSERT 权限、第二次插入未冲突或回滚失败均按不可就绪处理
 
-本次 HIS 机构统计升级使用当前应用 schema 执行：
+本次 HIS 机构统计与医生工号字段升级使用当前应用 schema 执行；脚本可重复执行，已执行过旧版脚本的存量库需要再次执行以补充 `cd_doctor`：
 
 ```sql
 @update_his_org_statistics.sql

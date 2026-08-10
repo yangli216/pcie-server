@@ -11,6 +11,7 @@ public class AiDeviceView {
     private String cdDevice;
     private String naDevice;
     private String naUser;
+    private String doctorWorkNo;
     private String idOrg;
     private String naOrg;
     private String idRegion;
@@ -23,4 +24,5 @@ public class AiDeviceView {
     private String lastSeenIp;
     private LocalDateTime dtLastHeartbeat;
     private LocalDateTime dtRegistered;
+    private LocalDateTime lastActiveTime;
 }

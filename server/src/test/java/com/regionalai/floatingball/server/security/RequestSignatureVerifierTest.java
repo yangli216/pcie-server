@@ -1,5 +1,8 @@
 package com.regionalai.floatingball.server.security;
 
+import com.regionalai.floatingball.server.security.nonce.NonceStore;
+import com.regionalai.floatingball.server.security.nonce.NonceStoreUnavailableException;
+import com.regionalai.floatingball.server.security.nonce.InMemoryNonceStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -7,7 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.Signature;
-import java.security.interfaces.ECPublicKey;
 import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,7 +24,7 @@ class RequestSignatureVerifierTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        verifier = new RequestSignatureVerifier();
+        verifier = new RequestSignatureVerifier(new InMemoryNonceStore());
         KeyPairGenerator keyGen = KeyPairGenerator.getInstance("EC");
         keyGen.initialize(256);
         testKeyPair = keyGen.generateKeyPair();
@@ -46,7 +48,7 @@ class RequestSignatureVerifierTest {
         String signatureBase64 = Base64.getEncoder().encodeToString(signatureBytes);
 
         RequestSignatureVerifier.VerificationResult result = verifier.verify(
-            publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, signatureBase64);
+            "DEV001", publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, signatureBase64);
 
         assertTrue(result.isValid());
     }
@@ -67,7 +69,7 @@ class RequestSignatureVerifierTest {
         String signatureBase64 = Base64.getEncoder().encodeToString(sig.sign());
 
         RequestSignatureVerifier.VerificationResult result = verifier.verify(
-            publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, signatureBase64);
+            "DEV001", publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, signatureBase64);
 
         assertFalse(result.isValid());
         assertTrue(result.getErrorMessage().contains("时间戳"));
@@ -89,11 +91,11 @@ class RequestSignatureVerifierTest {
         String signatureBase64 = Base64.getEncoder().encodeToString(sig.sign());
 
         RequestSignatureVerifier.VerificationResult first = verifier.verify(
-            publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, signatureBase64);
+            "DEV001", publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, signatureBase64);
         assertTrue(first.isValid());
 
         RequestSignatureVerifier.VerificationResult second = verifier.verify(
-            publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, signatureBase64);
+            "DEV001", publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, signatureBase64);
         assertFalse(second.isValid());
         assertTrue(second.getErrorMessage().contains("随机数已使用"));
     }
@@ -115,7 +117,7 @@ class RequestSignatureVerifierTest {
         String signatureBase64 = Base64.getEncoder().encodeToString(sig.sign());
 
         RequestSignatureVerifier.VerificationResult result = verifier.verify(
-            publicKeyBase64, method, path, timestamp, nonce, tamperedBodyHash, signatureBase64);
+            "DEV001", publicKeyBase64, method, path, timestamp, nonce, tamperedBodyHash, signatureBase64);
 
         assertFalse(result.isValid());
         assertTrue(result.getErrorMessage().contains("签名验证失败"));
@@ -124,7 +126,7 @@ class RequestSignatureVerifierTest {
     @Test
     void verify_missingPublicKey_returnsFail() {
         RequestSignatureVerifier.VerificationResult result = verifier.verify(
-            null, "GET", "/v1/client/bootstrap", String.valueOf(System.currentTimeMillis()),
+            "DEV001", null, "GET", "/v1/client/bootstrap", String.valueOf(System.currentTimeMillis()),
             "nonce", "hash", "sig");
 
         assertFalse(result.isValid());
@@ -140,7 +142,7 @@ class RequestSignatureVerifierTest {
         String bodySha256Hex = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
         RequestSignatureVerifier.VerificationResult result = verifier.verify(
-            publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, "not-valid-base64!!!");
+            "DEV001", publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, "not-valid-base64!!!");
 
         assertFalse(result.isValid());
     }
@@ -164,9 +166,115 @@ class RequestSignatureVerifierTest {
         String signatureBase64 = Base64.getEncoder().encodeToString(rawSig);
 
         RequestSignatureVerifier.VerificationResult result = verifier.verify(
-            publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, signatureBase64);
+            "DEV001", publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, signatureBase64);
 
         assertTrue(result.isValid());
+    }
+
+    @Test
+    void verify_sameNonceForDifferentDevices_returnsOk() throws Exception {
+        String method = "GET";
+        String path = "/v1/client/bootstrap";
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String nonce = java.util.UUID.randomUUID().toString();
+        String bodySha256Hex = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        String signatureBase64 = sign(method, path, timestamp, nonce, bodySha256Hex);
+
+        RequestSignatureVerifier.VerificationResult first = verifier.verify(
+            "DEV001", publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, signatureBase64);
+        RequestSignatureVerifier.VerificationResult second = verifier.verify(
+            "DEV002", publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex, signatureBase64);
+
+        assertTrue(first.isValid());
+        assertTrue(second.isValid());
+    }
+
+    @Test
+    void verify_sameDeviceNonceIsSharedAcrossHttpAndWebSocketPaths() throws Exception {
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String nonce = java.util.UUID.randomUUID().toString();
+        String bodySha256Hex = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+        RequestSignatureVerifier.VerificationResult http = verifier.verify(
+            "DEV001", publicKeyBase64, "GET", "/v1/client/bootstrap", timestamp, nonce,
+            bodySha256Hex, sign("GET", "/v1/client/bootstrap", timestamp, nonce, bodySha256Hex));
+        RequestSignatureVerifier.VerificationResult websocket = verifier.verify(
+            "DEV001", publicKeyBase64, "GET", "/v1/ai/speech/realtime/ws", timestamp, nonce,
+            bodySha256Hex, sign("GET", "/v1/ai/speech/realtime/ws", timestamp, nonce, bodySha256Hex));
+
+        assertTrue(http.isValid());
+        assertFalse(websocket.isValid());
+        assertTrue(websocket.getErrorMessage().contains("随机数已使用"));
+    }
+
+    @Test
+    void verify_invalidSignature_doesNotClaimNonce() throws Exception {
+        final int[] claims = new int[1];
+        verifier = new RequestSignatureVerifier((deviceId, nonce, expiresAtEpochMs) -> {
+            claims[0]++;
+            return true;
+        });
+
+        RequestSignatureVerifier.VerificationResult result = verifier.verify(
+            "DEV001", publicKeyBase64, "GET", "/v1/client/bootstrap",
+            String.valueOf(System.currentTimeMillis()), "nonce-1",
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "not-valid-base64!!!");
+
+        assertFalse(result.isValid());
+        assertEquals(0, claims[0]);
+    }
+
+    @Test
+    void verify_nonceStoreUnavailable_returnsDedicatedResult() throws Exception {
+        NonceStore unavailableStore = (deviceId, nonce, expiresAtEpochMs) -> {
+            throw new NonceStoreUnavailableException("down", new IllegalStateException("db down"));
+        };
+        verifier = new RequestSignatureVerifier(unavailableStore);
+
+        String method = "GET";
+        String path = "/v1/client/bootstrap";
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String nonce = java.util.UUID.randomUUID().toString();
+        String bodySha256Hex = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+        RequestSignatureVerifier.VerificationResult result = verifier.verify(
+            "DEV001", publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex,
+            sign(method, path, timestamp, nonce, bodySha256Hex));
+
+        assertFalse(result.isValid());
+        assertTrue(result.isStoreUnavailable());
+    }
+
+    @Test
+    void verify_nonceLongerThan64Characters_isRejectedBeforeClaim() {
+        final int[] claims = new int[1];
+        verifier = new RequestSignatureVerifier((deviceId, nonce, expiresAtEpochMs) -> {
+            claims[0]++;
+            return true;
+        });
+
+        RequestSignatureVerifier.VerificationResult result = verifier.verify(
+            "DEV001", publicKeyBase64, "GET", "/v1/client/bootstrap",
+            String.valueOf(System.currentTimeMillis()),
+            "12345678901234567890123456789012345678901234567890123456789012345",
+            "hash", "signature");
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrorMessage().contains("长度"));
+        assertEquals(0, claims[0]);
+    }
+
+    private String sign(String method,
+                        String path,
+                        String timestamp,
+                        String nonce,
+                        String bodySha256Hex) throws Exception {
+        String stringToSign = method + "\n" + path + "\n" + timestamp + "\n" + nonce + "\n" + bodySha256Hex + "\n";
+        Signature sig = Signature.getInstance("SHA256withECDSA");
+        sig.initSign(testKeyPair.getPrivate());
+        sig.update(stringToSign.getBytes(StandardCharsets.UTF_8));
+        return Base64.getEncoder().encodeToString(sig.sign());
     }
 
     private static byte[] convertDerToRaw(byte[] derSig) {

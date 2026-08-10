@@ -74,6 +74,7 @@ class UserConsultationLogServiceTest {
         request.setPatientId("P001");
         request.setPatientName("王某");
         request.setDoctorId("D001");
+        request.setDoctorWorkNo("0123");
         request.setDoctorName("张医生");
         request.setOrgCode("HIS-ORG-001");
         request.setHisOrgId("HIS-ORG-ID-001");
@@ -95,6 +96,7 @@ class UserConsultationLogServiceTest {
         assertEquals("HIS-ORG-ID-001", saved.getHisOrgId());
         assertEquals("区域中心医院", saved.getNaOrg());
         assertEquals("D001", saved.getIdDoctor());
+        assertEquals("0123", saved.getDoctorWorkNo());
         assertEquals("张医生", saved.getNaDoctor());
         assertEquals("王某", saved.getPatientName());
         assertEquals("generated", saved.getStatus());

@@ -111,7 +111,7 @@ class OutboundSecurityServiceTest {
     }
 
     @Test
-    void acquireShouldRateLimitPerHost() {
+    void acquireShouldRateLimitPerHostAndOperation() {
         OutboundSecurityProperties properties = newProperties("127.0.0.1");
         properties.setAllowPrivateNetwork(true);
         properties.setAllowInsecureHttp(true);
@@ -123,6 +123,20 @@ class OutboundSecurityServiceTest {
         assertThatThrownBy(() -> service.acquireHttp("http://127.0.0.1:11434/v1", "test"))
             .isInstanceOf(BusinessException.class)
             .hasMessage("上游服务请求过于频繁，请稍后重试");
+    }
+
+    @Test
+    void acquireShouldIsolateRateLimitBetweenOperationsOnSameHost() {
+        OutboundSecurityProperties properties = newProperties("127.0.0.1");
+        properties.setAllowPrivateNetwork(true);
+        properties.setAllowInsecureHttp(true);
+        properties.setRateLimitPerMinute(1);
+        OutboundSecurityService service = new OutboundSecurityService(properties);
+
+        service.acquireHttp("http://127.0.0.1:11434/v1", "chat").success();
+
+        assertThat(service.acquireHttp("http://127.0.0.1:11434/v1", "speech"))
+            .isNotNull();
     }
 
     @Test
@@ -142,6 +156,22 @@ class OutboundSecurityServiceTest {
         assertThatThrownBy(() -> service.acquireHttp("http://127.0.0.1:11434/v1", "test"))
             .isInstanceOf(BusinessException.class)
             .hasMessage("上游服务暂时不可用，请稍后重试");
+    }
+
+    @Test
+    void acquireShouldIsolateCircuitBetweenOperationsOnSameHost() {
+        OutboundSecurityProperties properties = newProperties("127.0.0.1");
+        properties.setAllowPrivateNetwork(true);
+        properties.setAllowInsecureHttp(true);
+        properties.setCircuitFailureThreshold(1);
+        properties.setRateLimitPerMinute(10);
+        OutboundSecurityService service = new OutboundSecurityService(properties);
+
+        service.acquireHttp("http://127.0.0.1:11434/v1", "chat")
+            .failure(new RuntimeException("boom"));
+
+        assertThat(service.acquireHttp("http://127.0.0.1:11434/v1", "speech"))
+            .isNotNull();
     }
 
     @Test

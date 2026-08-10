@@ -28,6 +28,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
 
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -80,13 +81,14 @@ class DeviceServiceTest {
     }
 
     @Test
-    void listShouldAttachLatestUserNameFromConsultationLogs() {
+    void listShouldAttachLatestDoctorIdentityAndResolveLastActiveTime() {
         AiDevice device = new AiDevice();
         device.setIdDevice("DEV001");
         device.setCdDevice("DEVICE-CODE");
         device.setIdOrg("ORG001");
         device.setIdRegion("REG001");
         device.setFgActive("1");
+        device.setDtLastHeartbeat(LocalDateTime.of(2026, 8, 6, 8, 30));
 
         Page<AiDevice> page = new Page<AiDevice>(1, 10, 1);
         page.setRecords(Collections.singletonList(device));
@@ -104,13 +106,17 @@ class DeviceServiceTest {
         Map<String, Object> userRow = new LinkedHashMap<String, Object>();
         userRow.put("IDDEVICE", "DEV001");
         userRow.put("NAUSER", "张医生");
-        when(userConsultationLogMapper.selectLatestUserNames(Collections.singletonList("DEV001")))
+        userRow.put("DOCTORWORKNO", "0123");
+        userRow.put("CONSULTATIONTIME", LocalDateTime.of(2026, 8, 6, 9, 15));
+        when(userConsultationLogMapper.selectLatestUserIdentities(Collections.singletonList("DEV001")))
             .thenReturn(Collections.singletonList(userRow));
 
         PageResponse<AiDeviceView> result = deviceService.list(1, 10, null);
 
         assertEquals(1, result.getRecords().size());
         assertEquals("张医生", result.getRecords().get(0).getNaUser());
+        assertEquals("0123", result.getRecords().get(0).getDoctorWorkNo());
+        assertEquals(LocalDateTime.of(2026, 8, 6, 9, 15), result.getRecords().get(0).getLastActiveTime());
         assertEquals("默认机构", result.getRecords().get(0).getNaOrg());
         assertEquals("默认区域", result.getRecords().get(0).getNaRegion());
     }
@@ -426,10 +432,11 @@ class DeviceServiceTest {
         device.setIdDevice("DEV001");
         device.setSdStatus("0");
 
-        deviceService.heartbeat(device, "192.168.1.23");
+        deviceService.heartbeat(device, "192.168.1.23", "1.3.8");
 
         assertEquals("1", device.getSdStatus());
         assertEquals("192.168.1.23", device.getLastSeenIp());
+        assertEquals("1.3.8", device.getClientVersion());
         assertTrue(device.getDtLastHeartbeat() != null);
         verify(aiDeviceMapper).updateById(device);
     }
@@ -440,11 +447,13 @@ class DeviceServiceTest {
         device.setIdDevice("DEV001");
         device.setSdStatus("0");
         device.setLastSeenIp("192.168.1.23");
+        device.setClientVersion("1.3.7");
 
-        deviceService.heartbeat(device, "unknown");
+        deviceService.heartbeat(device, "unknown", "  ");
 
         assertEquals("1", device.getSdStatus());
         assertEquals("192.168.1.23", device.getLastSeenIp());
+        assertEquals("1.3.7", device.getClientVersion());
         assertTrue(device.getDtLastHeartbeat() != null);
         verify(aiDeviceMapper).updateById(device);
     }

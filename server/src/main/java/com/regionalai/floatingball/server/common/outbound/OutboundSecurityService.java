@@ -67,7 +67,8 @@ public class OutboundSecurityService {
 
     private OutboundCall acquire(URI uri, String operation) {
         String host = normalizeHost(uri.getHost());
-        HostState state = hostStates.computeIfAbsent(host, key -> new HostState());
+        String stateKey = stateKey(host, operation);
+        HostState state = hostStates.computeIfAbsent(stateKey, key -> new HostState());
         synchronized (state) {
             long now = System.currentTimeMillis();
             if (state.circuitOpenedAt > 0L && now - state.circuitOpenedAt < Math.max(1000L, properties.getCircuitOpenMs())) {
@@ -87,7 +88,14 @@ public class OutboundSecurityService {
             }
             state.requestCount++;
         }
-        return new OutboundCall(uri, host, operation, this);
+        return new OutboundCall(uri, stateKey, host, operation, this);
+    }
+
+    private String stateKey(String host, String operation) {
+        String normalizedOperation = StringUtils.hasText(operation)
+            ? operation.trim().toLowerCase(Locale.ROOT)
+            : "unspecified";
+        return host + "|" + normalizedOperation;
     }
 
     private URI validateUri(URI uri, String operation) {
@@ -272,8 +280,8 @@ public class OutboundSecurityService {
             || Arrays.equals(bytes, new byte[16]);
     }
 
-    private void markSuccess(String host) {
-        HostState state = hostStates.get(host);
+    private void markSuccess(String stateKey) {
+        HostState state = hostStates.get(stateKey);
         if (state == null) {
             return;
         }
@@ -283,8 +291,8 @@ public class OutboundSecurityService {
         }
     }
 
-    private void markFailure(String host, String operation, Throwable error) {
-        HostState state = hostStates.get(host);
+    private void markFailure(String stateKey, String host, String operation, Throwable error) {
+        HostState state = hostStates.get(stateKey);
         if (state == null) {
             return;
         }
@@ -308,13 +316,16 @@ public class OutboundSecurityService {
     public static final class OutboundCall {
 
         private final URI uri;
+        private final String stateKey;
         private final String host;
         private final String operation;
         private final OutboundSecurityService owner;
         private boolean completed;
 
-        private OutboundCall(URI uri, String host, String operation, OutboundSecurityService owner) {
+        private OutboundCall(URI uri, String stateKey, String host, String operation,
+                             OutboundSecurityService owner) {
             this.uri = uri;
+            this.stateKey = stateKey;
             this.host = host;
             this.operation = operation;
             this.owner = owner;
@@ -331,14 +342,14 @@ public class OutboundSecurityService {
         public void success() {
             if (!completed) {
                 completed = true;
-                owner.markSuccess(host);
+                owner.markSuccess(stateKey);
             }
         }
 
         public void failure(Throwable error) {
             if (!completed) {
                 completed = true;
-                owner.markFailure(host, operation, error);
+                owner.markFailure(stateKey, host, operation, error);
             }
         }
     }

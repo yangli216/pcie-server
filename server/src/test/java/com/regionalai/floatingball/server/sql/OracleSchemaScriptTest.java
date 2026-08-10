@@ -69,6 +69,7 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_event");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_agg");
         assertContains(initSql, "CREATE TABLE c_security_rejection_log");
+        assertContains(initSql, "CREATE TABLE c_security_request_nonce");
         assertContains(initSql, "CREATE TABLE c_ai_inpatient_emr_tpl_cache");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_obs");
@@ -94,6 +95,8 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "speech_text          CLOB");
         assertContains(initSql, "audio_file_name      VARCHAR2(255)");
         assertContains(initSql, "id_his_org           VARCHAR2(64)");
+        assertContains(initSql, "cd_doctor            VARCHAR2(64)");
+        assertContains(initSql, "COMMENT ON COLUMN c_ai_user_consultation_log.cd_doctor");
         assertContains(initSql, "change_summary_json  CLOB");
         assertContains(initSql, "total_changes        NUMBER(5)");
 
@@ -135,6 +138,8 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE INDEX idx_c_security_rej_ip");
         assertContains(initSql, "CREATE INDEX idx_c_security_rej_device");
         assertContains(initSql, "CREATE INDEX idx_c_security_rej_path");
+        assertContains(initSql, "CONSTRAINT pk_c_security_req_nonce PRIMARY KEY (id_device, nonce_value)");
+        assertContains(initSql, "CREATE INDEX idx_c_security_nonce_exp");
         assertContains(initSql, "CREATE INDEX idx_c_ai_inemr_tpl_id");
         assertContains(initSql, "CREATE INDEX idx_c_ai_inemr_tpl_hash");
         assertContains(initSql, "CREATE INDEX idx_c_ai_inemr_tpl_status");
@@ -175,6 +180,8 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_rec_pref_event_idem");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_rec_pref_agg_scope");
         assertContains(initSql, "id_his_org           VARCHAR(64)");
+        assertContains(initSql, "cd_doctor            VARCHAR(64)");
+        assertContains(initSql, "COMMENT ON COLUMN c_ai_user_consultation_log.cd_doctor");
         assertContains(initSql, "na_his_org           VARCHAR(255)");
         assertContains(initSql, "CREATE INDEX idx_c_ai_op_log_his_org");
         assertContains(initSql, "CREATE INDEX idx_c_ai_user_log_his_org");
@@ -187,6 +194,9 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_audit");
         assertContains(initSql, "CREATE TABLE c_ai_chronic_followup");
         assertContains(initSql, "CREATE TABLE c_ai_chronic_artifact");
+        assertContains(initSql, "CREATE TABLE c_security_request_nonce");
+        assertContains(initSql, "CONSTRAINT pk_c_security_req_nonce PRIMARY KEY (id_device, nonce_value)");
+        assertContains(initSql, "CREATE INDEX idx_c_security_nonce_exp");
         assertContains(initSql, "id_phr                   VARCHAR(64) NOT NULL");
         assertContains(initSql, "sd_visit_kind            VARCHAR(8) NOT NULL");
         assertContains(initSql, "form_data_json           TEXT NOT NULL");
@@ -228,6 +238,7 @@ class OracleSchemaScriptTest {
             assertContains(sql, "c_ai_user_consultation_log");
             assertContains(sql, "consultation_round_id");
             assertContains(sql, "id_his_org");
+            assertContains(sql, "cd_doctor");
             assertContains(sql, "c_ai_op_log");
             assertContains(sql, "c_ai_feature_event");
             assertContains(sql, "na_his_org");
@@ -245,14 +256,18 @@ class OracleSchemaScriptTest {
 
         String oracleCompatibleColumn =
             "add_column_if_missing('c_ai_user_consultation_log', 'consultation_round_id', 'VARCHAR2(64)')";
+        String oracleCompatibleDoctorWorkNoColumn =
+            "add_column_if_missing('c_ai_user_consultation_log', 'cd_doctor', 'VARCHAR2(64)')";
         String oracleCompatibleRealtimeColumn =
             "add_column_if_missing('c_ai_config', 'speech_realtime_url', 'VARCHAR2(500)')";
         String oracleCompatibleUniqueIndex =
             "CASE WHEN fg_active = ''1'' AND status = ''generated'' THEN consultation_round_id END";
         assertContains(oracleSql, oracleCompatibleColumn);
+        assertContains(oracleSql, oracleCompatibleDoctorWorkNoColumn);
         assertContains(oracleSql, oracleCompatibleRealtimeColumn);
         assertContains(oracleSql, oracleCompatibleUniqueIndex);
         assertContains(damengSql, oracleCompatibleColumn);
+        assertContains(damengSql, oracleCompatibleDoctorWorkNoColumn);
         assertContains(damengSql, oracleCompatibleRealtimeColumn);
         assertContains(damengSql, oracleCompatibleUniqueIndex);
 
@@ -263,6 +278,10 @@ class OracleSchemaScriptTest {
         assertContains(
             gaussdbSql,
             "ALTER TABLE c_ai_user_consultation_log ADD COLUMN IF NOT EXISTS consultation_round_id VARCHAR(64)"
+        );
+        assertContains(
+            gaussdbSql,
+            "ALTER TABLE c_ai_user_consultation_log ADD COLUMN IF NOT EXISTS cd_doctor VARCHAR(64)"
         );
         assertContains(
             gaussdbSql,
@@ -322,6 +341,26 @@ class OracleSchemaScriptTest {
         assertContains(gaussdbSql, "CREATE TABLE IF NOT EXISTS c_ai_chronic_artifact");
         assertNotContains(gaussdbSql, "VARCHAR2");
         assertNotContains(gaussdbSql, "NUMBER(");
+    }
+
+    @Test
+    void damengClusterNonceUpdateShouldCreateIdempotentReplayProtectionSchema() throws IOException {
+        String sql = readSql(DAMENG_SQL_DIR.resolve("update_cluster_nonce.sql"));
+
+        assertContains(sql, "C_SECURITY_REQUEST_NONCE");
+        assertContains(sql, "CREATE TABLE c_security_request_nonce");
+        assertContains(sql, "CONSTRAINT pk_c_security_req_nonce PRIMARY KEY (id_device, nonce_value)");
+        assertContains(sql, "IDX_C_SECURITY_NONCE_EXP");
+        assertContains(sql, "CREATE INDEX idx_c_security_nonce_exp");
+        assertContains(sql, "user_tables");
+        assertContains(sql, "user_constraints");
+        assertContains(sql, "user_cons_columns");
+        assertContains(sql, "GROUP BY id_device, nonce_value");
+        assertContains(sql, "HAVING COUNT(1) > 1");
+        assertContains(sql, "RAISE_APPLICATION_ERROR");
+        assertContains(sql, "ADD CONSTRAINT uk_c_security_req_nonce UNIQUE (id_device, nonce_value)");
+        assertContains(sql, "user_indexes");
+        assertContains(sql, "COMMIT");
     }
 
     private String readSql(Path path) throws IOException {

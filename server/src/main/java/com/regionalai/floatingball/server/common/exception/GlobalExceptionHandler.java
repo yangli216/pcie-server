@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.util.regex.Pattern;
 
 @RestControllerAdvice
@@ -55,6 +56,20 @@ public class GlobalExceptionHandler {
             resolveRequestId(request),
             ex.getMinSupportedVersion());
         return ApiResponse.error("UPDATE-REQUIRED", ex.getMessage(), resolveRequestId(request));
+    }
+
+    @ExceptionHandler(ServiceBusyException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public ApiResponse<Void> handleServiceBusy(ServiceBusyException ex,
+                                               HttpServletRequest request,
+                                               HttpServletResponse response) {
+        response.setHeader("Retry-After", String.valueOf(ex.getRetryAfterSeconds()));
+        log.warn("service busy. method={}, uri={}, requestId={}, code={}",
+            request.getMethod(),
+            request.getRequestURI(),
+            resolveRequestId(request),
+            ex.getCode());
+        return ApiResponse.error(ex.getCode(), ex.getMessage(), resolveRequestId(request));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

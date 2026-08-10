@@ -473,6 +473,7 @@ CREATE TABLE c_ai_user_consultation_log (
     id_his_org           VARCHAR2(64),
     na_org               VARCHAR2(255),
     id_doctor            VARCHAR2(64),
+    cd_doctor            VARCHAR2(64),
     na_doctor            VARCHAR2(128),
     id_dept              VARCHAR2(64),
     na_dept              VARCHAR2(128),
@@ -507,6 +508,7 @@ COMMENT ON COLUMN c_ai_user_consultation_log.id_org IS '后台机构ID（来自�
 COMMENT ON COLUMN c_ai_user_consultation_log.id_his_org IS 'HIS端机构ID（来自桌面端问诊上下文）';
 COMMENT ON COLUMN c_ai_user_consultation_log.na_org IS '机构名称';
 COMMENT ON COLUMN c_ai_user_consultation_log.id_doctor IS '医生ID';
+COMMENT ON COLUMN c_ai_user_consultation_log.cd_doctor IS '医生真实工号（来自SDK握手urt.personCd）';
 COMMENT ON COLUMN c_ai_user_consultation_log.na_doctor IS '医生姓名';
 COMMENT ON COLUMN c_ai_user_consultation_log.id_dept IS '科室ID';
 COMMENT ON COLUMN c_ai_user_consultation_log.na_dept IS '科室名称';
@@ -776,6 +778,23 @@ CREATE INDEX idx_c_security_rej_type ON c_security_rejection_log (rejection_type
 CREATE INDEX idx_c_security_rej_ip ON c_security_rejection_log (client_ip, insert_time, fg_active);
 CREATE INDEX idx_c_security_rej_device ON c_security_rejection_log (id_device, insert_time, fg_active);
 CREATE INDEX idx_c_security_rej_path ON c_security_rejection_log (request_path, insert_time, fg_active);
+
+
+CREATE TABLE c_security_request_nonce (
+    id_device            VARCHAR2(32) NOT NULL,
+    nonce_value          VARCHAR2(64) NOT NULL,
+    expires_at           TIMESTAMP NOT NULL,
+    insert_time          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT pk_c_security_req_nonce PRIMARY KEY (id_device, nonce_value)
+);
+
+COMMENT ON TABLE c_security_request_nonce IS '集群请求签名nonce防重放表';
+COMMENT ON COLUMN c_security_request_nonce.id_device IS '设备ID，与nonce共同唯一';
+COMMENT ON COLUMN c_security_request_nonce.nonce_value IS '已验签请求的随机数';
+COMMENT ON COLUMN c_security_request_nonce.expires_at IS 'nonce安全窗口过期时间';
+COMMENT ON COLUMN c_security_request_nonce.insert_time IS '登记时间';
+
+CREATE INDEX idx_c_security_nonce_exp ON c_security_request_nonce (expires_at);
 
 
 CREATE TABLE c_ai_feedback (

@@ -1,0 +1,9 @@
+{
+  "cluster": {
+    "enabled": true,
+    "clusterId": "clinic-prod",
+    "nodeId": "pcie-02",
+    "releaseWriterNodeId": "pcie-01",
+    "releaseWriter": false
+  }
+}

@@ -1,5 +1,14 @@
 server:
   port: 8080
+  shutdown: graceful
+  forward-headers-strategy: native
+  tomcat:
+    threads:
+      max: ${FB_TOMCAT_MAX_THREADS:200}
+      min-spare: ${FB_TOMCAT_MIN_SPARE_THREADS:20}
+    accept-count: ${FB_TOMCAT_ACCEPT_COUNT:50}
+    mbeanregistry:
+      enabled: true
 
 spring:
   application:
@@ -13,6 +22,11 @@ spring:
     password: ${FB_DB_PASSWORD:RBMH_AI}
     hikari:
       initialization-fail-timeout: 1
+      maximum-pool-size: ${FB_DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${FB_DB_POOL_MIN_IDLE:5}
+      connection-timeout: ${FB_DB_CONNECTION_TIMEOUT_MS:3000}
+  lifecycle:
+    timeout-per-shutdown-phase: ${FB_SHUTDOWN_TIMEOUT:150s}
   jackson:
     default-property-inclusion: non_null
   servlet:
@@ -43,20 +57,49 @@ floating-ball:
   release:
     storage-dir: ${FB_RELEASE_STORAGE_DIR:${java.io.tmpdir}/floating-ball-server/releases}
     public-base-url: ${FB_RELEASE_PUBLIC_BASE_URL:}
+  cluster:
+    enabled: ${FB_CLUSTER_ENABLED:false}
+    node-id: ${FB_NODE_ID:${HOSTNAME:standalone}}
+    cluster-id: ${FB_CLUSTER_ID:standalone}
+    shared-storage-required: ${FB_CLUSTER_SHARED_STORAGE_REQUIRED:true}
+    release-writer-node-id: ${FB_RELEASE_WRITER_NODE_ID:}
+    marker-file-name: ${FB_CLUSTER_MARKER_FILE:.pcie-cluster-id}
+    storage-challenge-ttl-seconds: ${FB_CLUSTER_STORAGE_CHALLENGE_TTL_SECONDS:60}
   cors:
     allowed-origins:
       - ${FB_ADMIN_ORIGIN_LOCALHOST:http://localhost:5174}
       - ${FB_ADMIN_ORIGIN_LOOPBACK:http://127.0.0.1:5174}
       - ${FB_ADMIN_PREVIEW_ORIGIN_LOCALHOST:http://localhost:4173}
       - ${FB_ADMIN_PREVIEW_ORIGIN_LOOPBACK:http://127.0.0.1:4173}
+  security:
+    nonce-cleanup-grace-ms: ${FB_NONCE_CLEANUP_GRACE_MS:300000}
   ai:
-    connect-timeout-ms: ${FB_AI_CONNECT_TIMEOUT_MS:30000}
+    connect-timeout-ms: ${FB_AI_CONNECT_TIMEOUT_MS:5000}
     read-timeout-ms: ${FB_AI_READ_TIMEOUT_MS:120000}
+    blocking:
+      pool-size: ${FB_AI_BLOCKING_POOL_SIZE:80}
+      queue-capacity: ${FB_AI_BLOCKING_QUEUE_CAPACITY:8}
+      timeout-ms: ${FB_AI_BLOCKING_TIMEOUT_MS:130000}
+      speech-pool-size: ${FB_AI_SPEECH_POOL_SIZE:8}
+      speech-queue-capacity: ${FB_AI_SPEECH_QUEUE_CAPACITY:4}
+      reviewer-pool-size: ${FB_AI_REVIEWER_POOL_SIZE:16}
+      reviewer-queue-capacity: ${FB_AI_REVIEWER_QUEUE_CAPACITY:4}
+    http:
+      max-total: ${FB_AI_HTTP_MAX_TOTAL:160}
+      max-per-route: ${FB_AI_HTTP_MAX_PER_ROUTE:144}
+      connection-request-timeout-ms: ${FB_AI_HTTP_CONNECTION_REQUEST_TIMEOUT_MS:500}
+      validate-after-inactivity-ms: ${FB_AI_HTTP_VALIDATE_AFTER_INACTIVITY_MS:5000}
+      idle-evict-seconds: ${FB_AI_HTTP_IDLE_EVICT_SECONDS:30}
     stream:
-      core-pool-size: ${FB_AI_STREAM_CORE_POOL_SIZE:4}
+      core-pool-size: ${FB_AI_STREAM_CORE_POOL_SIZE:16}
       max-pool-size: ${FB_AI_STREAM_MAX_POOL_SIZE:16}
-      queue-capacity: ${FB_AI_STREAM_QUEUE_CAPACITY:32}
+      queue-capacity: ${FB_AI_STREAM_QUEUE_CAPACITY:4}
       keep-alive-seconds: ${FB_AI_STREAM_KEEP_ALIVE_SECONDS:60}
+      timeout-ms: ${FB_AI_STREAM_TIMEOUT_MS:130000}
+    realtime:
+      max-active-sessions: ${FB_AI_REALTIME_MAX_ACTIVE_SESSIONS:64}
+      max-buffered-audio-bytes: ${FB_AI_REALTIME_MAX_BUFFERED_AUDIO_BYTES:2097152}
+      handshake-timeout-ms: ${FB_AI_REALTIME_HANDSHAKE_TIMEOUT_MS:10000}
     proxy:
       enabled: ${FB_AI_PROXY_ENABLED:false}
       host: ${FB_AI_PROXY_HOST:}
@@ -72,3 +115,33 @@ floating-ball:
     rate-limit-per-minute: ${FB_OUTBOUND_RATE_LIMIT_PER_MINUTE:120}
     circuit-failure-threshold: ${FB_OUTBOUND_CIRCUIT_FAILURE_THRESHOLD:5}
     circuit-open-ms: ${FB_OUTBOUND_CIRCUIT_OPEN_MS:30000}
+  knowledge:
+    blocking:
+      pool-size: ${FB_KNOWLEDGE_POOL_SIZE:16}
+      queue-capacity: ${FB_KNOWLEDGE_QUEUE_CAPACITY:4}
+      timeout-ms: ${FB_KNOWLEDGE_TIMEOUT_MS:30000}
+      retry-after-seconds: ${FB_KNOWLEDGE_RETRY_AFTER_SECONDS:1}
+
+management:
+  server:
+    port: ${FB_MANAGEMENT_PORT:8081}
+    address: ${FB_MANAGEMENT_ADDRESS:127.0.0.1}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,clusterStorageChallenge
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      group:
+        liveness:
+          include: livenessState,ping
+        readiness:
+          include: readinessState,db,clusterStorage,nonceStore
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      cluster: ${floating-ball.cluster.cluster-id}
+      node: ${floating-ball.cluster.node-id}

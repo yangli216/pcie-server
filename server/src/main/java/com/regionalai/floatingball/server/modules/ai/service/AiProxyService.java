@@ -3,6 +3,8 @@ package com.regionalai.floatingball.server.modules.ai.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
+import com.regionalai.floatingball.server.common.exception.ServiceBusyException;
+import com.regionalai.floatingball.server.common.metrics.AiProxyMetrics;
 import com.regionalai.floatingball.server.common.outbound.OutboundSecurityService;
 import com.regionalai.floatingball.server.common.outbound.OutboundSecurityService.OutboundCall;
 import com.regionalai.floatingball.server.modules.ai.dto.ChatRequest;
@@ -12,6 +14,9 @@ import com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig;
 import com.regionalai.floatingball.server.modules.config.service.ConfigService;
 import com.regionalai.floatingball.server.modules.device.entity.AiDevice;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.task.AsyncTaskExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
@@ -28,6 +33,17 @@ import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.apache.http.conn.ConnectionPoolTimeoutException;
+import org.apache.http.Header;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.methods.HttpRequestBase;
+import org.apache.http.entity.ByteArrayEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.util.EntityUtils;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.http.HttpStatus;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -42,8 +58,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executor;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class AiProxyService {
@@ -59,30 +77,46 @@ public class AiProxyService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final OutboundSecurityService outboundSecurityService;
-    private final Executor aiStreamExecutor;
+    private final AsyncTaskExecutor aiStreamExecutor;
+    private final AiProxyMetrics metrics;
+    private final CloseableHttpClient aiHttpClient;
 
+    @Value("${floating-ball.ai.stream.timeout-ms:130000}")
+    private long streamTimeoutMillis = 130000L;
+
+    @Autowired
     public AiProxyService(ConfigService configService,
                           AuditService auditService,
                           RestTemplate restTemplate,
                           ObjectMapper objectMapper,
                           OutboundSecurityService outboundSecurityService,
-                          @Qualifier("aiStreamExecutor") Executor aiStreamExecutor) {
+                          @Qualifier("aiStreamExecutor") AsyncTaskExecutor aiStreamExecutor,
+                          AiProxyMetrics metrics,
+                          CloseableHttpClient aiHttpClient) {
         this.configService = configService;
         this.auditService = auditService;
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.outboundSecurityService = outboundSecurityService;
         this.aiStreamExecutor = aiStreamExecutor;
+        this.metrics = metrics;
+        this.aiHttpClient = aiHttpClient;
+    }
+
+    public AiProxyService(ConfigService configService,
+                          AuditService auditService,
+                          RestTemplate restTemplate,
+                          ObjectMapper objectMapper,
+                          OutboundSecurityService outboundSecurityService,
+                          AsyncTaskExecutor aiStreamExecutor,
+                          AiProxyMetrics metrics) {
+        this(configService, auditService, restTemplate, objectMapper, outboundSecurityService,
+            aiStreamExecutor, metrics, null);
     }
 
     public String chat(AiDevice device, ChatRequest request) {
         UpstreamChatConfig upstreamConfig = resolveChatConfig(device, request);
         return chat(device, request, upstreamConfig);
-    }
-
-    public void validateChatConfig(AiDevice device, ChatRequest request) {
-        UpstreamChatConfig upstreamConfig = resolveChatConfig(device, request);
-        outboundSecurityService.validateHttpUrl(upstreamConfig.getBaseUrl() + "/chat/completions", "ai-chat");
     }
 
     public String testChatConnection(String baseUrl, String apiKey, String model, boolean enableThinking) {
@@ -306,6 +340,18 @@ public class AiProxyService {
             );
             throw new BusinessException(buildUpstreamErrorMessage("AI", ex));
         } catch (ResourceAccessException ex) {
+            if (isConnectionPoolTimeout(ex)) {
+                log.warn("ai chat rejected because outbound connection pool is exhausted. model={}", upstreamConfig.getModel());
+                auditService.saveSystemLog(
+                    device,
+                    "ai_proxy",
+                    "ai",
+                    "chat",
+                    buildChatLogPayload(request, upstreamConfig, payload, null, "AI连接资源繁忙，请稍后重试", null),
+                    false
+                );
+                throw new ServiceBusyException("AI连接资源繁忙，请稍后重试", 1);
+            }
             markOutboundFailure(outboundCall, ex);
             log.error("ai chat upstream unreachable. model={}, error={}", upstreamConfig.getModel(), ex.getMessage());
             auditService.saveSystemLog(
@@ -343,18 +389,52 @@ public class AiProxyService {
     }
 
     public SseEmitter chatStream(AiDevice device, ChatRequest request) {
-        UpstreamChatConfig upstreamConfig = resolveChatConfig(device, request);
-        SseEmitter emitter = new SseEmitter(120000L);
+        SseEmitter emitter = new SseEmitter(Math.max(1000L, streamTimeoutMillis));
+        StreamLifecycle lifecycle = new StreamLifecycle(aiStreamExecutor);
+        emitter.onTimeout(() -> cancelStream(lifecycle));
+        emitter.onError(error -> cancelStream(lifecycle));
+        emitter.onCompletion(() -> cancelStream(lifecycle));
         try {
-            aiStreamExecutor.execute(() -> streamChat(device, request, upstreamConfig, emitter));
+            Future<?> future = aiStreamExecutor.submit(() -> {
+                metrics.started("stream");
+                boolean succeeded = false;
+                try {
+                    UpstreamChatConfig upstreamConfig = resolveChatConfig(device, request);
+                    succeeded = streamChat(device, request, upstreamConfig, emitter, lifecycle);
+                } catch (BusinessException ex) {
+                    log.warn("ai chat stream configuration rejected. error={}", ex.getMessage());
+                    sendErrorFrameUnlessCancelled(emitter, lifecycle, ex.getMessage());
+                } catch (RuntimeException ex) {
+                    log.error("ai chat stream could not start. error={}", ex.getMessage());
+                    sendErrorFrameUnlessCancelled(emitter, lifecycle, "AI流式请求启动失败，请稍后重试");
+                } finally {
+                    lifecycle.finished();
+                    if (lifecycle.isCancelled()) {
+                        metrics.finishedAfterCancellation("stream");
+                    } else if (succeeded) {
+                        metrics.succeeded("stream");
+                    } else {
+                        metrics.failed("stream");
+                    }
+                    emitter.complete();
+                }
+            });
+            lifecycle.attach(future);
         } catch (RejectedExecutionException ex) {
-            log.warn("ai chat stream rejected by bounded executor. model={}", upstreamConfig.getModel());
+            lifecycle.finished();
+            metrics.rejected("stream");
+            log.warn("ai chat stream rejected by bounded executor");
             sendErrorFrame(emitter, "AI流式请求过多，请稍后重试");
+            emitter.complete();
         }
         return emitter;
     }
 
-    private void streamChat(AiDevice device, ChatRequest request, UpstreamChatConfig upstreamConfig, SseEmitter emitter) {
+    private boolean streamChat(AiDevice device,
+                               ChatRequest request,
+                               UpstreamChatConfig upstreamConfig,
+                               SseEmitter emitter,
+                               StreamLifecycle lifecycle) {
         log.info("ai chat stream request. model={}, baseUrl={}", upstreamConfig.getModel(), upstreamConfig.getBaseUrl());
         Map<String, Object> payload = buildChatPayload(
             upstreamConfig.getModel(),
@@ -367,33 +447,40 @@ public class AiProxyService {
         StringBuilder responseTextBuilder = new StringBuilder();
         OutboundCall outboundCall = null;
         try {
+            if (lifecycle.isCancelled() || Thread.currentThread().isInterrupted()) {
+                return false;
+            }
             outboundCall = outboundSecurityService.acquireHttp(upstreamConfig.getBaseUrl() + "/chat/completions", "ai-chat-stream");
+            if (lifecycle.isCancelled() || Thread.currentThread().isInterrupted()) {
+                return false;
+            }
             final OutboundCall activeOutboundCall = outboundCall;
-            restTemplate.execute(
-                activeOutboundCall.getUrl(),
-                HttpMethod.POST,
-                requestCallback -> {
-                    requestCallback.getHeaders().setContentType(MediaType.APPLICATION_JSON);
-                    requestCallback.getHeaders().setAccept(Collections.singletonList(MediaType.TEXT_EVENT_STREAM));
-                    requestCallback.getHeaders().setBearerAuth(upstreamConfig.getApiKey());
-                    objectMapper.writeValue(requestCallback.getBody(), payload);
-                },
-                response -> {
-                    StreamForwardResult result = forwardSseBody(response.getBody(), emitter, responseTextBuilder);
-                    log.info("ai chat stream completed. model={}, responseLength={}", upstreamConfig.getModel(), result.responseText.length());
-                    activeOutboundCall.success();
-                    auditService.saveSystemLog(
-                        device,
-                        "ai_proxy",
-                        "ai",
-                        "chat_stream",
-                        buildChatLogPayload(request, upstreamConfig, payload, result.responseText, result.errorMessage, null),
-                        !StringUtils.hasText(result.errorMessage)
-                    );
-                    return null;
-                }
+            StreamForwardResult result = aiHttpClient == null
+                ? executeStreamWithRestTemplate(activeOutboundCall.getUrl(), upstreamConfig, payload,
+                    emitter, responseTextBuilder, lifecycle)
+                : executeAbortableStream(activeOutboundCall.getUrl(), upstreamConfig, payload,
+                    emitter, responseTextBuilder, lifecycle);
+            log.info("ai chat stream completed. model={}, responseLength={}", upstreamConfig.getModel(), result.responseText.length());
+            boolean upstreamSucceeded = !StringUtils.hasText(result.errorMessage);
+            if (upstreamSucceeded) {
+                activeOutboundCall.success();
+            } else {
+                activeOutboundCall.failure(new BusinessException("AI 流式上游返回错误帧"));
+            }
+            auditService.saveSystemLog(
+                device,
+                "ai_proxy",
+                "ai",
+                "chat_stream",
+                buildChatLogPayload(request, upstreamConfig, payload, result.responseText, result.errorMessage, null),
+                upstreamSucceeded
             );
+            return upstreamSucceeded;
         } catch (HttpStatusCodeException ex) {
+            if (lifecycle.isCancelled()) {
+                log.info("ai chat stream cancelled by client. model={}", upstreamConfig.getModel());
+                return false;
+            }
             markOutboundFailure(outboundCall, ex);
             String errorMessage = buildUpstreamErrorMessage("AI", ex);
             log.error("ai chat stream upstream error. model={}, status={}", upstreamConfig.getModel(), ex.getStatusCode());
@@ -405,10 +492,20 @@ public class AiProxyService {
                 buildChatLogPayload(request, upstreamConfig, payload, responseTextBuilder.toString(), errorMessage, ex.getResponseBodyAsString()),
                 false
             );
-            sendErrorFrame(emitter, errorMessage);
+            sendErrorFrameUnlessCancelled(emitter, lifecycle, errorMessage);
+            return false;
         } catch (ResourceAccessException ex) {
-            markOutboundFailure(outboundCall, ex);
-            String errorMessage = buildUpstreamRequestErrorMessage("AI", ex);
+            if (lifecycle.isCancelled()) {
+                log.info("ai chat stream cancelled while reading upstream. model={}", upstreamConfig.getModel());
+                return false;
+            }
+            boolean poolTimeout = isConnectionPoolTimeout(ex);
+            if (!poolTimeout) {
+                markOutboundFailure(outboundCall, ex);
+            }
+            String errorMessage = poolTimeout
+                ? "AI连接资源繁忙，请稍后重试"
+                : buildUpstreamRequestErrorMessage("AI", ex);
             log.error("ai chat stream upstream unreachable. model={}, error={}", upstreamConfig.getModel(), ex.getMessage());
             auditService.saveSystemLog(
                 device,
@@ -418,8 +515,35 @@ public class AiProxyService {
                 buildChatLogPayload(request, upstreamConfig, payload, responseTextBuilder.toString(), errorMessage, null),
                 false
             );
-            sendErrorFrame(emitter, errorMessage);
+            sendErrorFrameUnlessCancelled(emitter, lifecycle, errorMessage);
+            return false;
+        } catch (IOException ex) {
+            if (lifecycle.isCancelled()) {
+                log.info("ai chat stream request aborted before upstream response headers. model={}", upstreamConfig.getModel());
+                return false;
+            }
+            boolean poolTimeout = isConnectionPoolTimeout(ex);
+            if (!poolTimeout) {
+                markOutboundFailure(outboundCall, ex);
+            }
+            String errorMessage = poolTimeout
+                ? "AI连接资源繁忙，请稍后重试"
+                : "AI调用失败：网络连接异常，请稍后重试";
+            auditService.saveSystemLog(
+                device,
+                "ai_proxy",
+                "ai",
+                "chat_stream",
+                buildChatLogPayload(request, upstreamConfig, payload, responseTextBuilder.toString(), errorMessage, null),
+                false
+            );
+            sendErrorFrameUnlessCancelled(emitter, lifecycle, errorMessage);
+            return false;
         } catch (BusinessException ex) {
+            if (lifecycle.isCancelled()) {
+                log.info("ai chat stream cancelled before completion. model={}", upstreamConfig.getModel());
+                return false;
+            }
             markOutboundFailure(outboundCall, ex);
             log.warn("ai chat stream business rejected. model={}, error={}", upstreamConfig.getModel(), ex.getMessage());
             auditService.saveSystemLog(
@@ -430,8 +554,13 @@ public class AiProxyService {
                 buildChatLogPayload(request, upstreamConfig, payload, responseTextBuilder.toString(), ex.getMessage(), null),
                 false
             );
-            sendErrorFrame(emitter, ex.getMessage());
+            sendErrorFrameUnlessCancelled(emitter, lifecycle, ex.getMessage());
+            return false;
         } catch (Exception ex) {
+            if (lifecycle.isCancelled()) {
+                log.info("ai chat stream cancelled and upstream body closed. model={}", upstreamConfig.getModel());
+                return false;
+            }
             markOutboundFailure(outboundCall, ex);
             String errorMessage = "AI流式响应封装失败：" + (StringUtils.hasText(ex.getMessage()) ? ex.getMessage() : "未知异常");
             log.error("ai chat stream internal error. model={}, error={}", upstreamConfig.getModel(), ex.getMessage());
@@ -443,13 +572,15 @@ public class AiProxyService {
                 buildChatLogPayload(request, upstreamConfig, payload, responseTextBuilder.toString(), errorMessage, null),
                 false
             );
-            sendErrorFrame(emitter, errorMessage);
+            sendErrorFrameUnlessCancelled(emitter, lifecycle, errorMessage);
+            return false;
         }
     }
 
     private StreamForwardResult forwardSseBody(InputStream bodyStream,
                                                SseEmitter emitter,
-                                               StringBuilder responseTextBuilder) throws IOException {
+                                               StringBuilder responseTextBuilder,
+                                               StreamLifecycle lifecycle) throws IOException {
         if (bodyStream == null) {
             throw new BusinessException("AI 流式响应为空");
         }
@@ -459,6 +590,9 @@ public class AiProxyService {
         BufferedReader reader = new BufferedReader(new InputStreamReader(bodyStream, StandardCharsets.UTF_8));
         String line;
         while ((line = reader.readLine()) != null) {
+            if (lifecycle.isCancelled() || Thread.currentThread().isInterrupted()) {
+                throw new IOException("AI stream was cancelled");
+            }
             String trimmed = line.trim();
             if (trimmed.isEmpty()) {
                 continue;
@@ -485,8 +619,96 @@ public class AiProxyService {
         if (!receivedDone) {
             throw new BusinessException("AI 流式响应未正常结束");
         }
-        emitter.complete();
         return new StreamForwardResult(responseTextBuilder.toString(), errorMessage);
+    }
+
+    private StreamForwardResult executeStreamWithRestTemplate(String url,
+                                                              UpstreamChatConfig upstreamConfig,
+                                                              Map<String, Object> payload,
+                                                              SseEmitter emitter,
+                                                              StringBuilder responseTextBuilder,
+                                                              StreamLifecycle lifecycle) {
+        return restTemplate.execute(
+            url,
+            HttpMethod.POST,
+            requestCallback -> {
+                requestCallback.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                requestCallback.getHeaders().setAccept(Collections.singletonList(MediaType.TEXT_EVENT_STREAM));
+                requestCallback.getHeaders().setBearerAuth(upstreamConfig.getApiKey());
+                objectMapper.writeValue(requestCallback.getBody(), payload);
+            },
+            response -> {
+                InputStream bodyStream = response.getBody();
+                lifecycle.attach(bodyStream);
+                try {
+                    return forwardSseBody(bodyStream, emitter, responseTextBuilder, lifecycle);
+                } finally {
+                    lifecycle.detachAndClose(bodyStream);
+                }
+            }
+        );
+    }
+
+    private StreamForwardResult executeAbortableStream(String url,
+                                                       UpstreamChatConfig upstreamConfig,
+                                                       Map<String, Object> payload,
+                                                       SseEmitter emitter,
+                                                       StringBuilder responseTextBuilder,
+                                                       StreamLifecycle lifecycle) throws IOException {
+        HttpPost request = new HttpPost(url);
+        request.setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+        request.setHeader(HttpHeaders.ACCEPT, MediaType.TEXT_EVENT_STREAM_VALUE);
+        request.setHeader(HttpHeaders.AUTHORIZATION, "Bearer " + upstreamConfig.getApiKey());
+        request.setEntity(new ByteArrayEntity(objectMapper.writeValueAsBytes(payload)));
+        lifecycle.attach(request);
+        try (CloseableHttpResponse response = aiHttpClient.execute(request)) {
+            int rawStatus = response.getStatusLine().getStatusCode();
+            if (rawStatus < 200 || rawStatus >= 300) {
+                throwStatusException(response);
+            }
+            org.apache.http.HttpEntity entity = response.getEntity();
+            InputStream bodyStream = entity == null ? null : entity.getContent();
+            lifecycle.attach(bodyStream);
+            try {
+                return forwardSseBody(bodyStream, emitter, responseTextBuilder, lifecycle);
+            } finally {
+                lifecycle.detachAndClose(bodyStream);
+                EntityUtils.consumeQuietly(entity);
+            }
+        } finally {
+            lifecycle.detach(request);
+        }
+    }
+
+    private void throwStatusException(CloseableHttpResponse response) throws IOException {
+        int rawStatus = response.getStatusLine().getStatusCode();
+        HttpStatus status = HttpStatus.resolve(rawStatus);
+        HttpHeaders headers = new HttpHeaders();
+        for (Header header : response.getAllHeaders()) {
+            headers.add(header.getName(), header.getValue());
+        }
+        org.apache.http.HttpEntity entity = response.getEntity();
+        byte[] body = entity == null ? new byte[0] : EntityUtils.toByteArray(entity);
+        String reason = response.getStatusLine().getReasonPhrase();
+        HttpStatus resolved = status == null ? HttpStatus.BAD_GATEWAY : status;
+        if (resolved.is5xxServerError()) {
+            throw HttpServerErrorException.create(resolved, reason, headers, body, StandardCharsets.UTF_8);
+        }
+        throw HttpClientErrorException.create(resolved, reason, headers, body, StandardCharsets.UTF_8);
+    }
+
+    private void cancelStream(StreamLifecycle lifecycle) {
+        if (lifecycle.cancel()) {
+            metrics.cancelled("stream");
+        }
+    }
+
+    private void sendErrorFrameUnlessCancelled(SseEmitter emitter,
+                                               StreamLifecycle lifecycle,
+                                               String message) {
+        if (!lifecycle.isCancelled()) {
+            sendErrorFrame(emitter, message);
+        }
     }
 
     private void sendErrorFrame(SseEmitter emitter, String message) {
@@ -497,9 +719,8 @@ public class AiProxyService {
             errorPayload.put("error", error);
             emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(errorPayload)));
             emitter.send(SseEmitter.event().data("[DONE]"));
-            emitter.complete();
         } catch (Exception sendError) {
-            emitter.completeWithError(sendError);
+            log.debug("unable to send AI stream error frame. error={}", sendError.getMessage());
         }
     }
 
@@ -593,6 +814,20 @@ public class AiProxyService {
             );
             throw new BusinessException(errorMessage);
         } catch (ResourceAccessException ex) {
+            if (isConnectionPoolTimeout(ex)) {
+                String errorMessage = "语音连接资源繁忙，请稍后重试";
+                auditService.saveSystemLogWithAudioFile(
+                    device,
+                    "speech_proxy",
+                    "speech",
+                    action,
+                    buildSpeechLogPayload(request, preparedFile, endpoint, audioModel, null, false, errorMessage, null),
+                    false,
+                    preparedFile.audioBytes,
+                    preparedFile.fileName
+                );
+                throw new ServiceBusyException(errorMessage, 1);
+            }
             markOutboundFailure(outboundCall, ex);
             String errorMessage = buildUpstreamRequestErrorMessage("语音服务", ex);
             auditService.saveSystemLogWithAudioFile(
@@ -692,6 +927,20 @@ public class AiProxyService {
             );
             throw new BusinessException(errorMessage);
         } catch (ResourceAccessException ex) {
+            if (isConnectionPoolTimeout(ex)) {
+                String errorMessage = "语音连接资源繁忙，请稍后重试";
+                auditService.saveSystemLogWithAudioFile(
+                    device,
+                    "speech_proxy",
+                    "speech",
+                    action,
+                    buildSpeechLogPayload(request, preparedFile, endpoint, audioModel, null, false, errorMessage, null),
+                    false,
+                    preparedFile.audioBytes,
+                    preparedFile.fileName
+                );
+                throw new ServiceBusyException(errorMessage, 1);
+            }
             markOutboundFailure(outboundCall, ex);
             String errorMessage = buildUpstreamRequestErrorMessage("语音服务", ex);
             auditService.saveSystemLogWithAudioFile(
@@ -738,6 +987,17 @@ public class AiProxyService {
         if (outboundCall != null) {
             outboundCall.failure(error);
         }
+    }
+
+    private boolean isConnectionPoolTimeout(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof ConnectionPoolTimeoutException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private String buildUpstreamErrorMessage(String serviceName, HttpStatusCodeException ex) {
@@ -1192,6 +1452,102 @@ public class AiProxyService {
         private StreamForwardResult(String responseText, String errorMessage) {
             this.responseText = responseText;
             this.errorMessage = errorMessage;
+        }
+    }
+
+    private static final class StreamLifecycle {
+
+        private final AsyncTaskExecutor executor;
+        private final AtomicReference<Future<?>> future = new AtomicReference<Future<?>>();
+        private final AtomicReference<HttpRequestBase> upstreamRequest = new AtomicReference<HttpRequestBase>();
+        private final AtomicReference<InputStream> upstreamBody = new AtomicReference<InputStream>();
+        private final AtomicBoolean finished = new AtomicBoolean(false);
+        private final AtomicBoolean cancelled = new AtomicBoolean(false);
+
+        private StreamLifecycle(AsyncTaskExecutor executor) {
+            this.executor = executor;
+        }
+
+        private void attach(Future<?> submittedFuture) {
+            future.set(submittedFuture);
+            if (cancelled.get()) {
+                submittedFuture.cancel(true);
+                removeFromQueue(submittedFuture);
+            }
+        }
+
+        private void finished() {
+            finished.set(true);
+        }
+
+        private void attach(InputStream bodyStream) {
+            if (bodyStream == null) {
+                return;
+            }
+            upstreamBody.set(bodyStream);
+            if (cancelled.get() && upstreamBody.compareAndSet(bodyStream, null)) {
+                closeQuietly(bodyStream);
+            }
+        }
+
+        private void attach(HttpRequestBase request) {
+            upstreamRequest.set(request);
+            if (cancelled.get() && upstreamRequest.compareAndSet(request, null)) {
+                request.abort();
+            }
+        }
+
+        private void detach(HttpRequestBase request) {
+            upstreamRequest.compareAndSet(request, null);
+        }
+
+        private void detachAndClose(InputStream bodyStream) {
+            if (bodyStream != null) {
+                upstreamBody.compareAndSet(bodyStream, null);
+                closeQuietly(bodyStream);
+            }
+        }
+
+        private boolean cancel() {
+            if (finished.get() || !cancelled.compareAndSet(false, true)) {
+                return false;
+            }
+            Future<?> submittedFuture = future.get();
+            if (submittedFuture != null) {
+                submittedFuture.cancel(true);
+                removeFromQueue(submittedFuture);
+            }
+            HttpRequestBase request = upstreamRequest.getAndSet(null);
+            if (request != null) {
+                request.abort();
+            }
+            InputStream bodyStream = upstreamBody.getAndSet(null);
+            closeQuietly(bodyStream);
+            return true;
+        }
+
+        private boolean isCancelled() {
+            return cancelled.get();
+        }
+
+        private void removeFromQueue(Future<?> submittedFuture) {
+            if (executor instanceof org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
+                && submittedFuture instanceof Runnable) {
+                org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor threadPool =
+                    (org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor) executor;
+                threadPool.getThreadPoolExecutor().remove((Runnable) submittedFuture);
+            }
+        }
+
+        private static void closeQuietly(InputStream inputStream) {
+            if (inputStream == null) {
+                return;
+            }
+            try {
+                inputStream.close();
+            } catch (IOException ignored) {
+                // Cancellation is best effort; the HTTP client's read timeout is the final bound.
+            }
         }
     }
 

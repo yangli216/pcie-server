@@ -1,5 +1,7 @@
 package com.regionalai.floatingball.server.security;
 
+import com.regionalai.floatingball.server.security.nonce.NonceStore;
+import com.regionalai.floatingball.server.security.nonce.NonceStoreUnavailableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -9,9 +11,6 @@ import java.security.KeyFactory;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class RequestSignatureVerifier {
@@ -21,10 +20,16 @@ public class RequestSignatureVerifier {
     static final long MAX_SKEW_MS = 300_000L;
     private static final String ECDSA_ALGORITHM = "SHA256withECDSA";
     private static final String KEY_ALGORITHM = "EC";
+    private static final int MAX_NONCE_LENGTH = 64;
 
-    private final ConcurrentHashMap<String, Long> nonceCache = new ConcurrentHashMap<>();
+    private final NonceStore nonceStore;
 
-    public VerificationResult verify(String publicKeyBase64,
+    public RequestSignatureVerifier(NonceStore nonceStore) {
+        this.nonceStore = nonceStore;
+    }
+
+    public VerificationResult verify(String deviceId,
+                                      String publicKeyBase64,
                                       String method,
                                       String path,
                                       String timestamp,
@@ -42,19 +47,19 @@ public class RequestSignatureVerifier {
             return VerificationResult.fail("时间戳格式无效");
         }
         long now = System.currentTimeMillis();
-        if (Math.abs(now - ts) > MAX_SKEW_MS) {
+        if (ts < now - MAX_SKEW_MS || ts > now + MAX_SKEW_MS) {
             return VerificationResult.fail("请求时间戳超出有效窗口");
         }
 
         if (nonce == null || nonce.isEmpty()) {
             return VerificationResult.fail("缺少随机数");
         }
-        Long existingExpiry = nonceCache.putIfAbsent(nonce, now + MAX_SKEW_MS);
-        if (existingExpiry != null) {
-            return VerificationResult.fail("随机数已使用，疑似重放攻击");
+        if (nonce.length() > MAX_NONCE_LENGTH) {
+            return VerificationResult.fail("随机数长度超过限制");
         }
-
-        evictExpiredNonces(now);
+        if (deviceId == null || deviceId.isEmpty()) {
+            return VerificationResult.fail("缺少设备标识");
+        }
 
         String stringToSign = method + "\n"
                             + path + "\n"
@@ -82,20 +87,19 @@ public class RequestSignatureVerifier {
             if (!valid) {
                 return VerificationResult.fail("签名验证失败");
             }
-            return VerificationResult.ok();
+
+            try {
+                boolean claimed = nonceStore.claim(deviceId, nonce, ts + MAX_SKEW_MS);
+                return claimed
+                    ? VerificationResult.ok()
+                    : VerificationResult.fail("随机数已使用，疑似重放攻击");
+            } catch (NonceStoreUnavailableException ex) {
+                log.error("request nonce store unavailable for deviceId={}: {}", deviceId, ex.getMessage());
+                return VerificationResult.storeUnavailable();
+            }
         } catch (Exception e) {
             log.warn("signature verification error: {}", e.getMessage());
             return VerificationResult.fail("签名验证异常: " + e.getMessage());
-        }
-    }
-
-    private void evictExpiredNonces(long now) {
-        if (nonceCache.size() < 10000) return;
-        Iterator<Map.Entry<String, Long>> it = nonceCache.entrySet().iterator();
-        while (it.hasNext()) {
-            if (it.next().getValue() < now) {
-                it.remove();
-            }
         }
     }
 
@@ -139,17 +143,23 @@ public class RequestSignatureVerifier {
 
     public static class VerificationResult {
         private final boolean valid;
+        private final boolean storeUnavailable;
         private final String errorMessage;
 
-        private VerificationResult(boolean valid, String errorMessage) {
+        private VerificationResult(boolean valid, boolean storeUnavailable, String errorMessage) {
             this.valid = valid;
+            this.storeUnavailable = storeUnavailable;
             this.errorMessage = errorMessage;
         }
 
-        static VerificationResult ok() { return new VerificationResult(true, null); }
-        static VerificationResult fail(String msg) { return new VerificationResult(false, msg); }
+        static VerificationResult ok() { return new VerificationResult(true, false, null); }
+        static VerificationResult fail(String msg) { return new VerificationResult(false, false, msg); }
+        static VerificationResult storeUnavailable() {
+            return new VerificationResult(false, true, "请求安全校验服务暂时不可用");
+        }
 
         public boolean isValid() { return valid; }
+        public boolean isStoreUnavailable() { return storeUnavailable; }
         public String getErrorMessage() { return errorMessage; }
     }
 }

@@ -12,6 +12,6 @@ import java.util.Map;
 @Mapper
 public interface AiUserConsultationLogMapper extends BaseMapper<AiUserConsultationLog> {
 
-    @SelectProvider(type = UserConsultationLogSqlProvider.class, method = "selectLatestUserNames")
-    List<Map<String, Object>> selectLatestUserNames(@Param("deviceIds") List<String> deviceIds);
+    @SelectProvider(type = UserConsultationLogSqlProvider.class, method = "selectLatestUserIdentities")
+    List<Map<String, Object>> selectLatestUserIdentities(@Param("deviceIds") List<String> deviceIds);
 }

@@ -28,10 +28,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -167,16 +168,27 @@ public class DeviceService {
 
     @Transactional
     public void heartbeat(AiDevice device) {
-        heartbeat(device, null);
+        heartbeat(device, null, null);
     }
 
     @Transactional
     public void heartbeat(AiDevice device, String clientIp) {
+        heartbeat(device, clientIp, null);
+    }
+
+    @Transactional
+    public void heartbeat(AiDevice device, String clientIp, String clientVersion) {
         device.setDtLastHeartbeat(LocalDateTime.now());
         device.setSdStatus("1");
         String normalizedClientIp = normalizeIp(clientIp);
         if (StringUtils.hasText(normalizedClientIp) && !UNKNOWN_IP.equalsIgnoreCase(normalizedClientIp)) {
             device.setLastSeenIp(normalizedClientIp);
+        }
+        if (StringUtils.hasText(clientVersion)) {
+            String normalizedClientVersion = clientVersion.trim();
+            device.setClientVersion(normalizedClientVersion.length() > 64
+                ? normalizedClientVersion.substring(0, 64)
+                : normalizedClientVersion);
         }
         aiDeviceMapper.updateById(device);
         log.debug("device heartbeat. idDevice={}", device.getIdDevice());
@@ -345,17 +357,25 @@ public class DeviceService {
                 .collect(Collectors.toList()))
             .stream()
             .collect(Collectors.toMap(AiRegion::getIdRegion, Function.identity(), (left, right) -> left));
-        Map<String, String> userNameMap = loadLatestUserNames(records);
+        Map<String, Map<String, Object>> userIdentityMap = loadLatestUserIdentities(records);
         return records.stream()
             .map(item -> {
                 AiDeviceView view = toView(item, orgMap.get(item.getIdOrg()), regionMap.get(item.getIdRegion()));
-                view.setNaUser(userNameMap.get(item.getIdDevice()));
+                Map<String, Object> identity = userIdentityMap.get(item.getIdDevice());
+                if (identity != null) {
+                    view.setNaUser(stringValue(mapValue(identity, "NAUSER", "nauser")));
+                    view.setDoctorWorkNo(stringValue(mapValue(identity, "DOCTORWORKNO", "doctorworkno")));
+                    view.setLastActiveTime(laterOf(
+                        view.getDtLastHeartbeat(),
+                        localDateTimeValue(mapValue(identity, "CONSULTATIONTIME", "consultationtime"))
+                    ));
+                }
                 return view;
             })
             .collect(Collectors.toList());
     }
 
-    private Map<String, String> loadLatestUserNames(List<AiDevice> records) {
+    private Map<String, Map<String, Object>> loadLatestUserIdentities(List<AiDevice> records) {
         List<String> deviceIds = records.stream()
             .map(AiDevice::getIdDevice)
             .filter(StringUtils::hasText)
@@ -365,17 +385,16 @@ public class DeviceService {
             return Collections.emptyMap();
         }
 
-        List<Map<String, Object>> rows = userConsultationLogMapper.selectLatestUserNames(deviceIds);
+        List<Map<String, Object>> rows = userConsultationLogMapper.selectLatestUserIdentities(deviceIds);
         if (rows == null || rows.isEmpty()) {
             return Collections.emptyMap();
         }
 
         return rows.stream()
-            .filter(row -> mapValue(row, "IDDEVICE", "iddevice") != null
-                && mapValue(row, "NAUSER", "nauser") != null)
+            .filter(row -> mapValue(row, "IDDEVICE", "iddevice") != null)
             .collect(Collectors.toMap(
                 row -> String.valueOf(mapValue(row, "IDDEVICE", "iddevice")),
-                row -> String.valueOf(mapValue(row, "NAUSER", "nauser")),
+                Function.identity(),
                 (left, right) -> left
             ));
     }
@@ -397,6 +416,7 @@ public class DeviceService {
         view.setLastSeenIp(device.getLastSeenIp());
         view.setDtLastHeartbeat(device.getDtLastHeartbeat());
         view.setDtRegistered(device.getDtRegistered());
+        view.setLastActiveTime(device.getDtLastHeartbeat());
         return view;
     }
 
@@ -408,6 +428,30 @@ public class DeviceService {
     private Object mapValue(Map<String, Object> row, String upperKey, String lowerKey) {
         Object value = row.get(upperKey);
         return value != null ? value : row.get(lowerKey);
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private LocalDateTime localDateTimeValue(Object value) {
+        if (value instanceof LocalDateTime) {
+            return (LocalDateTime) value;
+        }
+        if (value instanceof Timestamp) {
+            return ((Timestamp) value).toLocalDateTime();
+        }
+        return null;
+    }
+
+    private LocalDateTime laterOf(LocalDateTime first, LocalDateTime second) {
+        if (first == null) {
+            return second;
+        }
+        if (second == null) {
+            return first;
+        }
+        return first.isAfter(second) ? first : second;
     }
 
     private String generateToken() {

@@ -1,54 +1,59 @@
 # AGENTS.md
 
-`pcie-server`（全医慧助服务端 / PCIE Server）项目的协作规则。
+`pcie-server`（全医慧助服务端 / PCIE Server）项目的协作规则；`floating-ball-server` 仅作为既有 Maven 产物兼容标识保留。
 
-本项目是“全医慧助（PCIE）”桌面端的配套后台，当前采用：
+本项目是全医慧助（PCIE）桌面端 `pcie` 的配套后台，当前采用：
 
-1. `server/`：Spring Boot 2.7 + Java 8 + MyBatis-Plus；数据库支持 Oracle 19c 与华为高斯 GaussDB/openGauss PostgreSQL 兼容模式，新增数据库适配优先保证 GaussDB
+1. `server/`：Spring Boot 2.7 + Java 8 + MyBatis-Plus；数据库支持 Oracle 19c、华为高斯 GaussDB/openGauss PostgreSQL 兼容模式与达梦 DM8 Oracle 兼容模式。DM8 JDBC 驱动与现场 profile 由部署环境受控提供，仓库不得提交商业驱动或现场密钥；新增通用数据库适配优先保证 GaussDB
 2. `server/src/main/admin/`：Vue 2 + Element UI 管理端源码，由 `server/` 统一托管
 3. `API.md`：远端 `/v1/*` 契约文档
 
 ## 必读顺序
 
 1. 先读 [ARCHITECTURE.md](./ARCHITECTURE.md)
-2. 再读 [API.md](./API.md)
-3. 涉及需求来源时，读 [../rbmh-ai-platform/PRD.md](../rbmh-ai-platform/PRD.md)
-4. 涉及桌面端真实调用时，读：
-   - [../floating-ball/src/services/regionalClient.ts](../floating-ball/src/services/regionalClient.ts)
-   - [../floating-ball/src/services/llm.ts](../floating-ball/src/services/llm.ts)
-   - [../floating-ball/src/services/templateService.ts](../floating-ball/src/services/templateService.ts)
-   - [../floating-ball/src/services/medicalData.ts](../floating-ball/src/services/medicalData.ts)
-   - [../floating-ball/src/services/promptOverride.ts](../floating-ball/src/services/promptOverride.ts)
-   - [../floating-ball/src/services/auditUploader.ts](../floating-ball/src/services/auditUploader.ts)
+2. 再读 [HARNESS.md](./HARNESS.md)
+3. 再读 [API.md](./API.md)
+4. 涉及长期需求边界时，读 [PRD.md](./PRD.md)
+5. 涉及桌面端真实调用时，读：
+   - [../pcie/src/services/regionalClient.ts](../pcie/src/services/regionalClient.ts)
+   - [../pcie/src/services/llm.ts](../pcie/src/services/llm.ts)
+   - [../pcie/src/services/templateService.ts](../pcie/src/services/templateService.ts)
+   - [../pcie/src/services/medicalData.ts](../pcie/src/services/medicalData.ts)
+   - [../pcie/src/services/promptOverride.ts](../pcie/src/services/promptOverride.ts)
+   - [../pcie/src/services/auditUploader.ts](../pcie/src/services/auditUploader.ts)
 
 ## 强制流程
 
 1. 文档先行：架构、接口、数据模型、目录职责变化，先改文档再改代码。
-2. 契约优先：`/v1/*` 契约变更时，必须同时更新 `API.md` 与 `floating-ball` 调用方。
+2. 契约优先：`/v1/*` 契约变更时，必须同时更新 `API.md` 与 `pcie` 调用方。
 3. 交付顺序：`ARCHITECTURE/API/AGENTS -> 代码 -> 构建/测试验证`
 4. 管理端目录、构建命令、托管入口变化时，必须同步更新 `ARCHITECTURE.md` 与本文件。
 
 ## 硬约束
 
 1. 不允许把本地 `/api/consultation/*` 逻辑直接搬进本项目；本项目只负责远端 `/v1/*` 与管理端。
-2. 不允许只按旧 PRD 实现远端接口而忽略 `floating-ball` 当前真实字段。
+2. 不允许只按旧 PRD 实现远端接口而忽略 `pcie` 当前真实字段。
 3. 设备鉴权必须使用 `Authorization: Bearer {deviceToken}`，不得私自改成其他客户端认证方式。
-4. `bootstrap`、`templates/mappings delta`、审计事件结构必须优先兼容 `floating-ball` 现有实现。
+4. `bootstrap`、`templates/mappings delta`、审计事件结构必须优先兼容 `pcie` 现有实现。
 5. 未经明确要求，不引入 Redis、RocketMQ、微服务拆分等额外依赖。
 6. **请求签名校验禁止绕过**：`DeviceAuthFilter` 和 `RealtimeSpeechHandshakeInterceptor` 必须校验 ECDSA P-256 签名；新增 `/v1/*` 接口必须经过 `DeviceAuthFilter`，不得私自添加绕过路径。
 7. **品牌与运行兼容标识禁止混改**：正式服务端名称统一为“全医慧助服务端（PCIE Server）”，仓库与 Maven 工程使用 `pcie-server`；Java 包 `com.regionalai.floatingball.server`、`floating-ball.*` 配置键、`FB_*` 环境变量、数据库对象及现有现场部署目录属于兼容契约，未经迁移方案和现场验证不得改名。
+8. 集群模式必须使用数据库唯一约束实现跨节点 nonce 防重放，不得在数据库异常时回退到 JVM 本地缓存或放行请求。
+9. 集群节点不得使用本机临时目录保存发布包、更新策略或语音审计文件；所有节点必须使用同一共享挂载，并在接入流量前通过受控管理面完成 release、speech 两根的“A 写、B/C 读、另一节点删、三节点确认消失”验证，单节点探针不得替代。
+10. Actuator 健康检查和 Prometheus 指标只允许暴露在独立管理端口与受控管理网络，不得直接暴露到医生终端访问的公网或业务网入口。
+11. AI 并发治理必须使用有界执行器、短队列和显式连接池；禁止通过无界线程池、大队列或持续调高超时伪造容量。
 
 ## 数据库 SQL 交付规则
 
 1. `server/src/main/resources/sql/oracle/init.sql` 与 `server/src/main/resources/sql/gaussdb/init.sql` 是对应数据库的业务 schema 初始化基线，新增表、字段、索引、注释和默认种子数据必须同步折叠进对应基线。
-2. Oracle 目录默认只保留 `bootstrap.sql` 与 `init.sql`；GaussDB 目录默认只保留 `init.sql`。不得在仓库中长期保留 `upgrade_*.sql` 补丁脚本。
+2. Oracle 目录默认只保留 `bootstrap.sql` 与 `init.sql`；GaussDB 目录默认只保留 `init.sql`。不得在仓库中长期保留 `upgrade_*.sql` 补丁脚本；DM8 不维护全量初始化基线，只有用户明确纳入交付且可幂等的定向兼容脚本可常驻 `sql/dameng/`。
 3. 现场旧库无法重建时，由 DBA 基于当前对应数据库 `init.sql` 和现场库结构生成一次性迁移脚本；该脚本不作为常驻工程资产提交，除非用户明确要求纳入版本交付。
 4. 修改任一数据库 `init.sql` 后必须同步更新对应目录 `README.md`，并维护 schema 测试，防止补丁文件回流。
-5. 运行时 SQL 新增数据库相关函数、分页尾句、日期分组、JSON 读取时，必须通过数据库方言封装或明确提供 Oracle/GaussDB 双实现，不得只写 Oracle 专属 SQL。
+5. 运行时 SQL 新增数据库相关函数、分页尾句、日期分组、JSON 读取时，必须通过数据库方言封装或明确提供 Oracle/GaussDB 双实现，并核对 DM8 Oracle 兼容行为；不得只写未经分层的数据库专属 SQL。
 
 ## 当前阶段目标
 
-1. 第一优先级：跑通 `floating-ball` 的远端客户端接口。
+1. 第一优先级：跑通 `pcie` 的远端客户端接口。
 2. 第二优先级：补最小管理端 CRUD，支撑令牌、配置、症状模板和日志管理。
 3. 第三优先级：逐步补用户、角色、统计等平台能力。
 
@@ -69,6 +74,7 @@
 5. 修改 `/v1/*` 契约、设备鉴权、请求签名、AI 代理或客户端 delta 链路时，必须按工作区 [TESTING_STRATEGY.md](../TESTING_STRATEGY.md) 补充对应单元测试、集成测试或联调记录
 6. 修改 Maven release/versions 配置或版本号规则时，至少执行 `mvn -f server/pom.xml test`；如需验证发版流程，必须在干净工作区执行 `mvn -f server/pom.xml -DdryRun=true -DreleaseVersion=X.Y.Z -DdevelopmentVersion=X.Y.(Z+1)-SNAPSHOT -Dtag=vX.Y.Z release:prepare` 后执行 `mvn -f server/pom.xml release:clean`
 7. 若无法完成构建或测试，必须说明阻塞原因，并补充静态审查结论
+8. 修改集群共享存储或管理面 challenge 时，必须执行对应 JUnit、`bash -n deploy/cluster/cluster-preflight.sh` 与 `deploy/cluster/test-cluster-preflight.sh`；真实三节点结果无法在本地替代，必须单独标注。
 
 ## 管理端 UED 与组件规则
 
@@ -83,8 +89,8 @@
 
 ## 关键联调清单
 
-1. `POST /v1/client/register` 返回的 `deviceToken` 能被 `floating-ball` 缓存并复用
-2. `GET /v1/client/bootstrap` 返回结构兼容 `floating-ball/src/services/regionalClient.ts`
+1. `POST /v1/client/register` 返回的 `deviceToken` 能被 `pcie` 缓存并复用
+2. `GET /v1/client/bootstrap` 返回结构兼容 `pcie/src/services/regionalClient.ts`
 3. `GET /v1/client/prompts/delta` 返回结构兼容 `promptOverride.ts`
 4. `GET /v1/client/templates/delta` 返回结构兼容 `templateService.ts`
 5. `GET /v1/client/mappings/delta` 返回结构兼容 `medicalData.ts`
