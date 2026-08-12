@@ -1,7 +1,6 @@
 package com.regionalai.floatingball.server.modules.featureevent.service;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.modules.device.entity.AiDevice;
 import com.regionalai.floatingball.server.modules.featureevent.dto.FeatureEventBatchRequest;
 import com.regionalai.floatingball.server.modules.featureevent.dto.FeatureEventBatchResponse;
@@ -21,6 +20,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -30,8 +30,6 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class FeatureEventServiceTest {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
     @Mock
     private AiFeatureEventMapper featureEventMapper;
 
@@ -39,208 +37,297 @@ class FeatureEventServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new FeatureEventService(featureEventMapper, new ObjectMapper());
+        service = new FeatureEventService(featureEventMapper);
     }
 
     @Test
-    void saveBatchShouldInsertKnownFeatureEvent() throws Exception {
+    void saveBatchShouldInsertStrictlyMinimizedKnownFeatureEvent() {
         when(featureEventMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
         AiDevice device = new AiDevice();
         device.setIdDevice("DEV001");
         device.setIdOrg("ORG001");
         device.setIdRegion("REG001");
+        device.setClientVersion("1.3.8");
 
-        FeatureEventBatchRequest.FeatureEventRequest event = new FeatureEventBatchRequest.FeatureEventRequest();
-        event.setEventId("EVENT-001");
-        event.setFeatureCode(FeatureEventCatalog.VOICE_CONSULTATION);
+        FeatureEventBatchRequest.FeatureEventRequest event = event(
+            "550E8400-E29B-41D4-A716-446655440000",
+            FeatureEventCatalog.VOICE_CONSULTATION
+        );
         event.setEventAction("open_voice_consultation");
-        event.setIdempotencyKey("voice_consultation:open_voice_consultation:EVENT-001");
+        event.setIdempotencyKey("voice:VISIT-SENTINEL:PATIENT-SENTINEL");
         event.setTraceId("TRACE-001");
         event.setConsultationId("CONSULT-001");
         event.setSessionId("SESSION-001");
         event.setSourceModule("voice_consultation");
         event.setScene("voice-consultation");
         event.setDoctorId("DOC001");
+        event.setDoctorWorkNo("0123");
         event.setDoctorName("张医生");
         event.setDeptId("DEPT001");
         event.setDeptName("全科");
         event.setHisOrgId("HIS-ORG-001");
         event.setHisOrgName("市第一医院");
+        event.setClientVersion("1.3.9");
         event.setTimestamp(1770000000000L);
         Map<String, Object> payload = new HashMap<String, Object>();
-        payload.put("patientId", "PAT001");
+        payload.put("patientName", "PATIENT-SENTINEL");
+        payload.put("query", "QUERY-SENTINEL");
         event.setPayload(payload);
 
-        FeatureEventBatchRequest request = new FeatureEventBatchRequest();
-        request.setEvents(Collections.singletonList(event));
-
-        FeatureEventBatchResponse response = service.saveBatch(device, request);
+        FeatureEventBatchResponse response = service.saveBatch(device, request(event));
 
         assertEquals(1, response.getAccepted());
         assertEquals(0, response.getSkipped());
         assertEquals(0, response.getRejected());
-        assertTrue(response.getRejections().isEmpty());
-
         ArgumentCaptor<AiFeatureEvent> captor = ArgumentCaptor.forClass(AiFeatureEvent.class);
         verify(featureEventMapper).insert(captor.capture());
         AiFeatureEvent saved = captor.getValue();
-        assertEquals("EVENT-001", saved.getIdEvent());
+        assertEquals("550e8400e29b41d4a716446655440000", saved.getIdEvent());
         assertEquals("DEV001", saved.getIdDevice());
         assertEquals("ORG001", saved.getIdOrg());
         assertEquals("REG001", saved.getIdRegion());
         assertEquals(FeatureEventCatalog.VOICE_CONSULTATION, saved.getFeatureCode());
         assertEquals("语音问诊", saved.getFeatureName());
         assertEquals("open_voice_consultation", saved.getEventAction());
-        assertEquals("voice_consultation:open_voice_consultation:EVENT-001", saved.getIdempotencyKey());
-        assertEquals("TRACE-001", saved.getTraceId());
-        assertEquals("CONSULT-001", saved.getConsultationId());
-        assertEquals("SESSION-001", saved.getSessionId());
         assertEquals("voice_consultation", saved.getSourceModule());
         assertEquals("voice-consultation", saved.getSceneCode());
-        assertEquals("DOC001", saved.getIdDoctor());
-        assertEquals("张医生", saved.getNaDoctor());
-        assertEquals("DEPT001", saved.getIdDept());
-        assertEquals("全科", saved.getNaDept());
+        assertEquals(
+            "voice_consultation:minimized:v1:event:550e8400e29b41d4a716446655440000",
+            saved.getIdempotencyKey()
+        );
+        assertNull(saved.getTraceId());
+        assertNull(saved.getConsultationId());
+        assertNull(saved.getSessionId());
+        assertEquals("0123", saved.getDoctorWorkNo());
         assertEquals("HIS-ORG-001", saved.getHisOrgId());
-        assertEquals("市第一医院", saved.getHisOrgName());
+        assertEquals("1.3.9", saved.getClientVersion());
+        assertEquals("{}", saved.getPayloadJson());
         assertEquals("success", saved.getEventStatus());
         assertEquals("1", saved.getFgActive());
         assertNotNull(saved.getEventTime());
-        assertEquals(OBJECT_MAPPER.valueToTree(payload), OBJECT_MAPPER.readTree(saved.getPayloadJson()));
+        assertTrue(!saved.getIdempotencyKey().contains("SENTINEL"));
     }
 
     @Test
-    void saveBatchShouldSkipDuplicateIdempotencyKey() {
+    void saveBatchShouldDiscardFreeTextTelemetryCodesAndNormalizeStatus() {
+        when(featureEventMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
+        AiDevice device = new AiDevice();
+        device.setIdDevice("DEV001");
+        FeatureEventBatchRequest.FeatureEventRequest event = event(
+            "550e8400-e29b-41d4-a716-446655440010",
+            FeatureEventCatalog.CHAT
+        );
+        event.setEventAction("患者甲的原始问题");
+        event.setSourceModule("source module with spaces");
+        event.setScene("PATIENT-SENTINEL/visit");
+        event.setStatus("QUERY-SENTINEL");
+
+        FeatureEventBatchResponse response = service.saveBatch(device, request(event));
+
+        assertEquals(1, response.getAccepted());
+        ArgumentCaptor<AiFeatureEvent> captor = ArgumentCaptor.forClass(AiFeatureEvent.class);
+        verify(featureEventMapper).insert(captor.capture());
+        AiFeatureEvent saved = captor.getValue();
+        assertNull(saved.getEventAction());
+        assertNull(saved.getSourceModule());
+        assertNull(saved.getSceneCode());
+        assertEquals("success", saved.getEventStatus());
+    }
+
+    @Test
+    void saveBatchShouldAcceptAndDiscardLegacyNestedPayload() {
+        when(featureEventMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
+        AiDevice device = new AiDevice();
+        device.setIdDevice("DEV001");
+        FeatureEventBatchRequest.FeatureEventRequest event = event(
+            "550e8400-e29b-41d4-a716-446655440001",
+            FeatureEventCatalog.CHAT
+        );
+        Map<String, Object> nested = new HashMap<String, Object>();
+        nested.put("PaTiEnT_Id", "PATIENT-SENTINEL");
+        nested.put("access-token", "TOKEN-SENTINEL");
+        Map<String, Object> payload = new HashMap<String, Object>();
+        payload.put("metrics", Collections.singletonList(nested));
+        event.setPayload(payload);
+
+        FeatureEventBatchResponse response = service.saveBatch(device, request(event));
+
+        assertEquals(1, response.getAccepted());
+        assertEquals(0, response.getRejected());
+        ArgumentCaptor<AiFeatureEvent> captor = ArgumentCaptor.forClass(AiFeatureEvent.class);
+        verify(featureEventMapper).insert(captor.capture());
+        assertEquals("{}", captor.getValue().getPayloadJson());
+    }
+
+    @Test
+    void saveBatchShouldDiscardCyclicLegacyPayloadWithoutSerializingIt() {
+        when(featureEventMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
+        AiDevice device = new AiDevice();
+        device.setIdDevice("DEV001");
+        FeatureEventBatchRequest.FeatureEventRequest event = event(
+            "550e8400-e29b-41d4-a716-446655440002",
+            FeatureEventCatalog.CHAT
+        );
+        Map<String, Object> payload = new HashMap<String, Object>();
+        payload.put("self", payload);
+        event.setPayload(payload);
+
+        FeatureEventBatchResponse response = service.saveBatch(device, request(event));
+
+        assertEquals(1, response.getAccepted());
+        ArgumentCaptor<AiFeatureEvent> captor = ArgumentCaptor.forClass(AiFeatureEvent.class);
+        verify(featureEventMapper).insert(captor.capture());
+        assertEquals("{}", captor.getValue().getPayloadJson());
+    }
+
+    @Test
+    void saveBatchShouldRejectAnyFeatureEventWithoutUuidEventId() {
+        FeatureEventBatchRequest.FeatureEventRequest event = event(
+            "PATIENT-VISIT-001",
+            FeatureEventCatalog.REPORT_INTERPRETATION
+        );
+
+        FeatureEventBatchResponse response = service.saveBatch(null, request(event));
+
+        assertEquals(0, response.getAccepted());
+        assertEquals(0, response.getSkipped());
+        assertEquals(1, response.getRejected());
+        assertEquals("eventId 必须为 UUID", response.getRejections().get(0).getReason());
+        verify(featureEventMapper, never()).selectCount(any(Wrapper.class));
+        verify(featureEventMapper, never()).insert(any(AiFeatureEvent.class));
+    }
+
+    @Test
+    void saveBatchShouldFallBackToAuthenticatedDeviceVersionForLegacyEvent() {
+        when(featureEventMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
+        AiDevice device = new AiDevice();
+        device.setIdDevice("DEV001");
+        device.setClientVersion("1.3.7");
+        FeatureEventBatchRequest.FeatureEventRequest event = event(
+            "550e8400-e29b-41d4-a716-446655440003",
+            FeatureEventCatalog.CHAT
+        );
+
+        FeatureEventBatchResponse response = service.saveBatch(device, request(event));
+
+        assertEquals(1, response.getAccepted());
+        ArgumentCaptor<AiFeatureEvent> captor = ArgumentCaptor.forClass(AiFeatureEvent.class);
+        verify(featureEventMapper).insert(captor.capture());
+        assertEquals("1.3.7", captor.getValue().getClientVersion());
+    }
+
+    @Test
+    void saveBatchShouldIgnoreMissingLegacyIdempotencyKey() {
+        when(featureEventMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
+        AiDevice device = new AiDevice();
+        device.setIdDevice("DEV001");
+        FeatureEventBatchRequest.FeatureEventRequest event = event(
+            "550e8400-e29b-41d4-a716-446655440004",
+            FeatureEventCatalog.CHAT
+        );
+        event.setIdempotencyKey(null);
+
+        FeatureEventBatchResponse response = service.saveBatch(device, request(event));
+
+        assertEquals(1, response.getAccepted());
+        ArgumentCaptor<AiFeatureEvent> captor = ArgumentCaptor.forClass(AiFeatureEvent.class);
+        verify(featureEventMapper).insert(captor.capture());
+        assertEquals(
+            "chat:minimized:v1:event:550e8400e29b41d4a716446655440004",
+            captor.getValue().getIdempotencyKey()
+        );
+    }
+
+    @Test
+    void saveBatchShouldSkipDuplicateDerivedKey() {
         when(featureEventMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
         AiDevice device = new AiDevice();
         device.setIdDevice("DEV001");
+        FeatureEventBatchRequest.FeatureEventRequest event = event(
+            "550e8400-e29b-41d4-a716-446655440005",
+            FeatureEventCatalog.CHAT
+        );
 
-        FeatureEventBatchRequest.FeatureEventRequest event = new FeatureEventBatchRequest.FeatureEventRequest();
-        event.setFeatureCode(FeatureEventCatalog.CHAT);
-        event.setIdempotencyKey("chat:MSG001");
-
-        FeatureEventBatchRequest request = new FeatureEventBatchRequest();
-        request.setEvents(Collections.singletonList(event));
-
-        FeatureEventBatchResponse response = service.saveBatch(device, request);
+        FeatureEventBatchResponse response = service.saveBatch(device, request(event));
 
         assertEquals(0, response.getAccepted());
         assertEquals(1, response.getSkipped());
         assertEquals(0, response.getRejected());
-        assertTrue(response.getRejections().isEmpty());
         verify(featureEventMapper, never()).insert(any(AiFeatureEvent.class));
     }
 
     @Test
     void saveBatchShouldRejectUnsupportedFeatureCode() {
-        FeatureEventBatchRequest.FeatureEventRequest event = new FeatureEventBatchRequest.FeatureEventRequest();
-        event.setEventId("EVENT-RAW-001");
-        event.setFeatureCode("raw_ai_operation");
-        event.setIdempotencyKey("raw_ai_operation:EVENT-RAW-001");
+        FeatureEventBatchRequest.FeatureEventRequest event = event(
+            "550e8400-e29b-41d4-a716-446655440006",
+            "raw_ai_operation"
+        );
 
-        FeatureEventBatchRequest request = new FeatureEventBatchRequest();
-        request.setEvents(Collections.singletonList(event));
+        FeatureEventBatchResponse response = service.saveBatch(null, request(event));
 
-        FeatureEventBatchResponse response = service.saveBatch(null, request);
-
-        assertEquals(0, response.getAccepted());
-        assertEquals(0, response.getSkipped());
         assertEquals(1, response.getRejected());
         assertEquals(0, response.getRejections().get(0).getIndex());
-        assertEquals("EVENT-RAW-001", response.getRejections().get(0).getEventId());
         assertEquals("raw_ai_operation", response.getRejections().get(0).getFeatureCode());
         assertEquals("featureCode 不支持", response.getRejections().get(0).getReason());
         verify(featureEventMapper, never()).insert(any(AiFeatureEvent.class));
     }
 
     @Test
-    void saveBatchShouldRejectMissingIdempotencyKey() {
-        FeatureEventBatchRequest.FeatureEventRequest event = new FeatureEventBatchRequest.FeatureEventRequest();
-        event.setEventId("EVENT-CHAT-001");
-        event.setFeatureCode(FeatureEventCatalog.CHAT);
-
-        FeatureEventBatchRequest request = new FeatureEventBatchRequest();
-        request.setEvents(Collections.singletonList(event));
-
-        FeatureEventBatchResponse response = service.saveBatch(null, request);
-
-        assertEquals(0, response.getAccepted());
-        assertEquals(0, response.getSkipped());
-        assertEquals(1, response.getRejected());
-        assertEquals("idempotencyKey 不能为空", response.getRejections().get(0).getReason());
-        verify(featureEventMapper, never()).insert(any(AiFeatureEvent.class));
-    }
-
-    @Test
-    void saveBatchShouldRejectUnserializablePayload() {
-        FeatureEventBatchRequest.FeatureEventRequest event = new FeatureEventBatchRequest.FeatureEventRequest();
-        event.setEventId("EVENT-CHAT-002");
-        event.setFeatureCode(FeatureEventCatalog.CHAT);
-        event.setIdempotencyKey("chat:EVENT-CHAT-002");
-        Map<String, Object> payload = new HashMap<String, Object>();
-        payload.put("self", payload);
-        event.setPayload(payload);
-
-        FeatureEventBatchRequest request = new FeatureEventBatchRequest();
-        request.setEvents(Collections.singletonList(event));
-
-        FeatureEventBatchResponse response = service.saveBatch(null, request);
-
-        assertEquals(0, response.getAccepted());
-        assertEquals(0, response.getSkipped());
-        assertEquals(1, response.getRejected());
-        assertEquals("payload 序列化失败", response.getRejections().get(0).getReason());
-        verify(featureEventMapper, never()).insert(any(AiFeatureEvent.class));
-    }
-
-    @Test
-    void saveBatchShouldAcceptTreatmentPlanRecommendationEvent() {
+    void saveBatchShouldAcceptTreatmentPlanRecommendationWithDerivedKey() {
         when(featureEventMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
         AiDevice device = new AiDevice();
         device.setIdDevice("DEV001");
-
-        FeatureEventBatchRequest.FeatureEventRequest event = new FeatureEventBatchRequest.FeatureEventRequest();
-        event.setEventId("EVENT-TREATMENT-001");
-        event.setFeatureCode(FeatureEventCatalog.TREATMENT_PLAN_RECOMMENDATION);
+        FeatureEventBatchRequest.FeatureEventRequest event = event(
+            "550e8400-e29b-41d4-a716-446655440007",
+            FeatureEventCatalog.TREATMENT_PLAN_RECOMMENDATION
+        );
         event.setEventAction("open_treatment_plan_assist");
-        event.setIdempotencyKey("treatment_plan_recommendation:open_treatment_plan_assist:EVENT-TREATMENT-001");
         event.setConsultationId("CONSULT-001");
 
-        FeatureEventBatchRequest request = new FeatureEventBatchRequest();
-        request.setEvents(Collections.singletonList(event));
-
-        FeatureEventBatchResponse response = service.saveBatch(device, request);
+        FeatureEventBatchResponse response = service.saveBatch(device, request(event));
 
         assertEquals(1, response.getAccepted());
-        assertEquals(0, response.getSkipped());
-        assertEquals(0, response.getRejected());
-
         ArgumentCaptor<AiFeatureEvent> captor = ArgumentCaptor.forClass(AiFeatureEvent.class);
         verify(featureEventMapper).insert(captor.capture());
         AiFeatureEvent saved = captor.getValue();
-        assertEquals(FeatureEventCatalog.TREATMENT_PLAN_RECOMMENDATION, saved.getFeatureCode());
         assertEquals("AI推荐治疗方案", saved.getFeatureName());
-        assertEquals("treatment_plan_recommendation:open_treatment_plan_assist:EVENT-TREATMENT-001", saved.getIdempotencyKey());
+        assertNull(saved.getConsultationId());
+        assertEquals(
+            "treatment_plan_recommendation:minimized:v1:event:550e8400e29b41d4a716446655440007",
+            saved.getIdempotencyKey()
+        );
     }
 
     @Test
     void saveBatchShouldTreatUniqueConstraintAsSkipped() {
         when(featureEventMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
-        when(featureEventMapper.insert(any(AiFeatureEvent.class))).thenThrow(new DuplicateKeyException("duplicate"));
+        when(featureEventMapper.insert(any(AiFeatureEvent.class)))
+            .thenThrow(new DuplicateKeyException("duplicate"));
         AiDevice device = new AiDevice();
         device.setIdDevice("DEV001");
+        FeatureEventBatchRequest.FeatureEventRequest event = event(
+            "550e8400-e29b-41d4-a716-446655440008",
+            FeatureEventCatalog.SMART_CONSULTATION
+        );
 
-        FeatureEventBatchRequest.FeatureEventRequest event = new FeatureEventBatchRequest.FeatureEventRequest();
-        event.setFeatureCode(FeatureEventCatalog.SMART_CONSULTATION);
-        event.setIdempotencyKey("smart_consultation:open_smart_consultation:EVENT-001");
-
-        FeatureEventBatchRequest request = new FeatureEventBatchRequest();
-        request.setEvents(Collections.singletonList(event));
-
-        FeatureEventBatchResponse response = service.saveBatch(device, request);
+        FeatureEventBatchResponse response = service.saveBatch(device, request(event));
 
         assertEquals(0, response.getAccepted());
         assertEquals(1, response.getSkipped());
         assertEquals(0, response.getRejected());
+    }
+
+    private FeatureEventBatchRequest.FeatureEventRequest event(String eventId, String featureCode) {
+        FeatureEventBatchRequest.FeatureEventRequest event = new FeatureEventBatchRequest.FeatureEventRequest();
+        event.setEventId(eventId);
+        event.setFeatureCode(featureCode);
+        event.setIdempotencyKey("legacy-input-is-ignored");
+        return event;
+    }
+
+    private FeatureEventBatchRequest request(FeatureEventBatchRequest.FeatureEventRequest event) {
+        FeatureEventBatchRequest request = new FeatureEventBatchRequest();
+        request.setEvents(Collections.singletonList(event));
+        return request;
     }
 }

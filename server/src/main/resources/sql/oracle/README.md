@@ -62,7 +62,7 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 
 1. `c_ai_config` 的语音独立密钥、PMPHAI / Reviewer 服务端托管字段、思考模式、fast model 和检查项目独立审查开关
 2. `c_ai_device.device_public_key` 请求签名公钥字段，以及 `register_ip` / `last_seen_ip` 注册与最近访问来源字段
-3. 症状模板、住院病历模板字段缓存、模板变更日志、辅诊功能事件、安全拒绝日志等业务表
+3. 症状模板、住院病历模板字段缓存、模板变更日志、辅诊功能事件、安全拒绝日志等业务表；功能事件的 `cd_doctor` 与 `client_version` 固化医生真实工号和事件发生时客户端版本，用于医生客户端使用情况统计
 4. 操作日志、问诊日志、反馈日志、推荐偏好事件和推荐偏好聚合的结构化查询列、语音复盘字段、变更摘要字段和并发唯一索引；其中问诊日志唯一索引只约束尚未结束的 `generated` 记录，同一就诊回写或放弃后再次问诊会保留为新的日志轮次
 5. 第三方 ODS 检验检查申请单 `hi_ods_apply`、检验常规报告 `hi_ods_apply_lis_report` 与检查报告 `hi_ods_apply_pacs_report`，用于管理端手工模拟第三方结果回写；不包含未提供结构的 `hi_ods_lis_result` 主表
 6. 默认区域 `REGION001`
@@ -83,20 +83,24 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 
 ## 存量库处理
 
-当前仓库不保留通用 `upgrade_*.sql` 补丁链。各历史补丁仍折叠进 `init.sql`；本次用户明确要求交付的 `update_his_org_statistics.sql` 是一次性、可重复执行的定向升级文件，包含现场库可能遗漏的 `c_ai_config.speech_realtime_url`、`c_ai_user_consultation_log.id_his_org`、`consultation_round_id` 及问诊轮次索引，以及操作日志和功能事件新增的 HIS 机构字段、索引与可确定关联的数据回填。
+当前仓库不保留通用 `upgrade_*.sql` 补丁链。各历史补丁仍折叠进 `init.sql`；定向升级文件 `update_his_org_statistics.sql` 还会为功能事件补齐 `cd_doctor`、`client_version` 和使用情况索引。存量功能事件缺失的工号或版本保持 `NULL`，不得用医生内部主键、后台账号或设备当前版本猜测回填。
+
+该脚本同时清空历史功能事件的 `consultation_id/trace_id/session_id/payload_json`，并按 `feature_code:minimized:v1:event:规范化 id_event` 重建幂等键。执行前必须备份、停止所有服务节点写入、统计候选行数、确认仓库外 SQL/BI 不依赖功能事件 payload，并由 DBA 在维护窗口审核执行。
 
 如果现场库已经存在旧版本业务表，处理原则如下：
 
 1. 能重建的开发/联调环境，先备份必要数据，再清理目标 schema 并执行 `init.sql`
 2. 不能重建的生产/准生产环境，由 DBA 基于当前 `init.sql` 与现场库结构生成一次性迁移脚本
 3. 一次性迁移脚本必须先清理重复激活数据，再添加唯一索引，例如机构编码、设备编码、设备令牌、反馈最新版、问诊日志未结束轮次等约束
-4. 迁移完成后，需要确认 `c_ai_config.speech_realtime_url`、`c_ai_device.device_public_key`、`c_ai_device.register_ip`、`c_ai_device.last_seen_ip`、`c_ai_user_consultation_log.id_his_org`、`c_ai_user_consultation_log.consultation_round_id`、`idx_c_ai_user_log_round`、`uk_c_ai_user_log_round_active`、`c_ai_user_consultation_log.change_summary_json`、`c_ai_user_consultation_log.total_changes`、`c_security_rejection_log` 以及安全分析相关索引均已存在
+4. 迁移完成后，需要确认 `c_ai_feature_event.cd_doctor`、`c_ai_feature_event.client_version`、`idx_c_ai_feature_event_usage`、`c_ai_schema_migration.feature_event_minimization_v1` 以及原有业务对象均已存在
 
-本次 HIS 机构统计升级使用当前应用 schema 执行：
+本次 HIS 机构统计升级必须使用 SQL*Plus 或 SQLcl 以当前应用 schema 执行；脚本首行启用遇错即停，执行器必须检查非零退出码：
 
 ```sql
 @update_his_org_statistics.sql
 ```
+
+服务启动与 Actuator `featureEventSchema` readiness 会只读验证功能事件完整列和 `feature_event_minimization_v1` 标记；缺表、缺列、缺标记或权限不足时拒绝启动。探针不验证 `idx_c_ai_feature_event_usage`，该索引仍须由 DBA 在节点入池前确认。
 
 两慢病随访上线到存量库前执行：
 

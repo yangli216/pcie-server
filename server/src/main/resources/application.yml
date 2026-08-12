@@ -40,6 +40,9 @@ floating-ball:
       password: ${FB_ADMIN_BOOTSTRAP_RESET_PASSWORD:}
   audit:
     speech-file-dir: ${FB_AUDIT_SPEECH_FILE_DIR:${java.io.tmpdir}/floating-ball-server/speech-audit}
+  feature-event:
+    schema-validation:
+      enabled: ${FB_FEATURE_EVENT_SCHEMA_VALIDATION_ENABLED:true}
   release:
     storage-dir: ${FB_RELEASE_STORAGE_DIR:${java.io.tmpdir}/floating-ball-server/releases}
     public-base-url: ${FB_RELEASE_PUBLIC_BASE_URL:}
@@ -72,3 +75,12 @@ floating-ball:
     rate-limit-per-minute: ${FB_OUTBOUND_RATE_LIMIT_PER_MINUTE:120}
     circuit-failure-threshold: ${FB_OUTBOUND_CIRCUIT_FAILURE_THRESHOLD:5}
     circuit-open-ms: ${FB_OUTBOUND_CIRCUIT_OPEN_MS:30000}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db,featureEventSchema

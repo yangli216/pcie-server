@@ -1,9 +1,6 @@
 package com.regionalai.floatingball.server.modules.featureevent.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.device.entity.AiDevice;
 import com.regionalai.floatingball.server.modules.featureevent.dto.FeatureEventBatchRequest;
 import com.regionalai.floatingball.server.modules.featureevent.dto.FeatureEventBatchResponse;
@@ -18,21 +15,25 @@ import org.springframework.util.StringUtils;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.Collections;
-import java.util.UUID;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
 @Service
 public class FeatureEventService {
 
     private static final Logger log = LoggerFactory.getLogger(FeatureEventService.class);
+    private static final String EVENT_ID_REJECTION = "eventId 必须为 UUID";
+    private static final Pattern EVENT_ID_PATTERN = Pattern.compile(
+        "(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+    );
+    private static final Pattern TELEMETRY_CODE_PATTERN = Pattern.compile(
+        "[A-Za-z0-9][A-Za-z0-9._:-]*"
+    );
 
     private final AiFeatureEventMapper featureEventMapper;
-    private final ObjectMapper objectMapper;
 
-    public FeatureEventService(AiFeatureEventMapper featureEventMapper,
-                               ObjectMapper objectMapper) {
+    public FeatureEventService(AiFeatureEventMapper featureEventMapper) {
         this.featureEventMapper = featureEventMapper;
-        this.objectMapper = objectMapper;
     }
 
     public FeatureEventBatchResponse saveBatch(AiDevice device, FeatureEventBatchRequest request) {
@@ -72,23 +73,17 @@ public class FeatureEventService {
         }
 
         String idDevice = device == null ? null : trimToNull(device.getIdDevice());
-        String idempotencyKey = trimToNull(request.getIdempotencyKey());
-        if (idempotencyKey == null) {
-            return SaveResult.rejected("idempotencyKey 不能为空");
+        String eventId = normalizeEventId(request.getEventId());
+        if (eventId == null) {
+            return SaveResult.rejected(EVENT_ID_REJECTION);
         }
+        String idempotencyKey = safeIdempotencyKey(featureCode, eventId);
         if (idDevice != null && exists(idDevice, idempotencyKey)) {
             return SaveResult.skipped();
         }
 
-        String payloadJson;
-        try {
-            payloadJson = writePayload(request);
-        } catch (BusinessException ex) {
-            return SaveResult.rejected(ex.getMessage());
-        }
-
         AiFeatureEvent entity = new AiFeatureEvent();
-        entity.setIdEvent(resolveEventId(request));
+        entity.setIdEvent(eventId);
         entity.setIdDevice(idDevice);
         entity.setIdOrg(device == null ? null : trimToNull(device.getIdOrg()));
         entity.setIdRegion(device == null ? null : trimToNull(device.getIdRegion()));
@@ -96,19 +91,21 @@ public class FeatureEventService {
         entity.setHisOrgName(trimToNull(request.getHisOrgName()));
         entity.setFeatureCode(featureCode);
         entity.setFeatureName(featureName);
-        entity.setEventAction(trimToNull(request.getEventAction()));
+        entity.setEventAction(normalizeTelemetryCode(request.getEventAction(), 128));
         entity.setIdempotencyKey(idempotencyKey);
-        entity.setTraceId(trimToNull(request.getTraceId()));
-        entity.setConsultationId(trimToNull(request.getConsultationId()));
-        entity.setSessionId(trimToNull(request.getSessionId()));
-        entity.setSourceModule(trimToNull(request.getSourceModule()));
-        entity.setSceneCode(trimToNull(request.getScene()));
+        entity.setTraceId(null);
+        entity.setConsultationId(null);
+        entity.setSessionId(null);
+        entity.setSourceModule(normalizeTelemetryCode(request.getSourceModule(), 128));
+        entity.setSceneCode(normalizeTelemetryCode(request.getScene(), 256));
         entity.setIdDoctor(trimToNull(request.getDoctorId()));
+        entity.setDoctorWorkNo(truncate(trimToNull(request.getDoctorWorkNo()), 64));
         entity.setNaDoctor(trimToNull(request.getDoctorName()));
         entity.setIdDept(trimToNull(request.getDeptId()));
         entity.setNaDept(trimToNull(request.getDeptName()));
         entity.setEventStatus(resolveStatus(request.getStatus()));
-        entity.setPayloadJson(payloadJson);
+        entity.setClientVersion(resolveClientVersion(device, request.getClientVersion()));
+        entity.setPayloadJson("{}");
         entity.setEventTime(resolveEventTime(request.getTimestamp()));
         entity.setFgActive("1");
 
@@ -131,17 +128,17 @@ public class FeatureEventService {
         return count != null && count > 0;
     }
 
-    private String resolveEventId(FeatureEventBatchRequest.FeatureEventRequest request) {
-        String eventId = trimToNull(request.getEventId());
-        if (eventId != null && eventId.length() <= 64) {
-            return eventId;
-        }
-        return UUID.randomUUID().toString().replace("-", "");
-    }
-
     private String resolveStatus(String status) {
         String text = trimToNull(status);
-        return text == null ? "success" : text;
+        return "failure".equals(text) ? "failure" : "success";
+    }
+
+    private String resolveClientVersion(AiDevice device, String eventClientVersion) {
+        String version = trimToNull(eventClientVersion);
+        if (version == null && device != null) {
+            version = trimToNull(device.getClientVersion());
+        }
+        return truncate(version, 64);
     }
 
     private LocalDateTime resolveEventTime(Long timestamp) {
@@ -151,15 +148,24 @@ public class FeatureEventService {
         return LocalDateTime.ofInstant(Instant.ofEpochMilli(timestamp), ZoneId.systemDefault());
     }
 
-    private String writePayload(FeatureEventBatchRequest.FeatureEventRequest request) {
-        Object payload = request.getPayload() == null ? Collections.emptyMap() : request.getPayload();
-        try {
-            return objectMapper.writeValueAsString(payload);
-        } catch (JsonProcessingException ex) {
-            throw new BusinessException("payload 序列化失败");
-        } catch (StackOverflowError | RuntimeException ex) {
-            throw new BusinessException("payload 序列化失败");
+    private String normalizeEventId(String value) {
+        String eventId = trimToNull(value);
+        if (eventId == null || !EVENT_ID_PATTERN.matcher(eventId).matches()) {
+            return null;
         }
+        return eventId.replace("-", "").toLowerCase(Locale.ROOT);
+    }
+
+    private String safeIdempotencyKey(String featureCode, String eventId) {
+        return featureCode.toLowerCase(Locale.ROOT) + ":minimized:v1:event:" + eventId;
+    }
+
+    private String normalizeTelemetryCode(String value, int maxLength) {
+        String code = trimToNull(value);
+        if (code == null || code.length() > maxLength || !TELEMETRY_CODE_PATTERN.matcher(code).matches()) {
+            return null;
+        }
+        return code;
     }
 
     private String trimToNull(String value) {
@@ -167,6 +173,13 @@ public class FeatureEventService {
             return null;
         }
         return value.trim();
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength);
     }
 
     private String resolveRequestEventId(FeatureEventBatchRequest.FeatureEventRequest request) {

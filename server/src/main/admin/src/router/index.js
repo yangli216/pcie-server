@@ -11,6 +11,7 @@ const RoleView = () => import('../views/RoleView.vue')
 const RegionView = () => import('../views/RegionView.vue')
 const OrgView = () => import('../views/OrgView.vue')
 const DeviceView = () => import('../views/DeviceView.vue')
+const ClientUsageView = () => import('../views/ClientUsageView.vue')
 const ConfigView = () => import('../views/ConfigView.vue')
 const PromptView = () => import('../views/PromptView.vue')
 const SymptomTemplateView = () => import('../views/SymptomTemplateView.vue')
@@ -44,6 +45,7 @@ const router = new Router({
     { path: '/regions', component: RegionView, meta: { title: '区域管理' } },
     { path: '/orgs', component: OrgView, meta: { title: '机构管理' } },
     { path: '/devices', component: DeviceView, meta: { title: '令牌管理' } },
+    { path: '/client-usage', component: ClientUsageView, meta: { title: '客户端使用情况' } },
     { path: '/configs', component: ConfigView, meta: { title: '模型配置' } },
     { path: '/prompts', component: PromptView, meta: { title: '提示词配置' } },
     { path: '/symptom-templates', component: SymptomTemplateView, meta: { title: '症状模板' } },

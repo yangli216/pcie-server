@@ -54,6 +54,24 @@ function resolveErrorMessage(error) {
   return normalizeTechnicalMessage(error && error.message, '请求失败')
 }
 
+async function decodeBlobError(error) {
+  const response = error && error.response
+  const body = response && response.data
+  if (typeof Blob === 'undefined' || !(body instanceof Blob)) {
+    return error
+  }
+
+  try {
+    const text = await body.text()
+    if (text) {
+      response.data = JSON.parse(text)
+    }
+  } catch (decodeError) {
+    // Keep Axios' original error when the download response is not JSON.
+  }
+  return error
+}
+
 function isUnauthorizedCode(code) {
   const value = String(code || '').toLowerCase()
   return value === '401' || value === 'unauthorized'
@@ -112,11 +130,12 @@ http.interceptors.response.use(
 
     return response.data
   },
-  error => {
-    if (error && error.response && error.response.status === 401) {
-      return handleUnauthorized(resolveErrorMessage(error))
+  async error => {
+    const decodedError = await decodeBlobError(error)
+    if (decodedError && decodedError.response && decodedError.response.status === 401) {
+      return handleUnauthorized(resolveErrorMessage(decodedError))
     }
-    return Promise.reject(new Error(resolveErrorMessage(error)))
+    return Promise.reject(new Error(resolveErrorMessage(decodedError)))
   }
 )
 

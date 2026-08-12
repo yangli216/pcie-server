@@ -21,6 +21,7 @@
 - Java 8
 - Spring Boot 2.7.x
 - MyBatis-Plus
+- Spring Boot Actuator（仅用于健康检查与功能事件 schema readiness）
 - 数据库支持 Oracle 19c 与华为高斯 GaussDB/openGauss PostgreSQL 兼容模式；新数据库适配优先保证 GaussDB
 - Oracle 运行包必须同时携带 `ojdbc8` 与 `orai18n`，以兼容 `ZHS16GBK` 等非 UTF 数据库字符集；GaussDB 使用 openGauss JDBC 驱动 `org.opengauss.Driver`
 - Maven
@@ -74,6 +75,7 @@ pcie-server/
         │   ├── modules/ai/         # chat / transcribe / realtime 代理
         │   ├── modules/analytics/  # 综合概况统计分析：趋势、分布、核心指标
         │   ├── modules/useractivity/ # 用户活跃度统计：时间/区域/机构筛选、活跃指标、用户列表
+        │   ├── modules/clientusage/ # 医生客户端使用情况：当前版本首次交互、最近活跃、全字段导出
         └── main/
             ├── admin/              # 管理端 Vue 2 + Element UI 源码
             │   ├── package.json
@@ -282,12 +284,12 @@ pcie-server/
 
 1. 功能调用事件是面向统计的业务事实源，独立于审计日志和问诊用户日志。
 2. 桌面端在用户真实触发功能时调用 `POST /v1/client/feature-events/batch`，一次明确功能调用只提交一条事件。
-3. 服务端以 `idDevice + idempotencyKey` 幂等入库到 `c_ai_feature_event`，客户端离线重试或接口重试不会重复计数；事件同时保存独立的 `id_his_org/na_his_org`，用于 HIS 机构统计，后台 `id_org/id_region` 仍由设备鉴权决定。
+3. 所有功能事件必须携带稳定 UUID `eventId`；服务端统一规范化该 ID，以 `featureCode + eventId` 派生版本化安全幂等键，并按 `idDevice + 派生键` 幂等入库到 `c_ai_feature_event`，客户端离线重试或接口重试不会重复计数。事件同时保存独立的 `id_his_org/na_his_org`，用于 HIS 机构统计，后台 `id_org/id_region` 仍由设备鉴权决定。
 4. 事件固定使用 `featureCode` 表示产品功能，服务端统一映射展示名：语音问诊、智能问诊、报告单解读、聊天、AI诊断鉴别、AI推荐诊断、AI推荐用药、AI推荐检查、AI推荐检验、AI推荐处置、AI推荐治疗方案、知识库使用。
-5. `traceId`、`consultationId`、`sessionId` 只用于把功能事件关联回 `c_ai_op_log` 或 `c_ai_user_consultation_log`，不参与统计去重。
-6. 统计口径按用户显式功能入口统一：智能问诊、语音问诊、报告单解读、聊天、知识库使用按主功能入口计数；知识库批量检索只按一次用户检索动作计数，不按内部拆开的多个查询词累加；诊断鉴别和推荐诊断/用药/检查/检验/处置/诊疗方案推荐只统计医生显式触发的独立辅助入口，不统计智能问诊或语音问诊主流程内部自动生成的 AI trace。来自 HIS Bridge 的入口在桌面端接诊上下文校验通过并准备打开目标界面时即按成功调用入库；同一就诊再次显式触发入口按新调用计数，只有同一条已入队功能事件的离线重试或接口重试通过自身 `idempotencyKey` 去重。
+5. `traceId`、`sessionId`、`consultationId` 都不进入功能统计持久化；AI 技术链路关联只保留在独立审计日志，避免通过功能统计表跨表反查临床上下文。
+6. 统计口径按用户显式功能入口统一：智能问诊、语音问诊、报告单解读、聊天、知识库使用按主功能入口计数；知识库批量检索只按一次用户检索动作计数，不按内部拆开的多个查询词累加；诊断鉴别和推荐诊断/用药/检查/检验/处置/诊疗方案推荐只统计医生显式触发的独立辅助入口，不统计智能问诊或语音问诊主流程内部自动生成的 AI trace。来自 HIS Bridge 的入口在桌面端接诊上下文校验通过并准备打开目标界面时即按成功调用入库；同一就诊再次显式触发入口按新调用计数，只有同一条已入队功能事件的离线重试或接口重试通过稳定 `eventId` 去重。
 7. 管理端“辅诊功能”统计只读 `c_ai_feature_event`；`c_ai_op_log` 保留为排障与审计，不再承担统计推断。
-8. 功能事件只把重复幂等上报计入 `skipped`；不支持的 `featureCode`、缺失 `idempotencyKey`、不可序列化的 `payload` 必须计入 `rejected` 并返回拒绝明细，避免统计漏数被静默掩盖。
+8. 功能事件只把重复幂等上报计入 `skipped`；不支持的 `featureCode`、缺失或非法 UUID `eventId` 必须计入 `rejected` 并返回拒绝明细，避免统计漏数被静默掩盖。旧客户端 payload 只为兼容接收并丢弃，不参与统计。
 
 ### 5.5 用户反馈链路
 
@@ -388,7 +390,13 @@ pcie-server/
    - 角色分页查询、新增、修改、停用
 4. 概览统计：
    - 首页汇总区域、机构、令牌、配置、Prompt、症状模板、日志、用户、角色数量
-5. 综合概况统计分析（`modules/analytics`）：
+5. 客户端使用情况：
+   - 管理端提供独立只读列表，固定展示机构名称、医生名字、工号、安装客户端时间、当前使用的客户端版本、最近活跃时间
+   - 列表按“后台机构 + HIS 机构 + 真实工号”识别医生，不按设备行统计；真实工号固定读取 SDK handshake 的 `urt.personCd`，缺少真实工号的旧事件不进入列表
+   - 数据事实源为 `c_ai_feature_event` 中医生实际触发的功能事件；事件产生时固化 `cd_doctor`、`na_doctor`、`client_version`、`id_his_org/na_his_org`
+   - 当前版本取最近一次功能交互事件的版本；“安装客户端时间”表示该医生在当前版本上的首次功能交互时间，不表示操作系统安装包执行时间；最近活跃时间取最近一次功能交互时间
+   - `/admin/api/client-usage` 在数据库层执行分页并支持按机构、医生、工号或版本搜索；导出上限为 50,000 条，超过时明确拒绝而不截断
+6. 综合概况统计分析（`modules/analytics`）：
    - 核心指标卡片：功能调用总量、日均功能调用量、AI诊断建议采纳率、诊断符合率、活跃医生数、问诊总数
    - 服务趋势折线图：按日聚合功能调用量与问诊量趋势
    - 机构分布柱状图：Top 10 机构功能调用量
@@ -437,6 +445,7 @@ pcie-server/
    - 管理端删除令牌是异常设备重置操作，会物理移除该设备记录并释放同机构同 `cd_device`；删除后客户端重新注册会生成新的 `id_device`、`device_token` 与公钥绑定
    - `register_ip` 记录注册请求来源 IP，`last_seen_ip` 随注册和心跳刷新；两者用于后台定位旧客户端、异常终端和网段，不参与设备身份认证或签名校验
    - 管理端令牌列表的“用户姓名”不写入设备表，而是按当前页设备批量读取 `c_ai_user_consultation_log` 中最近一次非空 `na_doctor`；未产生问诊记录的设备不显示姓名
+   - 独立“客户端使用情况”不复用设备分页，而是按 `c_ai_feature_event` 的医生身份与版本交互事实聚合
 4. `c_ai_config`
 5. `c_ai_prompt`
 6. `c_ai_data_package`
@@ -464,9 +473,10 @@ pcie-server/
    - `change_summary_json` 保存主诉、现病史、诊断、用药、检查、检验、处置和选中状态等类别变更计数，`total_changes` 保存总变更数，统计分析诊断符合率依赖其中的 `diagnosisChanges`
    - 索引：`idx_c_ai_user_log_time` / `_patient` / `_doctor` / `_consultation` / `_round`，并通过 `uk_c_ai_user_log_round_active` 保证激活且尚未结束的 `consultation_round_id` 只有一条，已回写/放弃后同一就诊可再次生成新日志
 12. `c_ai_feature_event`
-   - 按用户真实功能调用记录统计事件，关键列包括 `feature_code`、`feature_name`、`event_action`、`idempotency_key`、`trace_id`、`consultation_id`、`session_id`、医生、后台机构、HIS 机构、事件时间
+   - 按用户真实功能调用记录统计事件，关键列包括 `feature_code`、`feature_name`、`event_action`、`idempotency_key`、`trace_id`、`consultation_id`、`session_id`、`id_doctor`、真实工号 `cd_doctor`、`na_doctor`、后台机构、HIS 机构、事件发生时的 `client_version` 与事件时间
    - 通过 `id_device + idempotency_key` 保证同一设备的同一功能调用只计一次
-   - 索引：`idx_c_ai_feature_event_time` / `_feature` / `_doctor` / `_org` / `_idem`
+   - 医生使用情况以“后台机构 + HIS 机构 + `cd_doctor`”聚合，最近事件版本为当前版本，并在该版本内取最早 `event_time`；缺少真实工号或客户端版本的历史事件不参与该列表
+   - 索引：`idx_c_ai_feature_event_time` / `_feature` / `_doctor` / `_org` / `_idem` / `_usage`
 13. `c_security_rejection_log`
    - 记录设备鉴权、请求签名、强制更新门禁和实时语音握手等安全拒绝事件
    - 关键列包括 `rejection_type`、`request_method`、`request_path`、`client_ip`、`id_device`、`cd_device`、`id_org`、`request_id`、`reject_reason`、`reject_detail`、`has_signature`、`timestamp_header`、`nonce_header`、`client_version`、`update_channel`
@@ -527,6 +537,10 @@ GaussDB/openGauss 初始化：
 1. 本次按明确交付要求，在 Oracle、GaussDB 与达梦数据库目录分别保留 `update_his_org_statistics.sql`，承载 HIS 机构结构化字段、索引、可确定关联的历史数据回填，以及现场库遗漏的问诊轮次字段和索引。
 2. 升级文件同时补充历史基线中已经声明、但部分现场库遗漏的 `c_ai_user_consultation_log.id_his_org`、`consultation_round_id`、`idx_c_ai_user_log_round`、`uk_c_ai_user_log_round_active`，以及本次新增的操作日志和功能事件 HIS 机构列。
 3. 新建库仍只执行对应 `init.sql`；存量库执行升级文件前必须先备份，并由 DBA 确认目标 schema。升级脚本使用各数据库方言的存在性判断，允许已包含部分字段或索引的现场库重复执行；若现场库已存在重复的激活 `generated` 轮次，必须先确认并清理重复数据，再创建 `uk_c_ai_user_log_round_active`，脚本不得静默修改业务记录。
+4. 服务启动与 `featureEventSchema` readiness 使用当前应用连接执行 `c_ai_feature_event` 零行投影，并验证 `c_ai_schema_migration.feature_event_minimization_v1` 标记；缺表、缺列、缺标记或权限不足时拒绝启动，提示执行对应数据库的 `update_his_org_statistics.sql`。
+5. 探针默认由 `floating-ball.feature-event.schema-validation.enabled=true` 启用；它不验证 `idx_c_ai_feature_event_usage`，该索引仍须由 DBA 在节点入池前确认。
+6. 功能统计只保留功能编码、动作、医生/机构/版本和时间等结构化统计列；`consultation_id/trace_id/session_id` 置空，`payload_json` 固定为空对象。升级脚本会重建全表幂等键，必须在备份、停止写入、核查外部报表依赖并由 DBA 审核后，于维护窗口执行。
+7. 功能动作、来源模块、场景和状态只接受受限字符集与列宽内的技术编码，避免通过结构化列旁路写入临床自由文本。
 
 ## 9. 单体部署约定
 

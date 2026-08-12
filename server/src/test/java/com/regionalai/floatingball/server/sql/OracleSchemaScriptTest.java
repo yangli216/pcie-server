@@ -65,6 +65,7 @@ class OracleSchemaScriptTest {
 
         assertContains(initSql, "CREATE TABLE c_ai_symptom_template");
         assertContains(initSql, "CREATE TABLE c_ai_symptom_template_change_log");
+        assertContains(initSql, "CREATE TABLE c_ai_schema_migration");
         assertContains(initSql, "CREATE TABLE c_ai_feature_event");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_event");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_agg");
@@ -94,6 +95,9 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "speech_text          CLOB");
         assertContains(initSql, "audio_file_name      VARCHAR2(255)");
         assertContains(initSql, "id_his_org           VARCHAR2(64)");
+        assertContains(initSql, "COMMENT ON COLUMN c_ai_feature_event.cd_doctor");
+        assertContains(initSql, "COMMENT ON COLUMN c_ai_feature_event.client_version");
+        assertContains(initSql, "feature_event_minimization_v1");
         assertContains(initSql, "change_summary_json  CLOB");
         assertContains(initSql, "total_changes        NUMBER(5)");
 
@@ -114,6 +118,7 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE INDEX idx_c_ai_op_log_his_org");
         assertContains(initSql, "CREATE INDEX idx_c_ai_user_log_his_org");
         assertContains(initSql, "CREATE INDEX idx_c_ai_feature_event_his_org");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_feature_event_usage");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_rec_pref_event_idem");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_rec_pref_agg_scope");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_feedback_latest_scope");
@@ -170,6 +175,7 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "features_json            TEXT");
         assertContains(initSql, "speech_realtime_url      VARCHAR(500)");
         assertContains(initSql, "'qwen-audio-3.0-asr-flash-streaming'");
+        assertContains(initSql, "CREATE TABLE c_ai_schema_migration");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_event");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_agg");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_rec_pref_event_idem");
@@ -179,6 +185,10 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE INDEX idx_c_ai_op_log_his_org");
         assertContains(initSql, "CREATE INDEX idx_c_ai_user_log_his_org");
         assertContains(initSql, "CREATE INDEX idx_c_ai_feature_event_his_org");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_feature_event_usage");
+        assertContains(initSql, "COMMENT ON COLUMN c_ai_feature_event.cd_doctor");
+        assertContains(initSql, "COMMENT ON COLUMN c_ai_feature_event.client_version");
+        assertContains(initSql, "feature_event_minimization_v1");
         assertContains(initSql, "total_changes        NUMERIC(5)");
         assertContains(initSql, "CREATE TABLE c_ai_inpatient_emr_tpl_cache");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory");
@@ -236,6 +246,14 @@ class OracleSchemaScriptTest {
             assertContains(sql, "uk_c_ai_user_log_round_active");
             assertContains(sql, "idx_c_ai_op_log_his_org");
             assertContains(sql, "idx_c_ai_feature_event_his_org");
+            assertContains(sql, "idx_c_ai_feature_event_usage");
+            assertContains(sql, "c_ai_schema_migration");
+            assertContains(sql, "feature_event_minimization_v1");
+            assertContains(sql, "cd_doctor");
+            assertContains(sql, "client_version");
+            assertContains(sql, "SET consultation_id = NULL");
+            assertContains(sql, "payload_json");
+            assertContains(sql, ":minimized:v1:event:");
             assertContains(sql, "COUNT(DISTINCT");
         }
 
@@ -263,6 +281,14 @@ class OracleSchemaScriptTest {
         assertContains(
             gaussdbSql,
             "ALTER TABLE c_ai_user_consultation_log ADD COLUMN IF NOT EXISTS consultation_round_id VARCHAR(64)"
+        );
+        assertContains(
+            gaussdbSql,
+            "ALTER TABLE c_ai_feature_event ADD COLUMN IF NOT EXISTS cd_doctor VARCHAR(64)"
+        );
+        assertContains(
+            gaussdbSql,
+            "ALTER TABLE c_ai_feature_event ADD COLUMN IF NOT EXISTS client_version VARCHAR(64)"
         );
         assertContains(
             gaussdbSql,

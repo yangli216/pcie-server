@@ -2,6 +2,16 @@
 
 当前仓库不维护达梦全量初始化基线；现场 DM8 仍以 Oracle 兼容模式运行，定向升级脚本需使用应用 schema 账号执行。
 
+HIS 机构统计与客户端使用情况字段升级必须使用 DIsql 执行，并检查非零退出码：
+
+```sql
+@update_his_org_statistics.sql
+```
+
+脚本会补齐功能事件 `cd_doctor/client_version` 与 `idx_c_ai_feature_event_usage`，清空历史功能事件的临床关联与 payload，并重建幂等键。历史空工号和空版本不得猜测回填。执行前必须备份、停止写入、核查外部报表依赖并由 DBA 在维护窗口审核；达梦 DDL 可能隐式提交，遇错即停不等于整份脚本可原子回滚。
+
+服务启动与 Actuator `featureEventSchema` readiness 会只读验证功能事件完整列和 `feature_event_minimization_v1` 标记；缺表、缺列、缺标记或权限不足时拒绝启动。使用情况索引仍须由 DBA 单独确认。
+
 两慢病随访上线前执行：
 
 ```sql

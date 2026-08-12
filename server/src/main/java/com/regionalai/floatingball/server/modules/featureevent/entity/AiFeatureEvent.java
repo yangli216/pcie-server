@@ -63,6 +63,9 @@ public class AiFeatureEvent extends BaseEntity {
     @TableField("id_doctor")
     private String idDoctor;
 
+    @TableField("cd_doctor")
+    private String doctorWorkNo;
+
     @TableField("na_doctor")
     private String naDoctor;
 
@@ -74,6 +77,9 @@ public class AiFeatureEvent extends BaseEntity {
 
     @TableField("event_status")
     private String eventStatus;
+
+    @TableField("client_version")
+    private String clientVersion;
 
     @TableField("payload_json")
     private String payloadJson;

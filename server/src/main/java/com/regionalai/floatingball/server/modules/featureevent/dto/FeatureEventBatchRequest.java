@@ -23,11 +23,13 @@ public class FeatureEventBatchRequest {
         private String scene;
         private String status;
         private String doctorId;
+        private String doctorWorkNo;
         private String doctorName;
         private String deptId;
         private String deptName;
         private String hisOrgId;
         private String hisOrgName;
+        private String clientVersion;
         private Map<String, Object> payload;
         private Long timestamp;
     }
