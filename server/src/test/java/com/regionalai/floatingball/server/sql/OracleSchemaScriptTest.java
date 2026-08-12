@@ -66,6 +66,7 @@ class OracleSchemaScriptTest {
 
         assertContains(initSql, "CREATE TABLE c_ai_symptom_template");
         assertContains(initSql, "CREATE TABLE c_ai_symptom_template_change_log");
+        assertContains(initSql, "CREATE TABLE c_ai_schema_migration");
         assertContains(initSql, "CREATE TABLE c_ai_feature_event");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_event");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_agg");
@@ -98,6 +99,9 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "id_his_org           VARCHAR2(64)");
         assertContains(initSql, "cd_doctor            VARCHAR2(64)");
         assertContains(initSql, "COMMENT ON COLUMN c_ai_user_consultation_log.cd_doctor");
+        assertContains(initSql, "COMMENT ON COLUMN c_ai_feature_event.cd_doctor");
+        assertContains(initSql, "COMMENT ON COLUMN c_ai_feature_event.client_version");
+        assertContains(initSql, "feature_event_minimization_v1");
         assertContains(initSql, "change_summary_json  CLOB");
         assertContains(initSql, "total_changes        NUMBER(5)");
 
@@ -118,6 +122,7 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE INDEX idx_c_ai_op_log_his_org");
         assertContains(initSql, "CREATE INDEX idx_c_ai_user_log_his_org");
         assertContains(initSql, "CREATE INDEX idx_c_ai_feature_event_his_org");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_feature_event_usage");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_rec_pref_event_idem");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_rec_pref_agg_scope");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_feedback_latest_scope");
@@ -179,6 +184,7 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "features_json            TEXT");
         assertContains(initSql, "speech_realtime_url      VARCHAR(500)");
         assertContains(initSql, "'qwen-audio-3.0-asr-flash-streaming'");
+        assertContains(initSql, "CREATE TABLE c_ai_schema_migration");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_event");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_agg");
         assertContains(initSql, "CREATE TABLE c_ai_request_nonce");
@@ -187,10 +193,14 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "id_his_org           VARCHAR(64)");
         assertContains(initSql, "cd_doctor            VARCHAR(64)");
         assertContains(initSql, "COMMENT ON COLUMN c_ai_user_consultation_log.cd_doctor");
+        assertContains(initSql, "COMMENT ON COLUMN c_ai_feature_event.cd_doctor");
+        assertContains(initSql, "COMMENT ON COLUMN c_ai_feature_event.client_version");
+        assertContains(initSql, "feature_event_minimization_v1");
         assertContains(initSql, "na_his_org           VARCHAR(255)");
         assertContains(initSql, "CREATE INDEX idx_c_ai_op_log_his_org");
         assertContains(initSql, "CREATE INDEX idx_c_ai_user_log_his_org");
         assertContains(initSql, "CREATE INDEX idx_c_ai_feature_event_his_org");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_feature_event_usage");
         assertContains(initSql, "total_changes        NUMERIC(5)");
         assertContains(initSql, "CREATE TABLE c_ai_inpatient_emr_tpl_cache");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory");
@@ -248,32 +258,89 @@ class OracleSchemaScriptTest {
             assertContains(sql, "c_ai_op_log");
             assertContains(sql, "c_ai_feature_event");
             assertContains(sql, "na_his_org");
+            assertContains(sql, "COMMENT ON COLUMN c_ai_feature_event.cd_doctor IS '医生真实工号（来自SDK握手urt.personCd）'");
+            assertContains(sql, "COMMENT ON COLUMN c_ai_feature_event.client_version IS '事件产生时的客户端版本'");
             assertContains(sql, "idx_c_ai_user_log_his_org");
             assertContains(sql, "idx_c_ai_user_log_round");
             assertContains(sql, "uk_c_ai_user_log_round_active");
             assertContains(sql, "idx_c_ai_op_log_his_org");
             assertContains(sql, "idx_c_ai_feature_event_his_org");
+            assertContains(sql, "idx_c_ai_feature_event_usage");
+            assertContains(sql, "(id_org, id_his_org, cd_doctor, client_version, event_time, fg_active)");
+            assertContains(sql, "SET consultation_id = NULL");
+            assertContains(sql, "trace_id = NULL");
+            assertContains(sql, "session_id = NULL");
+            assertContains(sql, "payload_json");
+            assertContains(sql, "':minimized:v1:event:'");
+            assertContains(sql, "REPLACE(LOWER(TRIM(id_event)), '-', '')");
+            assertContains(sql, "idempotency_key <>");
+            assertContains(sql, "idempotency_key IS NULL");
+            assertContains(sql, "WHERE id_event IS NULL OR");
+            assertContains(sql, "Feature-event privacy migration requires UUID event IDs");
+            assertContains(sql, "Feature-event privacy migration requires non-empty feature codes");
+            assertContains(sql, "Feature-event privacy migration found idempotency-key conflicts");
+            assertContains(sql, "candidate_key");
+            assertContains(sql, "HAVING COUNT(1) > 1");
+            assertContains(sql, "SUM(is_migration_candidate) > 0");
+            assertContains(sql, "c_ai_schema_migration");
+            assertContains(sql, "feature_event_minimization_v1");
+            assertNotContains(sql, ":legacy:");
             assertContains(sql, "COUNT(DISTINCT");
+            assertNotContains(sql, "LOWER(TRIM(source_module)) = 'his_bridge'");
+            assertNotContains(sql, "LOWER(TRIM(feature_code)) = 'knowledge_usage'");
+            assertTrue(
+                sql.indexOf("Feature-event privacy migration requires UUID event IDs")
+                    < sql.indexOf("speech_realtime_url"),
+                "privacy preflight should run before schema DDL"
+            );
+            assertTrue(
+                sql.indexOf("SET idempotency_key") < sql.indexOf("feature_event_minimization_v1"),
+                "migration marker should only be written after feature-event minimization"
+            );
         }
 
         String oracleSql = readSql(ORACLE_SQL_DIR.resolve("update_his_org_statistics.sql"));
         String gaussdbSql = readSql(GAUSSDB_SQL_DIR.resolve("update_his_org_statistics.sql"));
         String damengSql = readSql(DAMENG_SQL_DIR.resolve("update_his_org_statistics.sql"));
 
+        assertContains(oracleSql, "WHENEVER SQLERROR EXIT 1 ROLLBACK");
+        assertContains(oracleSql, "SET payload_json = '{}'");
+        assertContains(oracleSql, "DBMS_LOB.COMPARE(payload_json, TO_CLOB('{}')) <> 0");
+        assertContains(gaussdbSql, "\\set ON_ERROR_STOP on");
+        assertContains(gaussdbSql, "SET payload_json = '{}'");
+        assertContains(gaussdbSql, "payload_json IS DISTINCT FROM '{}'");
+        assertContains(damengSql, "WHENEVER SQLERROR EXIT 1 ROLLBACK");
+        assertContains(damengSql, "SET payload_json = TO_CLOB('{}')");
+        assertContains(damengSql, "WHERE payload_json IS NULL");
+        assertContains(damengSql, "TEXT_EQUAL(payload_json, TO_CLOB('{}')) = 0");
+
         String oracleCompatibleColumn =
             "add_column_if_missing('c_ai_user_consultation_log', 'consultation_round_id', 'VARCHAR2(64)')";
         String oracleCompatibleDoctorWorkNoColumn =
             "add_column_if_missing('c_ai_user_consultation_log', 'cd_doctor', 'VARCHAR2(64)')";
+        String oracleCompatibleFeatureDoctorWorkNoColumn =
+            "add_column_if_missing('c_ai_feature_event', 'cd_doctor', 'VARCHAR2(64)')";
+        String oracleCompatibleFeatureClientVersionColumn =
+            "add_column_if_missing('c_ai_feature_event', 'client_version', 'VARCHAR2(64)')";
+        String oracleCompatibleFeatureUsageIndex =
+            "'CREATE INDEX idx_c_ai_feature_event_usage ON c_ai_feature_event "
+                + "(id_org, id_his_org, cd_doctor, client_version, event_time, fg_active)'";
         String oracleCompatibleRealtimeColumn =
             "add_column_if_missing('c_ai_config', 'speech_realtime_url', 'VARCHAR2(500)')";
         String oracleCompatibleUniqueIndex =
             "CASE WHEN fg_active = ''1'' AND status = ''generated'' THEN consultation_round_id END";
         assertContains(oracleSql, oracleCompatibleColumn);
         assertContains(oracleSql, oracleCompatibleDoctorWorkNoColumn);
+        assertContains(oracleSql, oracleCompatibleFeatureDoctorWorkNoColumn);
+        assertContains(oracleSql, oracleCompatibleFeatureClientVersionColumn);
+        assertContains(oracleSql, oracleCompatibleFeatureUsageIndex);
         assertContains(oracleSql, oracleCompatibleRealtimeColumn);
         assertContains(oracleSql, oracleCompatibleUniqueIndex);
         assertContains(damengSql, oracleCompatibleColumn);
         assertContains(damengSql, oracleCompatibleDoctorWorkNoColumn);
+        assertContains(damengSql, oracleCompatibleFeatureDoctorWorkNoColumn);
+        assertContains(damengSql, oracleCompatibleFeatureClientVersionColumn);
+        assertContains(damengSql, oracleCompatibleFeatureUsageIndex);
         assertContains(damengSql, oracleCompatibleRealtimeColumn);
         assertContains(damengSql, oracleCompatibleUniqueIndex);
 
@@ -288,6 +355,20 @@ class OracleSchemaScriptTest {
         assertContains(
             gaussdbSql,
             "ALTER TABLE c_ai_user_consultation_log ADD COLUMN IF NOT EXISTS cd_doctor VARCHAR(64)"
+        );
+        assertContains(
+            gaussdbSql,
+            "ALTER TABLE c_ai_feature_event ADD COLUMN IF NOT EXISTS cd_doctor VARCHAR(64)"
+        );
+        assertContains(
+            gaussdbSql,
+            "ALTER TABLE c_ai_feature_event ADD COLUMN IF NOT EXISTS client_version VARCHAR(64)"
+        );
+        assertContains(
+            gaussdbSql,
+            "CREATE INDEX IF NOT EXISTS idx_c_ai_feature_event_usage\n"
+                + "    ON c_ai_feature_event "
+                + "(id_org, id_his_org, cd_doctor, client_version, event_time, fg_active)"
         );
         assertContains(
             gaussdbSql,

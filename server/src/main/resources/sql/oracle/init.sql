@@ -544,6 +544,16 @@ CREATE UNIQUE INDEX uk_c_ai_user_log_round_active ON c_ai_user_consultation_log 
 );
 
 
+CREATE TABLE c_ai_schema_migration (
+    migration_key       VARCHAR2(128) PRIMARY KEY,
+    applied_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+COMMENT ON TABLE c_ai_schema_migration IS '应用业务Schema迁移完成标记';
+COMMENT ON COLUMN c_ai_schema_migration.migration_key IS '稳定迁移标识';
+COMMENT ON COLUMN c_ai_schema_migration.applied_at IS '迁移完成时间';
+
+
 CREATE TABLE c_ai_feature_event (
     id_event             VARCHAR2(64) PRIMARY KEY,
     id_device            VARCHAR2(32),
@@ -561,10 +571,12 @@ CREATE TABLE c_ai_feature_event (
     source_module        VARCHAR2(128),
     scene_code           VARCHAR2(256),
     id_doctor            VARCHAR2(64),
+    cd_doctor            VARCHAR2(64),
     na_doctor            VARCHAR2(128),
     id_dept              VARCHAR2(64),
     na_dept              VARCHAR2(128),
     event_status         VARCHAR2(32) DEFAULT 'success',
+    client_version       VARCHAR2(64),
     payload_json         CLOB,
     event_time           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     fg_active            CHAR(1) DEFAULT '1' NOT NULL,
@@ -573,7 +585,7 @@ CREATE TABLE c_ai_feature_event (
 );
 
 COMMENT ON TABLE c_ai_feature_event IS '辅诊功能调用事件表';
-COMMENT ON COLUMN c_ai_feature_event.id_event IS '事件主键ID';
+COMMENT ON COLUMN c_ai_feature_event.id_event IS '客户端生成的UUID事件主键（入库时规范化为32位小写十六进制）';
 COMMENT ON COLUMN c_ai_feature_event.id_device IS '设备ID';
 COMMENT ON COLUMN c_ai_feature_event.id_org IS '机构ID';
 COMMENT ON COLUMN c_ai_feature_event.id_region IS '区域ID';
@@ -582,18 +594,20 @@ COMMENT ON COLUMN c_ai_feature_event.na_his_org IS 'HIS端机构名称（来自�
 COMMENT ON COLUMN c_ai_feature_event.feature_code IS '功能编码';
 COMMENT ON COLUMN c_ai_feature_event.feature_name IS '功能展示名称';
 COMMENT ON COLUMN c_ai_feature_event.event_action IS '功能动作编码';
-COMMENT ON COLUMN c_ai_feature_event.idempotency_key IS '幂等键，同一设备内唯一';
-COMMENT ON COLUMN c_ai_feature_event.trace_id IS '关联AI调用traceId';
-COMMENT ON COLUMN c_ai_feature_event.consultation_id IS '关联问诊ID';
-COMMENT ON COLUMN c_ai_feature_event.session_id IS '关联会话ID';
+COMMENT ON COLUMN c_ai_feature_event.idempotency_key IS '服务端按功能编码与UUID事件ID派生的版本化幂等键，同一设备内唯一';
+COMMENT ON COLUMN c_ai_feature_event.trace_id IS '兼容保留列；功能统计固定不保存AI调用关联';
+COMMENT ON COLUMN c_ai_feature_event.consultation_id IS '兼容保留列；功能统计固定不保存问诊关联';
+COMMENT ON COLUMN c_ai_feature_event.session_id IS '兼容保留列；功能统计固定不保存会话关联';
 COMMENT ON COLUMN c_ai_feature_event.source_module IS '来源模块';
 COMMENT ON COLUMN c_ai_feature_event.scene_code IS '场景编码';
 COMMENT ON COLUMN c_ai_feature_event.id_doctor IS '医生ID';
+COMMENT ON COLUMN c_ai_feature_event.cd_doctor IS '医生真实工号（来自SDK握手urt.personCd）';
 COMMENT ON COLUMN c_ai_feature_event.na_doctor IS '医生姓名';
 COMMENT ON COLUMN c_ai_feature_event.id_dept IS '科室ID';
 COMMENT ON COLUMN c_ai_feature_event.na_dept IS '科室名称';
 COMMENT ON COLUMN c_ai_feature_event.event_status IS '事件状态：success/failure';
-COMMENT ON COLUMN c_ai_feature_event.payload_json IS '事件扩展负载JSON';
+COMMENT ON COLUMN c_ai_feature_event.client_version IS '事件产生时的客户端版本';
+COMMENT ON COLUMN c_ai_feature_event.payload_json IS '兼容保留列；功能统计固定保存空对象';
 COMMENT ON COLUMN c_ai_feature_event.event_time IS '事件发生时间';
 COMMENT ON COLUMN c_ai_feature_event.fg_active IS '逻辑删除标记';
 COMMENT ON COLUMN c_ai_feature_event.insert_time IS '创建时间';
@@ -605,6 +619,10 @@ CREATE INDEX idx_c_ai_feature_event_feature ON c_ai_feature_event (feature_name,
 CREATE INDEX idx_c_ai_feature_event_doctor ON c_ai_feature_event (id_doctor, event_time, fg_active);
 CREATE INDEX idx_c_ai_feature_event_org ON c_ai_feature_event (id_org, id_region, event_time, fg_active);
 CREATE INDEX idx_c_ai_feature_event_his_org ON c_ai_feature_event (id_his_org, event_time, fg_active);
+CREATE INDEX idx_c_ai_feature_event_usage ON c_ai_feature_event (id_org, id_his_org, cd_doctor, client_version, event_time, fg_active);
+
+INSERT INTO c_ai_schema_migration (migration_key)
+VALUES ('feature_event_minimization_v1');
 
 
 CREATE TABLE c_ai_rec_pref_event (

@@ -68,10 +68,12 @@ FB_DB_PASSWORD=Rbmh_ai@123
 
 1. GaussDB 脚本不提供 Oracle 风格的 `bootstrap.sql`；数据库、schema、用户和表空间通常由 DBA 按现场规范预先创建。
 2. 激活记录唯一性使用表达式唯一索引实现，语义与 Oracle 基线一致；问诊日志只对激活且尚未结束的 `generated` 轮次做唯一约束。
-3. 现场旧库不能重建时，由 DBA 基于当前 `init.sql` 与现场结构生成一次性迁移脚本；迁移脚本不作为常驻工程资产提交。
+3. 现场旧库不能重建时，由 DBA 基于当前 `init.sql` 与现场结构生成一次性迁移脚本；医生客户端使用情况上线前需确认 `c_ai_feature_event.cd_doctor`、`client_version` 与 `idx_c_ai_feature_event_usage` 已补齐。存量功能事件中缺失的 `cd_doctor/client_version` 保持 `NULL`，不得用 `id_doctor`、后台账号或设备当前版本猜测回填；迁移脚本不作为常驻工程资产提交。
 4. 若需要普通 PostgreSQL 运行，优先复用本目录结构作为 PG 兼容基线，再结合现场版本验证 JSON、表达式索引和时间函数兼容性。
-5. 本次保留 `update_his_org_statistics.sql`、`update_chronic_disease_followup.sql` 与 `update_chronic_disease_artifact.sql`。存量库使用当前应用账号分别执行三个脚本：第一个补齐可能遗漏的 `c_ai_config.speech_realtime_url`、`c_ai_user_consultation_log.id_his_org`、`consultation_round_id`、真实工号列 `cd_doctor`、问诊轮次索引，以及操作日志和功能事件 HIS 机构字段、索引与可确定关联的数据回填；已执行过旧版脚本的存量库需要再次执行以补充 `cd_doctor`。后两个创建两慢病随访强类型表和打印留痕快照表及幂等/查询索引。新建库仍只执行 `init.sql`。若现场已存在重复的激活 `generated` 轮次，须先清理重复数据再创建轮次唯一索引。
+5. 本次保留 `update_his_org_statistics.sql`、`update_chronic_disease_followup.sql` 与 `update_chronic_disease_artifact.sql`。存量库使用当前应用账号分别执行三个脚本：第一个补齐可能遗漏的 `c_ai_config.speech_realtime_url`、`c_ai_user_consultation_log.id_his_org`、`consultation_round_id`、真实工号列 `cd_doctor`、问诊轮次索引，以及操作日志和功能事件 HIS 机构字段、功能事件 `cd_doctor/client_version`、使用情况索引与可确定关联的数据回填；同时清空全部历史功能事件的 `consultation_id/trace_id/session_id/payload_json`，按服务端同一 `feature_code:minimized:v1:event:规范化 id_event` 规则重建全表幂等键，历史 `idempotency_key` 即使为 `NULL` 也会作为待重建数据处理。脚本顶部设置 `ON_ERROR_STOP`，现场仍必须使用 `gsql -v ON_ERROR_STOP=1 -f update_his_org_statistics.sql` 并检查非零退出码；预检会在任何 DDL/DML 前拒绝空 `feature_code`、非 UUID 历史 `id_event` 或目标唯一键碰撞，清理和键改写均带 no-op 条件，且只有全部步骤成功后才写入 `c_ai_schema_migration.feature_event_minimization_v1` 标记，重复执行不会重写。执行前必须备份、停止全部服务节点写入、统计候选行数、确认仓库外 SQL/BI 不依赖功能事件 payload，并由 DBA 在维护窗口审核。已执行过旧版脚本的存量库需要再次执行。后两个创建两慢病随访强类型表和打印留痕快照表及幂等/查询索引。新建库仍只执行 `init.sql`。若现场已存在重复的激活 `generated` 轮次，须先清理重复数据再创建轮次唯一索引。
 6. `init.sql` 默认 AI 配置 `CFG001` 使用 DashScope `qwen-audio-3.0-asr-flash-streaming` 作为实时模型；存量库需在管理端修改对应配置，不通过常驻升级脚本覆盖现场模型选择。
+7. 服务启动与 Actuator `featureEventSchema` readiness 会使用当前应用连接执行只读零行查询，确认 `c_ai_feature_event` 完整写入列及医生使用情况所需列可查询，并验证 `c_ai_schema_migration.feature_event_minimization_v1` 已存在；缺表、缺列、缺标记或权限不足时拒绝启动，并提示执行本目录的 `update_his_org_statistics.sql`。探针默认通过 `floating-ball.feature-event.schema-validation.enabled=true` 启用，不执行 DDL/DML，也不验证 `idx_c_ai_feature_event_usage`；该索引仍须由 DBA 在节点入池前确认存在，缺失时不得上线医生客户端使用情况功能。
+
 ## 多节点共享 nonce（显式启用）
 
 `FB_DEPLOYMENT_MODE=standalone` 与 JVM 本地 nonce 不需要执行本节。存量库准备启用 `ai-scale-out` 时，仓库交付定向脚本 `update_shared_nonce.sql`，由现场 DBA 先审核脚本和目标 database/schema，再使用与应用一致的账号直接执行并检查非零退出码：
@@ -83,7 +85,8 @@ gsql -v ON_ERROR_STOP=1 -f update_shared_nonce.sql
 交付边界固定如下：
 
 1. 脚本只负责幂等创建 `c_ai_request_nonce`、复合主键 `(id_device, nonce_hash)` 和过期索引 `idx_c_ai_request_nonce_exp`；`nonce_hash` 保存 SHA-256 十六进制哈希，`expires_at` 保存 epoch 毫秒数。
-2. 对象已经按当前合同存在时重复执行为 no-op；发现同名对象结构、主键或索引定义不一致时必须报错停止，由 DBA 先处理漂移，脚本不得静默改列、重建约束或覆盖现场对象。索引核对使用 openGauss 兼容的 `pg_index.indkey[0]` 元数据查询，已在 `openGauss-lite 5.0.3` 验证。
+2. 对象已经按当前合同存在时重复执行为 no-op；发现同名对象结构、主键或索引定义不一致时必须报错停止，由 DBA 先处理漂移，脚本不得静默改列、重建约束或覆盖现场对象。
+   索引核对使用 openGauss 兼容的 `pg_index.indkey[0]` 元数据查询，已在 `openGauss-lite 5.0.3` 验证；不得改回该版本不支持的 `LATERAL unnest(indkey)` 写法。
 3. 脚本不包含数据库地址、账号或口令，不执行 `\connect`，应用启动和部署脚本也不会连接数据库代为执行。执行动作、目标 schema、备份和结果确认都由 DBA 负责。
 4. 脚本不读取、不迁移、不删除旧 `c_security_request_nonce`，也不包含任何 `DROP TABLE`、`DROP INDEX` 或历史 nonce 数据搬迁。nonce 是短期防重放状态，旧表如需清理由 DBA 在独立变更中另行评估。
 5. 执行脚本不会自动切换应用模式。DBA 还必须确认应用账号对新表具备实际查询、插入和删除权限，并在节点入池前让 nonce 深度探针完整通过；深探发现权限或唯一约束漂移时，HTTP/WS 必须持续 `SECURITY-503`，直到后续深探恢复。

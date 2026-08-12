@@ -74,6 +74,7 @@ pcie-server/
         │   ├── modules/ai/         # chat / transcribe / realtime 代理
         │   ├── modules/analytics/  # 综合概况统计分析：趋势、分布、核心指标
         │   ├── modules/useractivity/ # 用户活跃度统计：时间/区域/机构筛选、活跃指标、用户列表
+        │   ├── modules/clientusage/ # 医生客户端使用情况：当前版本首次交互、最近活跃、全字段导出
         └── main/
             ├── admin/              # 管理端 Vue 2 + Element UI 源码
             │   ├── package.json
@@ -285,12 +286,12 @@ pcie-server/
 
 1. 功能调用事件是面向统计的业务事实源，独立于审计日志和问诊用户日志。
 2. 桌面端在用户真实触发功能时调用 `POST /v1/client/feature-events/batch`，一次明确功能调用只提交一条事件。
-3. 服务端以 `idDevice + idempotencyKey` 幂等入库到 `c_ai_feature_event`，客户端离线重试或接口重试不会重复计数；事件同时保存独立的 `id_his_org/na_his_org`，用于 HIS 机构统计，后台 `id_org/id_region` 仍由设备鉴权决定。
+3. 所有功能事件必须携带稳定 UUID `eventId`；服务端统一规范化该 ID，以 `featureCode + eventId` 派生版本化安全幂等键，并按 `idDevice + 派生键` 幂等入库到 `c_ai_feature_event`，客户端离线重试或接口重试不会重复计数。事件同时保存独立的 `id_his_org/na_his_org`，用于 HIS 机构统计，后台 `id_org/id_region` 仍由设备鉴权决定。
 4. 事件固定使用 `featureCode` 表示产品功能，服务端统一映射展示名：语音问诊、智能问诊、报告单解读、聊天、AI诊断鉴别、AI推荐诊断、AI推荐用药、AI推荐检查、AI推荐检验、AI推荐处置、AI推荐治疗方案、知识库使用。
-5. `traceId`、`consultationId`、`sessionId` 只用于把功能事件关联回 `c_ai_op_log` 或 `c_ai_user_consultation_log`，不参与统计去重。
-6. 统计口径按用户显式功能入口统一：智能问诊、语音问诊、报告单解读、聊天、知识库使用按主功能入口计数；知识库批量检索只按一次用户检索动作计数，不按内部拆开的多个查询词累加；诊断鉴别和推荐诊断/用药/检查/检验/处置/诊疗方案推荐只统计医生显式触发的独立辅助入口，不统计智能问诊或语音问诊主流程内部自动生成的 AI trace。来自 HIS Bridge 的入口在桌面端接诊上下文校验通过并准备打开目标界面时即按成功调用入库；同一就诊再次显式触发入口按新调用计数，只有同一条已入队功能事件的离线重试或接口重试通过自身 `idempotencyKey` 去重。
+5. `traceId`、`sessionId`、`consultationId` 都不进入功能统计持久化；AI 技术链路关联只保留在独立审计日志，避免通过功能统计表跨表反查临床上下文。
+6. 统计口径按用户显式功能入口统一：智能问诊、语音问诊、报告单解读、聊天、知识库使用按主功能入口计数；知识库批量检索只按一次用户检索动作计数，不按内部拆开的多个查询词累加；诊断鉴别和推荐诊断/用药/检查/检验/处置/诊疗方案推荐只统计医生显式触发的独立辅助入口，不统计智能问诊或语音问诊主流程内部自动生成的 AI trace。来自 HIS Bridge 的入口在桌面端接诊上下文校验通过并准备打开目标界面时即按成功调用入库；同一就诊再次显式触发入口按新调用计数，只有同一条已入队功能事件的离线重试或接口重试通过稳定 `eventId` 去重。
 7. 管理端“辅诊功能”统计只读 `c_ai_feature_event`；`c_ai_op_log` 保留为排障与审计，不再承担统计推断。
-8. 功能事件只把重复幂等上报计入 `skipped`；不支持的 `featureCode`、缺失 `idempotencyKey`、不可序列化的 `payload` 必须计入 `rejected` 并返回拒绝明细，避免统计漏数被静默掩盖。
+8. 功能事件只把重复幂等上报计入 `skipped`；不支持的 `featureCode`、缺失或非法 UUID `eventId` 必须计入 `rejected` 并返回拒绝明细，避免统计漏数被静默掩盖。旧客户端 payload 只为兼容接收并丢弃，不参与统计。
 
 ### 5.5 用户反馈链路
 
@@ -393,8 +394,11 @@ pcie-server/
    - 首页汇总区域、机构、令牌、配置、Prompt、症状模板、日志、用户、角色数量
 5. 客户端使用情况：
    - 管理端新增独立只读列表，固定展示机构名称、医生名字、工号、安装客户端时间、当前使用的客户端版本、最近活跃时间
-   - 机构名称、首次注册时间、客户端版本和最后心跳复用 `c_ai_device` 与 `c_ai_org`；客户端版本在注册时写入，并在后续心跳中用已签名请求头 `X-Client-Version` 刷新；医生名字、真实工号和最近一次问诊时间按当前页设备批量读取 `c_ai_user_consultation_log` 的最新非空医生身份记录。真实工号保存于 `cd_doctor`，只接收桌面端 SDK handshake 的 `urt.personCd`，不得用 `id_doctor`、其他内部主键或后台账号替代
-   - “安装客户端时间”定义为终端首次向服务端成功注册的 `dt_registered`；“最近活跃时间”取 `dt_last_heartbeat` 与该医生身份记录对应问诊时间中的较晚值。没有问诊身份记录时医生名字、工号为空，没有心跳和问诊记录时最近活跃时间为空
+   - 列表按“后台机构 + HIS 机构 + 真实工号”识别医生，不按设备行统计；同一医生更换或共用终端不会重复计数。真实工号固定读取 SDK handshake 的 `urt.personCd`，不得用 `id_doctor`、其他内部主键或后台账号替代；缺少真实工号的旧事件不进入医生使用情况列表
+   - 数据事实源为 `c_ai_feature_event` 中医生实际触发的辅诊功能事件。事件产生时固化 `cd_doctor`、`na_doctor`、`client_version`、`id_his_org/na_his_org`，避免离线重传时被上传阶段的医生身份或版本覆盖
+   - “当前使用的客户端版本”取该医生最近一次功能交互事件的版本；“安装客户端时间”按用户确认的统计口径定义为该医生在当前版本上的首次功能交互时间，不表示操作系统安装包执行时间；“最近活跃时间”取该医生最近一次功能交互时间
+   - 管理端通过独立 `/admin/api/client-usage` 分页接口查询，可按机构名称、医生姓名、真实工号或版本搜索；总数与当前页均在数据库层执行，单页限制 200 条，超大页码直接返回空页，禁止先加载全量医生再由 JVM 切片
+   - 导出接口输出页面六个字段的匹配明细，供 Excel 数据透视分析；单次最多 50,000 条，数据库读取以 50,001 条为硬边界，超过时明确拒绝并要求缩小筛选范围，不静默截断或无界占用 JVM 内存
 6. 综合概况统计分析（`modules/analytics`）：
    - 核心指标卡片：功能调用总量、日均功能调用量、AI诊断建议采纳率、诊断符合率、活跃医生数、问诊总数
    - 服务趋势折线图：按日聚合功能调用量与问诊量趋势
@@ -443,7 +447,7 @@ pcie-server/
    - 管理端停用令牌会把原记录置为 `fg_active='0'` 且 `sd_status='0'`，该同机构同 `cd_device` 历史记录用于表达后台停用/封禁，注册接口必须拒绝其重新领取 token；若管理员需要恢复该设备，应先新增同 `cd_device` 的激活令牌占位，再由客户端注册补录公钥
    - 管理端删除令牌是异常设备重置操作，会物理移除该设备记录并释放同机构同 `cd_device`；删除后客户端重新注册会生成新的 `id_device`、`device_token` 与公钥绑定
    - `register_ip` 记录注册请求来源 IP，`last_seen_ip` 随注册和心跳刷新；两者用于后台定位旧客户端、异常终端和网段，不参与设备身份认证或签名校验
-   - 管理端令牌列表与“客户端使用情况”的医生身份不写入设备表，而是按当前页设备批量读取 `c_ai_user_consultation_log` 中最近一次 `na_doctor` 或 `cd_doctor` 非空的记录；工号固定读取 `cd_doctor`，不把 `id_doctor` 显示为工号。未产生对应医生身份记录的设备不显示医生名字或工号
+   - 管理端令牌列表仍可按当前页设备批量读取 `c_ai_user_consultation_log` 中最近一次 `na_doctor` 或 `cd_doctor` 非空的记录，用于辅助定位设备；工号固定读取 `cd_doctor`，不把 `id_doctor` 显示为工号。独立“客户端使用情况”不再复用设备分页，而是按 `c_ai_feature_event` 的医生身份与版本交互事实聚合
 4. `c_ai_config`
 5. `c_ai_prompt`
 6. `c_ai_data_package`
@@ -472,9 +476,10 @@ pcie-server/
    - `change_summary_json` 保存主诉、现病史、诊断、用药、检查、检验、处置和选中状态等类别变更计数，`total_changes` 保存总变更数，统计分析诊断符合率依赖其中的 `diagnosisChanges`
    - 索引：`idx_c_ai_user_log_time` / `_patient` / `_doctor` / `_consultation` / `_round`，并通过 `uk_c_ai_user_log_round_active` 保证激活且尚未结束的 `consultation_round_id` 只有一条，已回写/放弃后同一就诊可再次生成新日志
 12. `c_ai_feature_event`
-   - 按用户真实功能调用记录统计事件，关键列包括 `feature_code`、`feature_name`、`event_action`、`idempotency_key`、`trace_id`、`consultation_id`、`session_id`、医生、后台机构、HIS 机构、事件时间
+   - 按用户真实功能调用记录统计事件，关键列包括 `feature_code`、`feature_name`、`event_action`、`idempotency_key`、`trace_id`、`consultation_id`、`session_id`、`id_doctor`、真实工号 `cd_doctor`、`na_doctor`、后台机构、HIS 机构、事件发生时的 `client_version` 与事件时间
    - 通过 `id_device + idempotency_key` 保证同一设备的同一功能调用只计一次
-   - 索引：`idx_c_ai_feature_event_time` / `_feature` / `_doctor` / `_org` / `_idem`
+   - 医生使用情况以“后台机构 + HIS 机构 + `cd_doctor`”聚合，最近事件版本为当前版本，并在该版本内取最早 `event_time`；缺少真实工号或客户端版本的历史事件不参与该列表
+   - 索引：`idx_c_ai_feature_event_time` / `_feature` / `_doctor` / `_org` / `_idem` / `_usage`
 13. `c_security_rejection_log`
    - 记录设备鉴权、请求签名、强制更新门禁和实时语音握手等安全拒绝事件
    - 关键列包括 `rejection_type`、`request_method`、`request_path`、`client_ip`、`id_device`、`cd_device`、`id_org`、`request_id`、`reject_reason`、`reject_detail`、`has_signature`、`timestamp_header`、`nonce_header`、`client_version`、`update_channel`
@@ -535,6 +540,10 @@ GaussDB/openGauss 初始化：
 1. 本次按明确交付要求，在 Oracle、GaussDB 与达梦数据库目录分别保留 `update_his_org_statistics.sql`，承载 HIS 机构结构化字段、索引、可确定关联的历史数据回填，以及现场库遗漏的问诊轮次字段和索引。
 2. 升级文件同时补充历史基线中已经声明、但部分现场库遗漏的 `c_ai_user_consultation_log.id_his_org`、`consultation_round_id`、`idx_c_ai_user_log_round`、`uk_c_ai_user_log_round_active`，以及本次新增的操作日志和功能事件 HIS 机构列。
 3. 新建库仍只执行对应 `init.sql`；存量库执行升级文件前必须先备份，并由 DBA 确认目标 schema。升级脚本使用各数据库方言的存在性判断，允许已包含部分字段或索引的现场库重复执行；若现场库已存在重复的激活 `generated` 轮次，必须先确认并清理重复数据，再创建 `uk_c_ai_user_log_round_active`，脚本不得静默修改业务记录。
+4. 服务启动与 `featureEventSchema` readiness 使用当前应用连接执行针对 `c_ai_feature_event` 的零行投影，覆盖完整写入列及医生使用情况查询所需列；随后只读查询 `c_ai_schema_migration` 中的 `feature_event_minimization_v1` 标记。只有结构可查询且迁移标记存在时才允许启动并报告 UP，不能把“已执行旧版字段脚本但尚未完成历史隐私 DML”的库误判为就绪；探针不读取功能事件业务数据、不执行 DDL/DML，缺表、缺列、缺标记或不可查询时拒绝启动，并提示执行对应数据库目录的 `update_his_org_statistics.sql`。
+5. 探针默认由 `floating-ball.feature-event.schema-validation.enabled=true` 启用；仅允许在不承载业务流量的专用测试上下文显式关闭。它不验证 `idx_c_ai_feature_event_usage`，该索引仍由 DBA 在节点入池前检查，缺失时不得将医生客户端使用情况功能投入生产。
+6. 功能统计不保存患者或就诊关联事实：所有功能事件只保留功能编码、动作、医生/机构/版本和时间等结构化统计列，`consultation_id/trace_id/session_id` 均置空，`payload_json` 固定为空对象。所有事件必须携带稳定 UUID `eventId`，服务端以规范化 `featureCode + eventId` 生成 `featureCode:minimized:v1:event:eventId` 存储键，客户端原始幂等文本不落库。三库 `update_his_org_statistics.sql` 清空全部历史功能事件的关联字段和 payload，并使用同一算法重建全表幂等键；脚本先校验全表历史 `eventId` 与目标唯一键碰撞，命中异常时依靠数据库客户端的 stop-on-error 门禁在任何 DDL/DML 前终止，清理与键改写分别带 no-op 条件，且只有全部步骤成功后才写入 `c_ai_schema_migration.feature_event_minimization_v1` 标记。该数据最小化 DML 必须在备份、停止写入、统计候选行数、核查仓库外报表对 payload 的依赖并由 DBA 审核后于维护窗口执行。
+7. 功能动作、来源模块、场景和状态属于统计技术编码：服务端只保留有限字符集与列宽内的编码，非法或自由文本值丢弃/归一为默认状态，避免借结构化列旁路写入临床文本。历史迁移预检同时拒绝空功能编码，并把 `NULL idempotency_key` 视为必须重建的候选，不能依赖 SQL 三值逻辑跳过后仍写入完成标记。
 
 ## 9. 单体交付与当前单节点生产基线
 

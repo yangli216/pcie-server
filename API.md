@@ -802,7 +802,7 @@ Content-Type: application/json
 {
   "events": [
     {
-      "eventId": "uuid",
+      "eventId": "550e8400-e29b-41d4-a716-446655440000",
       "eventType": "operation",
       "hisOrgId": "HIS-ORG-001",
       "hisOrgName": "市第一医院",
@@ -874,25 +874,21 @@ AI 调用类 `operation` 事件补充约束：
 {
   "events": [
     {
-      "eventId": "uuid",
+      "eventId": "550e8400-e29b-41d4-a716-446655440000",
       "featureCode": "voice_consultation",
       "eventAction": "open_voice_consultation",
-      "idempotencyKey": "voice_consultation:open_voice_consultation:EVENT-001",
-      "traceId": "TRACE-001",
-      "consultationId": "CONSULT-001",
-      "sessionId": "SESSION-001",
+      "idempotencyKey": "voice_consultation:event:550e8400-e29b-41d4-a716-446655440000",
       "sourceModule": "voice_consultation",
       "scene": "voice-consultation",
       "status": "success",
       "doctorId": "DOC-001",
+      "doctorWorkNo": "0123",
       "doctorName": "张医生",
       "deptId": "DEPT-001",
       "deptName": "全科",
       "hisOrgId": "HIS-ORG-001",
       "hisOrgName": "市第一医院",
-      "payload": {
-        "patientId": "PAT-001"
-      },
+      "clientVersion": "1.3.9",
       "timestamp": 1770000000000
     }
   ]
@@ -912,13 +908,18 @@ AI 调用类 `operation` 事件补充约束：
 
 约束：
 
-1. `idempotencyKey` 必填；服务端以 `idDevice + idempotencyKey` 幂等，重复上报只计入 `skipped`，不重复计数。
+1. 所有功能事件都必须提供客户端生成且重试期间保持不变的 UUID `eventId`（接受带连字符 UUID 或 32 位十六进制形式）。服务端规范化事件 ID，并以 `featureCode + eventId` 派生 `featureCode:minimized:v1:event:eventId` 存储键，再按 `idDevice + 存储键` 幂等；重复上报只计入 `skipped`，不重复计数。`idempotencyKey` 仅作为滚动升级期间兼容旧服务端的输入字段接收，新服务端不信任、不持久化，也不要求其存在。
 2. `featureCode` 当前固定支持：`voice_consultation`、`smart_consultation`、`report_interpretation`、`chat`、`diagnosis_checklist`、`diagnosis_recommendation`、`medication_recommendation`、`examination_recommendation`、`lab_test_recommendation`、`procedure_recommendation`、`treatment_plan_recommendation`、`knowledge_usage`。
 3. 后台展示名称由服务端按 `featureCode` 统一映射为：语音问诊、智能问诊、报告单解读、聊天、AI诊断鉴别、AI推荐诊断、AI推荐用药、AI推荐检查、AI推荐检验、AI推荐处置、AI推荐治疗方案、知识库使用。
-4. `traceId`、`consultationId`、`sessionId` 只用于关联审计链路，不参与调用次数累加。
+4. `traceId`、`sessionId`、`consultationId` 仅为旧客户端与离线队列保留兼容接收，服务端对所有功能事件均不持久化这些跨表可关联字段；新版客户端不得再发送，AI 技术链路关联只保留在独立审计链路。
 5. 统计口径按用户显式功能入口统一：智能问诊、语音问诊、报告单解读、聊天、知识库使用按主功能入口计数；知识库批量检索只按一次用户检索动作计数，不按内部拆开的多个查询词累加；诊断鉴别和推荐诊断/用药/检查/检验/处置/诊疗方案推荐只统计医生显式触发的独立辅助入口。来自 HIS Bridge 的完整问诊、语音问诊和 `assist` 入口在桌面端接诊上下文校验通过并准备打开目标界面时即记录一次成功调用；同一就诊再次显式触发入口按新调用计数，后续 AI 生成、问诊提交、PHIS 回写和审计日志不重复拆分计数。
-6. 不支持的 `featureCode`、缺失 `idempotencyKey`、不可序列化的 `payload` 计入 `rejected`，并在 `rejections[]` 返回 `index/eventId/featureCode/reason`；服务端不得把这类数据静默计入 `skipped`。
-7. `hisOrgId/hisOrgName` 由桌面端在事件产生时从 SDK handshake 固化，服务端分别写入 `c_ai_feature_event.id_his_org/na_his_org`；`id_org/id_region` 仍以设备鉴权为准。旧版客户端未上报 `hisOrgId` 的事件继续接收，但无法进入指定 HIS 机构的筛选结果。
+6. 不支持的 `featureCode`、缺失或携带非法 `eventId` 计入 `rejected`，并在 `rejections[]` 返回 `index/eventId/featureCode/reason`；服务端不得把这类数据静默计入 `skipped`。
+7. 功能统计只保存核心结构化统计列；所有事件的 `consultation_id/trace_id/session_id` 均为 `NULL`、`payload_json` 均固定为 `{}`，客户端原始幂等文本不落库。旧客户端仍发送的这些字段只为兼容反序列化而接收并丢弃，新版客户端不得发送患者标识、跨表可关联伪标识、认证凭据、原始 query/prompt/message/content/text 等自由文本。三库定向升级脚本使用同一算法清理全部历史功能事件的临床关联、payload、关联伪标识与原始幂等文本；脚本在任何 DDL/DML 前校验全表历史 `eventId` 并检查目标唯一键碰撞，清理与键改写分别带 no-op 条件，并仅在全部语句成功后写入 `feature_event_minimization_v1` 迁移标记。启动与 readiness 必须同时验证结构投影和该标记，不能把“列已存在”误判为历史清理已完成。
+8. `eventAction/sourceModule/scene` 只用于技术编码，服务端仅保留字母、数字、点、下划线、冒号和连字符且分别限制在数据库列宽内；非法值按可选字段丢弃。`status` 仅接受 `success/failure`，其他值归一为 `success`。历史迁移把空 `idempotency_key` 也纳入重建候选，并在写 marker 前拒绝空功能编码。
+9. HTTP 2xx 不表示整批事件均已接受。客户端必须先校验 `accepted + skipped + rejected` 等于请求批次数、`rejections[]` 数量等于 `rejected`，并按 `rejections[].index/eventId` 与原批次逐条对应：未出现在 `rejections[]` 的事件按 `accepted/skipped` 结算并移出队列，被拒绝事件必须逐条记录 `reason` 后移出或进入隔离队列，不得静默当作成功。响应缺字段、计数不一致、索引重复或越界、`eventId` 不匹配等畸形响应不得删除该批次任何事件。
+10. `hisOrgId/hisOrgName/doctorWorkNo/doctorName/clientVersion` 由桌面端在事件产生时固化，离线重传不得改用上传时的新登录身份或新版本。服务端分别写入 `c_ai_feature_event.id_his_org/na_his_org/cd_doctor/na_doctor/client_version`；`id_org/id_region` 仍以设备鉴权为准。
+11. `doctorWorkNo` 只允许来自 SDK handshake `urt.personCd`，不得用 `doctorId`、用户内部主键或登录账号兜底。旧版事件缺少 `doctorWorkNo` 时继续接收并用于原有功能统计，但不进入医生客户端使用情况列表。
+12. `clientVersion` 缺失时服务端可回退本次已鉴权设备记录中的客户端版本以兼容旧队列；新版客户端必须优先上报事件产生时的版本，避免升级后的离线重传被误记到新版本。
 
 ### 3.9 POST `/v1/client/recommendation-preferences/events/batch`
 
@@ -1713,7 +1714,7 @@ PMPHAI 的 `search`、`clip`、`list`、`kgbases`、`categories` 由独立有界
 
 1. `ranking` 按 `callCount` 倒序排列，已计算增长率（与上一等长周期对比）
 2. `moduleName`、`trend.modules` 和 `function-modules` 接口返回的名称均为产品功能维度，当前固定归并为：语音问诊、智能问诊、报告单解读、聊天、AI诊断鉴别、AI推荐诊断、AI推荐用药、AI推荐检查、AI推荐检验、AI推荐处置、AI推荐治疗方案、知识库使用
-3. 调用次数来自 `c_ai_feature_event`，同一 `idDevice + idempotencyKey` 只入库一次，避免离线重传、接口重试和底层多条审计日志造成重复统计
+3. 调用次数来自 `c_ai_feature_event`，同一 `idDevice + 服务端按 featureCode/eventId 派生的 idempotencyKey` 只入库一次，避免离线重传、接口重试和底层多条审计日志造成重复统计
 4. `c_ai_op_log` 仅用于审计与排障，不再作为辅诊功能统计的事实源
 5. 主流程内部自动 AI 推荐不重复拆分为 AI 推荐诊断/用药/检查/检验/处置/诊疗方案推荐；这些子功能只在医生显式触发对应独立辅助入口时计数，HIS Bridge 入口成功打开目标界面即计一次；同一条功能事件离线重试或接口重试不重复入库，同一就诊再次显式触发入口按新调用计数
 6. `doctorCount` 按事件中的医生 ID 优先统计；医生 ID 为空时回退设备 ID
@@ -1929,10 +1930,61 @@ PMPHAI 的 `search`、`clip`、`list`、`kgbases`、`categories` 由独立有界
 字段说明：
 
 - `naUser` / `doctorWorkNo` 为该设备最近一次医生姓名或真实工号非空的问诊日志中的医生名字与工号；`doctorWorkNo` 只来自客户端上报的 SDK handshake `urt.personCd`，绝不回退 `idDoctor`。设备尚未产生对应身份记录时返回 `null`。这些字段仅用于管理端展示，不表示设备与后台管理员账号建立了绑定关系
-- `dtRegistered` 是终端首次向服务端成功注册的时间，管理端“客户端使用情况”将其显示为“安装客户端时间”，不表示操作系统安装包执行时间
+- `dtRegistered` 是终端首次向服务端成功注册的时间，仅属于令牌/设备记录，不再作为管理端“客户端使用情况”的安装时间口径
 - `clientVersion` 在注册时写入并随已签名心跳请求的 `X-Client-Version` 刷新，因此表示最近一次成功心跳确认的客户端版本
 - `lastActiveTime` 取 `dtLastHeartbeat` 与上述医生身份记录对应问诊时间中的较晚值；两者均为空时返回 `null`
-- 管理端新增独立“客户端使用情况”页面，复用本接口分页数据，只展示机构名称、医生名字、工号、安装客户端时间、当前使用的客户端版本、最近活跃时间六个字段
+- 独立“客户端使用情况”页面不再复用本设备分页接口；医生维度列表与导出见 5.26.1 / 5.26.2
+
+### 5.26.1 GET `/admin/api/client-usage`
+
+用途：按医生返回客户端使用情况。列表按“后台机构 + HIS 机构 + 真实工号”去重，最近一次实际功能交互事件的版本为当前版本；同一医生在该版本上的最早功能交互时间作为“安装客户端时间”，最近一次功能交互时间作为“最近活跃时间”。
+
+参数：
+
+- `current`：页码，默认 `1`
+- `size`：每页条数，默认 `20`，服务端限制为 `1`～`200`
+- `keyword`：可选，匹配机构名称、医生姓名、真实工号或客户端版本
+
+响应 `data`：
+
+```json
+{
+  "current": 1,
+  "size": 20,
+  "total": 1,
+  "records": [
+    {
+      "orgName": "新塘社区卫生服务中心",
+      "doctorName": "张医生",
+      "doctorWorkNo": "0123",
+      "firstInteractionTime": "2026-08-10 09:30:00",
+      "clientVersion": "1.3.9",
+      "lastActiveTime": "2026-08-10 15:20:00"
+    }
+  ]
+}
+```
+
+约束：
+
+1. 只统计 `c_ai_feature_event.fg_active='1'` 且真实工号、客户端版本均非空的实际功能交互事件；不得用设备注册、心跳、后台账号或医生内部主键补造医生使用记录。
+2. 机构名称优先取最近事件固化的 HIS 机构名称 `na_his_org`，为空时回退启用的后台机构名称；后台机构必须满足 `fg_active='1' AND sd_status='1'`。
+3. 当前版本取医生最近一条事件的 `client_version`；`firstInteractionTime` 只在该当前版本的事件中取最早时间，`lastActiveTime` 取该医生全部有效版本事件的最近时间。
+4. 服务端先在数据库执行同口径总数查询，再仅查询当前页；当 `current` 超过最后一页（包括极大整数）时保留请求中的规范化页码并返回空 `records`，不得把全量结果加载到 JVM 后切片。
+
+### 5.26.2 GET `/admin/api/client-usage/export`
+
+用途：按 5.26.1 的筛选口径导出 Excel。工作表固定包含“机构名称、医生名字、工号、安装客户端时间、当前使用的客户端版本、最近活跃时间”六列，其中安装客户端时间的业务含义为“当前版本首次交互时间”。导出不受页面分页影响；匹配结果不超过 50,000 条时返回全部医生明细。
+
+导出边界：
+
+- 单次最多导出 50,000 条医生明细；服务端先查询匹配总数，并以 50,001 条为数据库查询硬边界再次防止并发新增造成无界加载。
+- 匹配总数或实际读取结果超过上限时不截断文件，返回 HTTP `400`，错误码 `CLIENT-USAGE-EXPORT-LIMIT`；管理员应增加 `keyword` 缩小范围后重试。
+
+响应：
+
+- `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+- `Content-Disposition: attachment; filename*=UTF-8''client-usage-*.xlsx`
 
 ### 5.27 POST `/admin/api/devices`
 用途：手工创建令牌记录。服务端会生成 `deviceToken`，列表仅返回脱敏值。

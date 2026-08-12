@@ -60,6 +60,9 @@ floating-ball:
       password: ${FB_ADMIN_BOOTSTRAP_RESET_PASSWORD:}
   audit:
     speech-file-dir: ${FB_AUDIT_SPEECH_FILE_DIR:${java.io.tmpdir}/floating-ball-server/speech-audit}
+  feature-event:
+    schema-validation:
+      enabled: ${FB_FEATURE_EVENT_SCHEMA_VALIDATION_ENABLED:true}
   security:
     nonce:
       store: ${FB_NONCE_STORE:memory}
@@ -144,7 +147,7 @@ management:
         liveness:
           include: livenessState,ping
         readiness:
-          include: readinessState,db,nonceStore,storage
+          include: readinessState,db,featureEventSchema,nonceStore,storage
   metrics:
     tags:
       application: ${spring.application.name}
