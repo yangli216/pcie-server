@@ -38,10 +38,13 @@
 5. 未经明确要求，不引入 Redis、RocketMQ、微服务拆分等额外依赖。
 6. **请求签名校验禁止绕过**：`DeviceAuthFilter` 和 `RealtimeSpeechHandshakeInterceptor` 必须校验 ECDSA P-256 签名；新增 `/v1/*` 接口必须经过 `DeviceAuthFilter`，不得私自添加绕过路径。
 7. **品牌与运行兼容标识禁止混改**：正式服务端名称统一为“全医慧助服务端（PCIE Server）”，仓库与 Maven 工程使用 `pcie-server`；Java 包 `com.regionalai.floatingball.server`、`floating-ball.*` 配置键、`FB_*` 环境变量、数据库对象及现有现场部署目录属于兼容契约，未经迁移方案和现场验证不得改名。
-8. 集群模式必须使用数据库唯一约束实现跨节点 nonce 防重放，不得在数据库异常时回退到 JVM 本地缓存或放行请求。
-9. 集群节点不得使用本机临时目录保存发布包、更新策略或语音审计文件；所有节点必须使用同一共享挂载，并在接入流量前通过受控管理面完成 release、speech 两根的“A 写、B/C 读、另一节点删、三节点确认消失”验证，单节点探针不得替代。
-10. Actuator 健康检查和 Prometheus 指标只允许暴露在独立管理端口与受控管理网络，不得直接暴露到医生终端访问的公网或业务网入口。
-11. AI 并发治理必须使用有界执行器、短队列和显式连接池；禁止通过无界线程池、大队列或持续调高超时伪造容量。
+8. Actuator 健康检查和 Prometheus 指标只允许暴露在独立管理端口与受控管理网络，不得直接暴露到医生终端访问的公网或业务网入口。
+9. AI 并发治理必须使用有界执行器、短队列和显式连接池；禁止通过无界线程池、大队列或持续调高超时伪造容量。
+10. 默认正式生产基线仍是 `FB_DEPLOYMENT_MODE=standalone`：单个 `pcie-server`、现有业务数据库、本机持久目录和单 JVM nonce；Nginx 可选，且应用脱离 Nginx 仍应能够独立启动和恢复。
+11. 经用户授权可启用 `FB_DEPLOYMENT_MODE=ai-scale-out`，但它只表示 AI/长连接容量池，不是全站 active-active。Nginx `pcie_primary` 只能指向一个主节点并承载管理端、普通业务和所有默认路径；`pcie_long` 仅可用 `least_conn` 分发 `/v1/ai/chat`、`/v1/ai/speech/transcribe`、`/v1/ai/speech/realtime` 与 `/v1/ai/speech/realtime/ws`，主节点可以同时属于该池。不得擅自把其他业务路径加入多节点池。
+12. `ai-scale-out` 必须同时满足：每节点非空且经完整节点清单人工查重的 `FB_NODE_ID`、`FB_NONCE_STORE=database`、`FB_STORAGE_MODE=shared-posix`、各节点相同且非空的 `FB_SHARED_STORAGE_ID`，以及发布包和语音审计目录确实挂载到同一共享 POSIX 存储。本阶段不引入成员注册，应用只负责拒绝本机空节点 ID；重复 ID 必须在入池门禁拦截。任一条件不满足时必须拒绝启动或拒绝入池，不得回退到内存 nonce 或本机目录继续承载流量。
+13. 当前扩展只解决四条 AI/语音路径的节点容量，不解决普通业务主节点故障，也不代表 PatientMemory、LIS/PACS、推荐偏好聚合、问诊日志、EMR 缓存等普通业务跨节点竞态已经完成治理。未来若要把普通业务加入多节点，必须另行授权、逐项改造数据库并发语义并完成全站验收。
+14. 扩容和缩容只允许按受控 runbook 人工执行；不引入 Redis、RocketMQ、服务发现、微服务拆分或自动扩缩容平台，也不得恢复已经清理的历史集群配置、writer 角色或固定节点数合同。
 
 ## 数据库 SQL 交付规则
 
@@ -74,7 +77,7 @@
 5. 修改 `/v1/*` 契约、设备鉴权、请求签名、AI 代理或客户端 delta 链路时，必须按工作区 [TESTING_STRATEGY.md](../TESTING_STRATEGY.md) 补充对应单元测试、集成测试或联调记录
 6. 修改 Maven release/versions 配置或版本号规则时，至少执行 `mvn -f server/pom.xml test`；如需验证发版流程，必须在干净工作区执行 `mvn -f server/pom.xml -DdryRun=true -DreleaseVersion=X.Y.Z -DdevelopmentVersion=X.Y.(Z+1)-SNAPSHOT -Dtag=vX.Y.Z release:prepare` 后执行 `mvn -f server/pom.xml release:clean`
 7. 若无法完成构建或测试，必须说明阻塞原因，并补充静态审查结论
-8. 修改集群共享存储或管理面 challenge 时，必须执行对应 JUnit、`bash -n deploy/cluster/cluster-preflight.sh` 与 `deploy/cluster/test-cluster-preflight.sh`；真实三节点结果无法在本地替代，必须单独标注。
+8. 修改单节点部署、Nginx 代理、nonce、持久目录或健康探针时，必须执行对应 JUnit；`standalone` 按 `deploy/standalone/README.md` 验证直连与单 upstream，`ai-scale-out` 还必须验证 `pcie_primary/pcie_long` 路由隔离、跨节点 nonce、共享 POSIX 发布/语音文件、手工加摘节点和长连接恢复。未完成的真实环境验证必须单独标注。
 
 ## 管理端 UED 与组件规则
 

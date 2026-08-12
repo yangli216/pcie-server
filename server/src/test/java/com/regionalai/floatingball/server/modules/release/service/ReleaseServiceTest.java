@@ -1,7 +1,6 @@
 package com.regionalai.floatingball.server.modules.release.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.regionalai.floatingball.server.common.cluster.ClusterProperties;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseBatchUploadRequest;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseDownloadItem;
@@ -203,55 +202,6 @@ class ReleaseServiceTest {
         assertEquals("signature-darwin-aarch64", latestJson.getPlatforms().get("darwin-aarch64").getSignature());
         assertEquals("signature-darwin-x86_64", latestJson.getPlatforms().get("darwin-x86_64").getSignature());
         assertEquals(2, views.get(0).getPlatforms().size());
-    }
-
-    @Test
-    void releaseMutationShouldFailClosedOnClusterReadOnlyNode() {
-        ClusterProperties clusterProperties = new ClusterProperties();
-        clusterProperties.setEnabled(true);
-        clusterProperties.setNodeId("node-2");
-        clusterProperties.setReleaseWriterNodeId("node-1");
-        ReleaseService readOnlyService = new ReleaseService(
-            tempDir.toString(),
-            "http://release.local",
-            new ObjectMapper(),
-            clusterProperties
-        );
-        ReleasePolicyUpdateRequest request = new ReleasePolicyUpdateRequest();
-        request.setChannel("production");
-        request.setForceUpdate(true);
-
-        BusinessException exception = assertThrows(
-            BusinessException.class,
-            () -> readOnlyService.updatePolicy(request)
-        );
-
-        assertEquals("RELEASE-READ-ONLY", exception.getCode());
-        assertTrue(readOnlyService.list("production").get(0).getPlatforms().isEmpty());
-    }
-
-    @Test
-    void releaseMutationShouldReachBusinessValidationOnDesignatedWriterNode() {
-        ClusterProperties clusterProperties = new ClusterProperties();
-        clusterProperties.setEnabled(true);
-        clusterProperties.setNodeId("node-1");
-        clusterProperties.setReleaseWriterNodeId("node-1");
-        ReleaseService writerService = new ReleaseService(
-            tempDir.toString(),
-            "http://release.local",
-            new ObjectMapper(),
-            clusterProperties
-        );
-        ReleasePolicyUpdateRequest request = new ReleasePolicyUpdateRequest();
-        request.setChannel("production");
-        request.setForceUpdate(true);
-
-        BusinessException exception = assertThrows(
-            BusinessException.class,
-            () -> writerService.updatePolicy(request)
-        );
-
-        assertEquals("RELEASE-404", exception.getCode());
     }
 
     @Test

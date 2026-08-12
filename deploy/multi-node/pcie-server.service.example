@@ -1,0 +1,46 @@
+[Unit]
+Description=PCIE Server AI Scale-Out Node
+After=network-online.target remote-fs.target
+Wants=network-online.target
+RequiresMountsFor=/mnt/pcie-shared
+ConditionPathIsMountPoint=/mnt/pcie-shared
+
+[Service]
+Type=simple
+User=pcie
+Group=pcie
+WorkingDirectory=/opt/pcie-server/app
+Environment="PCIE_JAVA_OPTS="
+EnvironmentFile=/etc/pcie-server/pcie-server.env
+StateDirectory=pcie-server
+StateDirectoryMode=0750
+LogsDirectory=pcie-server
+LogsDirectoryMode=0750
+
+# 共享目录必须已由存储管理员创建并挂载；这里只做只读检查，不创建本机后备目录。
+ExecStartPre=/usr/bin/test -d /mnt/pcie-shared/releases
+ExecStartPre=/usr/bin/test -r /mnt/pcie-shared/releases
+ExecStartPre=/usr/bin/test -w /mnt/pcie-shared/releases
+ExecStartPre=/usr/bin/test -r /mnt/pcie-shared/releases/.pcie-storage-id
+ExecStartPre=/usr/bin/test -d /mnt/pcie-shared/speech-audit
+ExecStartPre=/usr/bin/test -r /mnt/pcie-shared/speech-audit
+ExecStartPre=/usr/bin/test -w /mnt/pcie-shared/speech-audit
+ExecStartPre=/usr/bin/test -r /mnt/pcie-shared/speech-audit/.pcie-storage-id
+ExecStart=/usr/bin/java $PCIE_JAVA_OPTS -jar /opt/pcie-server/app/pcie-server.jar
+
+SuccessExitStatus=143
+KillSignal=SIGTERM
+TimeoutStartSec=180
+TimeoutStopSec=180
+Restart=on-failure
+RestartSec=5
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+
+# MemoryMax 与 LimitNOFILE 必须在现场 systemd drop-in 中按压测结果设置。
+
+[Install]
+WantedBy=multi-user.target

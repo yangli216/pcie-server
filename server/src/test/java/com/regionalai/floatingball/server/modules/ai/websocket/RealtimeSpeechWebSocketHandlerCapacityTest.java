@@ -16,24 +16,33 @@ import org.springframework.util.concurrent.ListenableFuture;
 import org.springframework.util.concurrent.SettableListenableFuture;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.WebSocketClient;
 
+import java.io.IOException;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atMost;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -214,7 +223,7 @@ class RealtimeSpeechWebSocketHandlerCapacityTest {
         fixture.handler.afterConnectionClosed(client, CloseStatus.NORMAL);
 
         assertThat(fixture.metrics.activeSessions()).isZero();
-        verify(upstream, times(2)).close(CloseStatus.NORMAL);
+        verify(upstream, times(1)).close(CloseStatus.NORMAL);
     }
 
     @Test
@@ -255,6 +264,231 @@ class RealtimeSpeechWebSocketHandlerCapacityTest {
         assertThat(fixture.metrics.activeSessions()).isZero();
     }
 
+    @Test
+    void downstreamSendFailureTerminatesBothSidesAndReleasesOnlyOnce() throws Exception {
+        Fixture fixture = fixture(4, 1024);
+        WebSocketSession client = clientSession("downstream-send-failed");
+        WebSocketSession upstream = websocketSession("downstream-send-failed-upstream");
+        fixture.handler.afterConnectionEstablished(client);
+        fixture.completeHandshake(upstream);
+        doThrow(new IOException("downstream is gone")).when(client).sendMessage(any());
+
+        Object proxySession = proxySession(client);
+        ReflectionTestUtils.invokeMethod(
+            proxySession,
+            "onUpstreamMessage",
+            "{\"mode\":\"2pass-online\",\"text\":\"发热\",\"is_final\":false}"
+        );
+
+        verify(upstream).close(closeStatus(1011));
+        verify(client).close(closeStatus(1011));
+        assertThat(fixture.metrics.activeSessions()).isZero();
+
+        fixture.handler.afterConnectionClosed(client, CloseStatus.SERVER_ERROR);
+        ReflectionTestUtils.invokeMethod(proxySession, "onUpstreamClosed", CloseStatus.SERVER_ERROR);
+        assertThat(fixture.metrics.activeSessions()).isZero();
+        verify(upstream, atMost(1)).close(any(CloseStatus.class));
+    }
+
+    @Test
+    void concurrentTerminalSignalsReleaseCapacityAndCloseUpstreamOnlyOnce() throws Exception {
+        Fixture fixture = fixture(4, 1024);
+        WebSocketSession client = clientSession("terminal-race");
+        WebSocketSession upstream = websocketSession("terminal-race-upstream");
+        fixture.handler.afterConnectionEstablished(client);
+        fixture.completeHandshake(upstream);
+        doThrow(new IOException("downstream is gone")).when(client).sendMessage(any());
+        Object proxySession = proxySession(client);
+
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Future<?> sendFailure = executor.submit(() -> {
+                await(start);
+                ReflectionTestUtils.invokeMethod(
+                    proxySession,
+                    "onUpstreamMessage",
+                    "{\"mode\":\"2pass-online\",\"text\":\"咳嗽\",\"is_final\":false}"
+                );
+            });
+            Future<?> transportFailure = executor.submit(() -> {
+                await(start);
+                fixture.handler.handleTransportError(client, new IOException("client transport failed"));
+            });
+            Future<?> upstreamFailure = executor.submit(() -> {
+                await(start);
+                ReflectionTestUtils.invokeMethod(
+                    proxySession,
+                    "terminateWithError",
+                    "upstream failed",
+                    "500",
+                    new IOException("upstream failed")
+                );
+            });
+            start.countDown();
+            sendFailure.get(2, TimeUnit.SECONDS);
+            transportFailure.get(2, TimeUnit.SECONDS);
+            upstreamFailure.get(2, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(fixture.metrics.activeSessions()).isZero();
+        verify(upstream, atMost(1)).close(any(CloseStatus.class));
+    }
+
+    @Test
+    void shutdownClosesPendingProxySessionCancelsDeadlineAndReleasesCapacity() throws Exception {
+        Fixture fixture = fixture(4, 1024);
+        WebSocketSession client = clientSession("shutdown");
+        fixture.handler.afterConnectionEstablished(client);
+
+        fixture.handler.shutdownHandshakeScheduler();
+
+        verify(client).close(closeStatus(1012));
+        assertThat(fixture.handshake.isCancelled()).isTrue();
+        assertThat(fixture.metrics.activeSessions()).isZero();
+        assertThat(activeProxySessions(fixture.handler)).isEmpty();
+        assertAllDeadlinesCleared(client);
+    }
+
+    @Test
+    void shutdownClosesConnectedUpstreamAndDownstreamSessions() throws Exception {
+        Fixture fixture = fixture(4, 1024);
+        WebSocketSession client = clientSession("shutdown-connected");
+        WebSocketSession upstream = websocketSession("shutdown-connected-upstream");
+        fixture.handler.afterConnectionEstablished(client);
+        fixture.completeHandshake(upstream);
+
+        fixture.handler.shutdownHandshakeScheduler();
+
+        verify(upstream).close(closeStatus(1012));
+        verify(client).close(closeStatus(1012));
+        assertThat(fixture.metrics.activeSessions()).isZero();
+        assertThat(activeProxySessions(fixture.handler)).isEmpty();
+        assertAllDeadlinesCleared(client);
+    }
+
+    @Test
+    void taskStartDeadlineClosesConnectedSessionThatNeverBecomesReady() throws Exception {
+        Fixture fixture = fixture(4, 1024, 5000L, 30L, 5000L, 5000L);
+        when(fixture.configService.resolveByDevice(any(AiDevice.class))).thenReturn(dashScopeConfig());
+        WebSocketSession client = clientSession("task-start-timeout");
+        WebSocketSession upstream = websocketSession("task-start-timeout-upstream");
+        fixture.handler.afterConnectionEstablished(client);
+        fixture.completeHandshake(upstream);
+
+        verify(client, timeout(1000)).close(closeStatus(1011));
+        verify(upstream).close(closeStatus(1011));
+        assertThat(fixture.metrics.activeSessions()).isZero();
+        assertAllDeadlinesCleared(client);
+    }
+
+    @Test
+    void funAsrUsesIdleWatchdogInsteadOfTaskStartDeadlineBeforeFirstResult() throws Exception {
+        Fixture fixture = fixture(4, 1024, 5000L, 30L, 5000L, 5000L);
+        WebSocketSession client = clientSession("funasr-silent-start");
+        WebSocketSession upstream = websocketSession("funasr-silent-start-upstream");
+        fixture.handler.afterConnectionEstablished(client);
+        fixture.completeHandshake(upstream);
+
+        Object proxySession = proxySession(client);
+        assertThat(ReflectionTestUtils.getField(proxySession, "taskStartDeadline")).isNull();
+        assertThat(ReflectionTestUtils.getField(proxySession, "idleDeadline")).isNotNull();
+        fixture.handler.handleMessage(client, new BinaryMessage(new byte[320]));
+        assertThat(fixture.metrics.activeSessions()).isEqualTo(1);
+
+        fixture.handler.afterConnectionClosed(client, CloseStatus.NORMAL);
+        assertThat(fixture.metrics.activeSessions()).isZero();
+    }
+
+    @Test
+    void idleDeadlineStartsAfterFirstValidFunAsrResponse() throws Exception {
+        Fixture fixture = fixture(4, 1024, 5000L, 5000L, 30L, 5000L);
+        WebSocketSession client = clientSession("idle-timeout");
+        WebSocketSession upstream = websocketSession("idle-timeout-upstream");
+        fixture.handler.afterConnectionEstablished(client);
+        fixture.completeHandshake(upstream);
+
+        Object proxySession = proxySession(client);
+        Object outboundCall = ReflectionTestUtils.getField(proxySession, "outboundCall");
+        assertThat(ReflectionTestUtils.getField(outboundCall, "completed")).isEqualTo(false);
+        ReflectionTestUtils.invokeMethod(
+            proxySession,
+            "onUpstreamMessage",
+            "{\"mode\":\"2pass-online\",\"text\":\"\",\"is_final\":false}"
+        );
+        assertThat(ReflectionTestUtils.getField(outboundCall, "completed")).isEqualTo(true);
+
+        verify(client, timeout(1000)).close(closeStatus(1011));
+        verify(upstream).close(closeStatus(1011));
+        assertThat(fixture.metrics.activeSessions()).isZero();
+        assertAllDeadlinesCleared(client);
+    }
+
+    @Test
+    void staleIdleCallbackWaitingForSessionLockCannotCloseRenewedSession() throws Exception {
+        Fixture fixture = fixture(4, 1024, 5000L, 5000L, 5000L, 5000L);
+        WebSocketSession client = clientSession("idle-generation-race");
+        WebSocketSession upstream = websocketSession("idle-generation-race-upstream");
+        fixture.handler.afterConnectionEstablished(client);
+        fixture.completeHandshake(upstream);
+        Object proxySession = proxySession(client);
+        long expiredGeneration = (Long) ReflectionTestUtils.getField(proxySession, "idleGeneration");
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch callbackStarted = new CountDownLatch(1);
+        AtomicReference<Thread> callbackThread = new AtomicReference<Thread>();
+        Future<?> staleCallback;
+        try {
+            synchronized (proxySession) {
+                staleCallback = executor.submit(() -> {
+                    callbackThread.set(Thread.currentThread());
+                    callbackStarted.countDown();
+                    ReflectionTestUtils.invokeMethod(proxySession, "onIdleTimeout", expiredGeneration);
+                });
+                await(callbackStarted);
+                awaitBlocked(callbackThread.get());
+
+                fixture.handler.handleMessage(client, new BinaryMessage(new byte[16]));
+                assertThat((Long) ReflectionTestUtils.getField(proxySession, "idleGeneration"))
+                    .isGreaterThan(expiredGeneration);
+            }
+            staleCallback.get(2, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        verify(client, never()).close(any(CloseStatus.class));
+        verify(upstream, never()).close(any(CloseStatus.class));
+        assertThat(fixture.metrics.activeSessions()).isEqualTo(1);
+
+        fixture.handler.afterConnectionClosed(client, CloseStatus.NORMAL);
+        assertThat(fixture.metrics.activeSessions()).isZero();
+    }
+
+    @Test
+    void finalDeadlineClosesSessionWhenUpstreamNeverFinishes() throws Exception {
+        Fixture fixture = fixture(4, 1024, 5000L, 5000L, 5000L, 30L);
+        WebSocketSession client = clientSession("final-timeout");
+        WebSocketSession upstream = websocketSession("final-timeout-upstream");
+        fixture.handler.afterConnectionEstablished(client);
+        fixture.completeHandshake(upstream);
+        Object proxySession = proxySession(client);
+        ReflectionTestUtils.invokeMethod(
+            proxySession,
+            "onUpstreamMessage",
+            "{\"mode\":\"2pass-online\",\"text\":\"\",\"is_final\":false}"
+        );
+
+        fixture.handler.handleMessage(client, new TextMessage("{\"type\":\"finish\"}"));
+
+        verify(client, timeout(1000)).close(closeStatus(1011));
+        verify(upstream).close(closeStatus(1011));
+        assertThat(fixture.metrics.activeSessions()).isZero();
+        assertAllDeadlinesCleared(client);
+    }
+
     private Fixture fixture(int maximumSessions, int maximumBufferedBytes) {
         return fixture(
             maximumSessions,
@@ -267,6 +501,41 @@ class RealtimeSpeechWebSocketHandlerCapacityTest {
     private Fixture fixture(int maximumSessions,
                             int maximumBufferedBytes,
                             long handshakeTimeoutMillis,
+                            ListenableFuture<WebSocketSession> handshake) {
+        return fixture(
+            maximumSessions,
+            maximumBufferedBytes,
+            handshakeTimeoutMillis,
+            handshakeTimeoutMillis,
+            60000L,
+            15000L,
+            handshake
+        );
+    }
+
+    private Fixture fixture(int maximumSessions,
+                            int maximumBufferedBytes,
+                            long handshakeTimeoutMillis,
+                            long taskStartTimeoutMillis,
+                            long idleTimeoutMillis,
+                            long finalTimeoutMillis) {
+        return fixture(
+            maximumSessions,
+            maximumBufferedBytes,
+            handshakeTimeoutMillis,
+            taskStartTimeoutMillis,
+            idleTimeoutMillis,
+            finalTimeoutMillis,
+            new SettableListenableFuture<WebSocketSession>()
+        );
+    }
+
+    private Fixture fixture(int maximumSessions,
+                            int maximumBufferedBytes,
+                            long handshakeTimeoutMillis,
+                            long taskStartTimeoutMillis,
+                            long idleTimeoutMillis,
+                            long finalTimeoutMillis,
                             ListenableFuture<WebSocketSession> handshake) {
         ConfigService configService = mock(ConfigService.class);
         when(configService.resolveByDevice(any(AiDevice.class))).thenReturn(funAsrConfig());
@@ -286,6 +555,9 @@ class RealtimeSpeechWebSocketHandlerCapacityTest {
             maximumSessions,
             maximumBufferedBytes,
             handshakeTimeoutMillis,
+            taskStartTimeoutMillis,
+            idleTimeoutMillis,
+            finalTimeoutMillis,
             webSocketClient,
             handshakeScheduler
         );
@@ -297,6 +569,15 @@ class RealtimeSpeechWebSocketHandlerCapacityTest {
         config.setSpeechProvider("funasr-websocket");
         config.setSpeechModel("funasr-2pass");
         config.setSpeechRealtimeUrl("ws://127.0.0.1:10095");
+        return config;
+    }
+
+    private ResolvedAiConfig dashScopeConfig() {
+        ResolvedAiConfig config = new ResolvedAiConfig();
+        config.setSpeechProvider("aliyun-dashscope");
+        config.setSpeechModel("qwen-audio-3.0-asr-flash-streaming");
+        config.setSpeechRealtimeUrl("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
+        config.setAudioApiKey("test-api-key");
         return config;
     }
 
@@ -333,6 +614,45 @@ class RealtimeSpeechWebSocketHandlerCapacityTest {
 
     private CloseStatus closeStatus(int code) {
         return org.mockito.ArgumentMatchers.argThat(status -> status != null && status.getCode() == code);
+    }
+
+    private Object proxySession(WebSocketSession client) {
+        return client.getAttributes().get("realtimeSpeechProxySession");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> activeProxySessions(RealtimeSpeechWebSocketHandler handler) {
+        return (Map<String, Object>) ReflectionTestUtils.getField(handler, "activeProxySessions");
+    }
+
+    private void assertAllDeadlinesCleared(WebSocketSession client) {
+        Object proxySession = proxySession(client);
+        assertThat(ReflectionTestUtils.getField(proxySession, "handshakeDeadline")).isNull();
+        assertThat(ReflectionTestUtils.getField(proxySession, "taskStartDeadline")).isNull();
+        assertThat(ReflectionTestUtils.getField(proxySession, "idleDeadline")).isNull();
+        assertThat(ReflectionTestUtils.getField(proxySession, "finalDeadline")).isNull();
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(2, TimeUnit.SECONDS)) {
+                throw new AssertionError("terminal race did not start in time");
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(ex);
+        }
+    }
+
+    private static void awaitBlocked(Thread thread) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (System.nanoTime() < deadline) {
+            if (thread != null && thread.getState() == Thread.State.BLOCKED) {
+                return;
+            }
+            Thread.yield();
+        }
+        throw new AssertionError("idle callback did not block on the proxy session monitor");
     }
 
     private static final class Fixture {

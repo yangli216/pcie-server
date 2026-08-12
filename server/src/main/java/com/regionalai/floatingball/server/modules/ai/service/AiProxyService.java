@@ -60,7 +60,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Service
@@ -476,6 +475,9 @@ public class AiProxyService {
                 upstreamSucceeded
             );
             return upstreamSucceeded;
+        } catch (DownstreamDisconnectedException ex) {
+            log.info("ai chat stream downstream disconnected; upstream request cancelled. model={}", upstreamConfig.getModel());
+            return false;
         } catch (HttpStatusCodeException ex) {
             if (lifecycle.isCancelled()) {
                 log.info("ai chat stream cancelled by client. model={}", upstreamConfig.getModel());
@@ -601,7 +603,7 @@ public class AiProxyService {
                 continue;
             }
             String data = trimmed.substring(5).trim();
-            emitter.send(SseEmitter.event().data(data));
+            sendStreamFrame(emitter, lifecycle, data);
             String content = extractSseContent(data);
             if (content != null) {
                 responseTextBuilder.append(content);
@@ -620,6 +622,17 @@ public class AiProxyService {
             throw new BusinessException("AI 流式响应未正常结束");
         }
         return new StreamForwardResult(responseTextBuilder.toString(), errorMessage);
+    }
+
+    private void sendStreamFrame(SseEmitter emitter,
+                                 StreamLifecycle lifecycle,
+                                 String data) throws DownstreamDisconnectedException {
+        try {
+            emitter.send(SseEmitter.event().data(data));
+        } catch (IOException | IllegalStateException ex) {
+            cancelStream(lifecycle);
+            throw new DownstreamDisconnectedException(ex);
+        }
     }
 
     private StreamForwardResult executeStreamWithRestTemplate(String url,
@@ -1455,14 +1468,26 @@ public class AiProxyService {
         }
     }
 
+    private static final class DownstreamDisconnectedException extends IOException {
+
+        private DownstreamDisconnectedException(Throwable cause) {
+            super("SSE downstream connection is no longer writable", cause);
+        }
+    }
+
     private static final class StreamLifecycle {
+
+        private enum State {
+            ACTIVE,
+            CANCELLED,
+            FINISHED
+        }
 
         private final AsyncTaskExecutor executor;
         private final AtomicReference<Future<?>> future = new AtomicReference<Future<?>>();
         private final AtomicReference<HttpRequestBase> upstreamRequest = new AtomicReference<HttpRequestBase>();
         private final AtomicReference<InputStream> upstreamBody = new AtomicReference<InputStream>();
-        private final AtomicBoolean finished = new AtomicBoolean(false);
-        private final AtomicBoolean cancelled = new AtomicBoolean(false);
+        private final AtomicReference<State> state = new AtomicReference<State>(State.ACTIVE);
 
         private StreamLifecycle(AsyncTaskExecutor executor) {
             this.executor = executor;
@@ -1470,14 +1495,14 @@ public class AiProxyService {
 
         private void attach(Future<?> submittedFuture) {
             future.set(submittedFuture);
-            if (cancelled.get()) {
+            if (isCancelled()) {
                 submittedFuture.cancel(true);
                 removeFromQueue(submittedFuture);
             }
         }
 
         private void finished() {
-            finished.set(true);
+            state.compareAndSet(State.ACTIVE, State.FINISHED);
         }
 
         private void attach(InputStream bodyStream) {
@@ -1485,14 +1510,14 @@ public class AiProxyService {
                 return;
             }
             upstreamBody.set(bodyStream);
-            if (cancelled.get() && upstreamBody.compareAndSet(bodyStream, null)) {
+            if (isCancelled() && upstreamBody.compareAndSet(bodyStream, null)) {
                 closeQuietly(bodyStream);
             }
         }
 
         private void attach(HttpRequestBase request) {
             upstreamRequest.set(request);
-            if (cancelled.get() && upstreamRequest.compareAndSet(request, null)) {
+            if (isCancelled() && upstreamRequest.compareAndSet(request, null)) {
                 request.abort();
             }
         }
@@ -1502,14 +1527,13 @@ public class AiProxyService {
         }
 
         private void detachAndClose(InputStream bodyStream) {
-            if (bodyStream != null) {
-                upstreamBody.compareAndSet(bodyStream, null);
+            if (bodyStream != null && upstreamBody.compareAndSet(bodyStream, null)) {
                 closeQuietly(bodyStream);
             }
         }
 
         private boolean cancel() {
-            if (finished.get() || !cancelled.compareAndSet(false, true)) {
+            if (!state.compareAndSet(State.ACTIVE, State.CANCELLED)) {
                 return false;
             }
             Future<?> submittedFuture = future.get();
@@ -1527,7 +1551,7 @@ public class AiProxyService {
         }
 
         private boolean isCancelled() {
-            return cancelled.get();
+            return state.get() == State.CANCELLED;
         }
 
         private void removeFromQueue(Future<?> submittedFuture) {

@@ -6,8 +6,10 @@ import com.regionalai.floatingball.server.modules.device.service.DeviceService;
 import com.regionalai.floatingball.server.modules.release.service.ReleaseService;
 import com.regionalai.floatingball.server.modules.security.service.SecurityRejectionLogService;
 import com.regionalai.floatingball.server.security.nonce.InMemoryNonceStore;
+import com.regionalai.floatingball.server.security.nonce.NonceStoreUnavailableException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -115,33 +117,56 @@ class DeviceAuthFilterTest {
 
     @Test
     void shouldReturnSecurity503WhenNonceStoreIsUnavailable() throws Exception {
-        RequestSignatureVerifier signatureVerifier = mock(RequestSignatureVerifier.class);
-        when(signatureVerifier.verify(
-            any(), any(), any(), any(), any(), any(), any(), any()
-        )).thenReturn(RequestSignatureVerifier.VerificationResult.storeUnavailable());
-        filter = new DeviceAuthFilter(
-            deviceService,
-            releaseService,
-            signatureVerifier,
-            rejectionLogService,
-            new ObjectMapper()
-        );
-
         String body = "{\"message\":\"hello\"}";
         String bodyHash = sha256Hex(body);
         MockHttpServletRequest request = signedRequest(body, bodyHash, bodyHash);
+        request.addHeader("X-Request-Id", "request-503");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         when(deviceService.findActiveByToken("token-1")).thenReturn(device());
         when(releaseService.isUpdateRequired(eq("production"), eq("1.0.0"))).thenReturn(false);
+        filter = new DeviceAuthFilter(
+            deviceService,
+            releaseService,
+            new RequestSignatureVerifier((deviceId, nonce, expiresAtEpochMs) -> {
+                throw new NonceStoreUnavailableException(
+                    "down",
+                    new IllegalStateException("db down")
+                );
+            }),
+            rejectionLogService,
+            new ObjectMapper()
+        );
 
         filter.doFilter(request, response, new MockFilterChain());
 
         assertEquals(503, response.getStatus());
-        assertEquals("SECURITY-503",
-            new ObjectMapper().readTree(response.getContentAsString()).get("code").asText());
         assertEquals("1", response.getHeader("Retry-After"));
+        assertEquals(
+            "SECURITY-503",
+            new ObjectMapper().readTree(response.getContentAsString()).get("code").asText()
+        );
         verify(rejectionLogService).logRejection(any());
+    }
+
+    @Test
+    void shouldReturnSecurity503WhenDeviceLookupDatabaseIsUnavailable() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/v1/ai/chat");
+        request.addHeader("Authorization", "Bearer token-1");
+        request.addHeader("X-Request-Id", "request-device-db-503");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        when(deviceService.findActiveByToken("token-1"))
+            .thenThrow(new DataAccessResourceFailureException("database down"));
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertEquals(503, response.getStatus());
+        assertEquals("1", response.getHeader("Retry-After"));
+        assertEquals(
+            "SECURITY-503",
+            new ObjectMapper().readTree(response.getContentAsString()).get("code").asText()
+        );
+        verify(rejectionLogService, never()).logRejection(any());
     }
 
     private AiDevice device() {

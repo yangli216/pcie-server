@@ -1,0 +1,8 @@
+**
+!server/
+!server/target/
+!server/target/pcie-server-*.jar
+!deploy/
+!deploy/docker-multi-node/
+!deploy/docker-multi-node/Dockerfile
+!deploy/docker-multi-node/container-healthcheck.sh

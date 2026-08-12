@@ -72,7 +72,7 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 10. 脚本末尾显式 `COMMIT`
 11. `c_ai_chronic_followup` 保存原 `TcdVisitForm` 高血压/糖尿病融合随访：`id_phr/id_record/sd_visit_kind` 独立检索，`form_data_json` 无损保存强类型 DTO；`request_id` 来自 `X-Request-Id`，在平台机构激活记录内幂等。旧通用列暂留作未发布实验表兼容，不再作为业务请求结构
 12. `c_ai_chronic_artifact` 健康处方与年度评估打印留痕快照，固化患者证据截止时间、病种及版本、年度指标、医生确认项和打印医生
-13. `c_security_request_nonce` 使用 `(id_device, nonce_value)` 主键原子登记已验签请求，供集群节点共同防重放；`idx_c_security_nonce_exp` 支持低频清理过期记录
+13. `c_ai_request_nonce` 以 `(id_device, nonce_hash)` 复合主键保存已验签请求 nonce 的 SHA-256 哈希，并用 epoch 毫秒 `expires_at` 支撑所有应用节点共享防重放状态和过期清理
 
 说明：
 
@@ -91,10 +91,7 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 1. 能重建的开发/联调环境，先备份必要数据，再清理目标 schema 并执行 `init.sql`
 2. 不能重建的生产/准生产环境，由 DBA 基于当前 `init.sql` 与现场库结构生成一次性迁移脚本
 3. 一次性迁移脚本必须先清理重复激活数据，再添加唯一索引，例如机构编码、设备编码、设备令牌、反馈最新版、问诊日志未结束轮次等约束
-4. 迁移完成后，需要确认 `c_ai_config.speech_realtime_url`、`c_ai_device.device_public_key`、`c_ai_device.register_ip`、`c_ai_device.last_seen_ip`、`c_ai_user_consultation_log.id_his_org`、`c_ai_user_consultation_log.consultation_round_id`、`idx_c_ai_user_log_round`、`uk_c_ai_user_log_round_active`、`c_ai_user_consultation_log.change_summary_json`、`c_ai_user_consultation_log.total_changes`、`c_security_rejection_log`、`c_security_request_nonce`、`pk_c_security_req_nonce` 与 `idx_c_security_nonce_exp` 均已存在
-5. 启用 `floating-ball.cluster.enabled=true` 前必须先创建 `c_security_request_nonce`；表缺失或数据库不可用时服务端按安全失败关闭返回 `SECURITY-503`，不会回退到 JVM 本地 nonce 缓存
-6. 集群所有节点必须通过 NTP 或 chrony 持续校时并对节点时钟偏差告警；`floating-ball.security.nonce-cleanup-grace-ms` 默认保留 300000 毫秒清理宽限，只用于避免时钟微小偏差导致过早删除，不能替代可靠校时
-7. 集群启动与 `nonceStore` readiness 会先通过 JDBC 元数据确认唯一键精确覆盖 `(id_device, nonce_value)`，再在同一连接的可回滚事务中完成首次插入和同键冲突验证；探针始终回滚，不保留数据。缺约束、缺 INSERT 权限、第二次插入未冲突或回滚失败均按不可就绪处理
+4. 迁移完成后，需要确认 `c_ai_config.speech_realtime_url`、`c_ai_device.device_public_key`、`c_ai_device.register_ip`、`c_ai_device.last_seen_ip`、`c_ai_user_consultation_log.id_his_org`、`c_ai_user_consultation_log.consultation_round_id`、`idx_c_ai_user_log_round`、`uk_c_ai_user_log_round_active`、`c_ai_user_consultation_log.change_summary_json`、`c_ai_user_consultation_log.total_changes` 与 `c_security_rejection_log` 均已存在
 
 本次 HIS 机构统计与医生工号字段升级使用当前应用 schema 执行；脚本可重复执行，已执行过旧版脚本的存量库需要再次执行以补充 `cd_doctor`：
 
@@ -108,6 +105,22 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 @update_chronic_disease_followup.sql
 @update_chronic_disease_artifact.sql
 ```
+
+## 多节点共享 nonce（显式启用）
+
+`FB_DEPLOYMENT_MODE=standalone` 与 JVM 本地 nonce 不需要执行本节。存量库准备启用 `ai-scale-out` 时，仓库交付定向脚本 `update_shared_nonce.sql`，由现场 DBA 先审核脚本和目标 schema，再使用与应用一致的 schema 连接直接执行：
+
+```sql
+@update_shared_nonce.sql
+```
+
+交付边界固定如下：
+
+1. 脚本只负责幂等创建 `c_ai_request_nonce`、复合主键 `(id_device, nonce_hash)` 和过期索引 `idx_c_ai_request_nonce_exp`；`nonce_hash` 保存 SHA-256 十六进制哈希，`expires_at` 保存 epoch 毫秒数。
+2. 对象已经按当前合同存在时重复执行为 no-op；发现同名对象结构、主键或索引定义不一致时必须报错停止，由 DBA 先处理漂移，脚本不得静默改列、重建约束或覆盖现场对象。
+3. 脚本不包含数据库地址、账号或口令，不执行 `CONNECT`，应用启动和部署脚本也不会连接数据库代为执行。执行动作、目标 schema、备份和结果确认都由 DBA 负责。
+4. 脚本不读取、不迁移、不删除旧 `c_security_request_nonce`，也不包含任何 `DROP TABLE`、`DROP INDEX` 或历史 nonce 数据搬迁。nonce 是短期防重放状态，旧表如需清理由 DBA 在独立变更中另行评估。
+5. 执行脚本不会自动切换应用模式。DBA 还必须确认应用账号对新表具备实际查询、插入和删除权限，并在节点入池前让 nonce 深度探针完整通过；深探发现权限或唯一约束漂移时，HTTP/WS 必须持续 `SECURITY-503`，直到后续深探恢复。
 
 ## 如果暂时继续使用 `SYSTEM`
 

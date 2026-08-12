@@ -34,9 +34,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -56,6 +58,7 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
     private static final CloseStatus CAPACITY_EXCEEDED = new CloseStatus(1013, "realtime speech capacity exceeded");
     private static final CloseStatus BUFFER_EXCEEDED = new CloseStatus(1009, "buffered audio limit exceeded");
     private static final CloseStatus UPSTREAM_FAILURE = new CloseStatus(1011, "upstream realtime speech failure");
+    private static final CloseStatus SERVICE_RESTARTED = new CloseStatus(1012, "realtime speech service restarting");
 
     private final ConfigService configService;
     private final ObjectMapper objectMapper;
@@ -64,9 +67,16 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
     private final int maxActiveSessions;
     private final int maxBufferedAudioBytes;
     private final long handshakeTimeoutMillis;
+    private final long taskStartTimeoutMillis;
+    private final long idleTimeoutMillis;
+    private final long finalTimeoutMillis;
     private final WebSocketClient webSocketClient;
     private final ScheduledExecutorService handshakeScheduler;
     private final boolean ownsHandshakeScheduler;
+    private final ConcurrentMap<String, RealtimeProxySession> activeProxySessions =
+        new ConcurrentHashMap<String, RealtimeProxySession>();
+    private final Object lifecycleMonitor = new Object();
+    private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
 
     @Autowired
     public RealtimeSpeechWebSocketHandler(ConfigService configService,
@@ -75,10 +85,26 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
                                           RealtimeSpeechMetrics metrics,
                                           @Value("${floating-ball.ai.realtime.max-active-sessions:64}") int maxActiveSessions,
                                           @Value("${floating-ball.ai.realtime.max-buffered-audio-bytes:2097152}") int maxBufferedAudioBytes,
-                                          @Value("${floating-ball.ai.realtime.handshake-timeout-ms:10000}") long handshakeTimeoutMillis) {
+                                          @Value("${floating-ball.ai.realtime.handshake-timeout-ms:10000}") long handshakeTimeoutMillis,
+                                          @Value("${floating-ball.ai.realtime.task-start-timeout-ms:10000}") long taskStartTimeoutMillis,
+                                          @Value("${floating-ball.ai.realtime.idle-timeout-ms:60000}") long idleTimeoutMillis,
+                                          @Value("${floating-ball.ai.realtime.final-timeout-ms:15000}") long finalTimeoutMillis) {
         this(configService, objectMapper, outboundSecurityService, metrics, maxActiveSessions,
-            maxBufferedAudioBytes, handshakeTimeoutMillis, new StandardWebSocketClient(),
-            newHandshakeScheduler(), true);
+            maxBufferedAudioBytes, handshakeTimeoutMillis, taskStartTimeoutMillis, idleTimeoutMillis,
+            finalTimeoutMillis, new StandardWebSocketClient(), newHandshakeScheduler(), true);
+    }
+
+    RealtimeSpeechWebSocketHandler(ConfigService configService,
+                                   ObjectMapper objectMapper,
+                                   OutboundSecurityService outboundSecurityService,
+                                   RealtimeSpeechMetrics metrics,
+                                   int maxActiveSessions,
+                                   int maxBufferedAudioBytes,
+                                   long handshakeTimeoutMillis) {
+        this(configService, objectMapper, outboundSecurityService, metrics, maxActiveSessions,
+            maxBufferedAudioBytes, handshakeTimeoutMillis, handshakeTimeoutMillis,
+            Math.max(60000L, handshakeTimeoutMillis), Math.max(15000L, handshakeTimeoutMillis),
+            new StandardWebSocketClient(), newHandshakeScheduler(), true);
     }
 
     RealtimeSpeechWebSocketHandler(ConfigService configService,
@@ -91,7 +117,26 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
                                    WebSocketClient webSocketClient,
                                    ScheduledExecutorService handshakeScheduler) {
         this(configService, objectMapper, outboundSecurityService, metrics, maxActiveSessions,
-            maxBufferedAudioBytes, handshakeTimeoutMillis, webSocketClient, handshakeScheduler, false);
+            maxBufferedAudioBytes, handshakeTimeoutMillis, handshakeTimeoutMillis,
+            Math.max(60000L, handshakeTimeoutMillis), Math.max(15000L, handshakeTimeoutMillis),
+            webSocketClient, handshakeScheduler, false);
+    }
+
+    RealtimeSpeechWebSocketHandler(ConfigService configService,
+                                   ObjectMapper objectMapper,
+                                   OutboundSecurityService outboundSecurityService,
+                                   RealtimeSpeechMetrics metrics,
+                                   int maxActiveSessions,
+                                   int maxBufferedAudioBytes,
+                                   long handshakeTimeoutMillis,
+                                   long taskStartTimeoutMillis,
+                                   long idleTimeoutMillis,
+                                   long finalTimeoutMillis,
+                                   WebSocketClient webSocketClient,
+                                   ScheduledExecutorService handshakeScheduler) {
+        this(configService, objectMapper, outboundSecurityService, metrics, maxActiveSessions,
+            maxBufferedAudioBytes, handshakeTimeoutMillis, taskStartTimeoutMillis, idleTimeoutMillis,
+            finalTimeoutMillis, webSocketClient, handshakeScheduler, false);
     }
 
     private RealtimeSpeechWebSocketHandler(ConfigService configService,
@@ -101,6 +146,9 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
                                            int maxActiveSessions,
                                            int maxBufferedAudioBytes,
                                            long handshakeTimeoutMillis,
+                                           long taskStartTimeoutMillis,
+                                           long idleTimeoutMillis,
+                                           long finalTimeoutMillis,
                                            WebSocketClient webSocketClient,
                                            ScheduledExecutorService handshakeScheduler,
                                            boolean ownsHandshakeScheduler) {
@@ -111,24 +159,38 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
         this.maxActiveSessions = Math.max(1, maxActiveSessions);
         this.maxBufferedAudioBytes = Math.max(1, maxBufferedAudioBytes);
         this.handshakeTimeoutMillis = Math.max(1L, handshakeTimeoutMillis);
+        this.taskStartTimeoutMillis = Math.max(1L, taskStartTimeoutMillis);
+        this.idleTimeoutMillis = Math.max(1L, idleTimeoutMillis);
+        this.finalTimeoutMillis = Math.max(1L, finalTimeoutMillis);
         this.webSocketClient = webSocketClient;
         this.handshakeScheduler = handshakeScheduler;
         this.ownsHandshakeScheduler = ownsHandshakeScheduler;
     }
 
     private static ScheduledExecutorService newHandshakeScheduler() {
-        return Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+        ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, new ThreadFactory() {
             @Override
             public Thread newThread(Runnable runnable) {
-                Thread thread = new Thread(runnable, "realtime-speech-handshake-timeout");
+                Thread thread = new Thread(runnable, "realtime-speech-deadline");
                 thread.setDaemon(true);
                 return thread;
             }
         });
+        scheduler.setRemoveOnCancelPolicy(true);
+        scheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        return scheduler;
     }
 
     @PreDestroy
     public void shutdownHandshakeScheduler() {
+        List<RealtimeProxySession> sessions;
+        synchronized (lifecycleMonitor) {
+            shuttingDown.set(true);
+            sessions = new ArrayList<RealtimeProxySession>(activeProxySessions.values());
+        }
+        for (RealtimeProxySession session : sessions) {
+            session.onApplicationShutdown();
+        }
         if (ownsHandshakeScheduler) {
             handshakeScheduler.shutdownNow();
         }
@@ -136,6 +198,10 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
+        if (shuttingDown.get()) {
+            sendErrorAndClose(session, "实时语音服务正在重启，请稍后重试", SERVICE_RESTARTED);
+            return;
+        }
         AiDevice device = (AiDevice) session.getAttributes().get(RealtimeSpeechHandshakeInterceptor.DEVICE_ATTRIBUTE);
         if (device == null) {
             log.warn("realtime speech ws: connection rejected, no device attribute. sessionId={}", session.getId());
@@ -180,7 +246,14 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
             log.info("realtime speech ws: connection established. deviceId={}, model={}", device.getIdDevice(), resolveRealtimeModel(config));
             RealtimeProxySession proxySession = new RealtimeProxySession(session, config);
             session.getAttributes().put(RealtimeProxySession.ATTRIBUTE, proxySession);
-            sessionOwnsCapacity = true;
+            synchronized (lifecycleMonitor) {
+                if (shuttingDown.get()) {
+                    sendErrorAndClose(session, "实时语音服务正在重启，请稍后重试", SERVICE_RESTARTED);
+                    return;
+                }
+                activeProxySessions.put(proxySession.taskId, proxySession);
+                sessionOwnsCapacity = true;
+            }
             proxySession.connect(apiKey);
         } catch (RuntimeException ex) {
             log.error("realtime speech ws: session initialization failed. sessionId={}, error={}",
@@ -328,9 +401,15 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
         private WebSocketSession upstreamSession;
         private ListenableFuture<WebSocketSession> pendingHandshake;
         private ScheduledFuture<?> handshakeDeadline;
+        private ScheduledFuture<?> taskStartDeadline;
+        private ScheduledFuture<?> idleDeadline;
+        private ScheduledFuture<?> finalDeadline;
+        private long idleGeneration;
         private long bufferedAudioBytes;
         private boolean taskStarted;
+        private boolean upstreamReady;
         private boolean finishRequested;
+        private boolean finishMessageSent;
         private boolean finalSent;
         private boolean closed;
         private boolean clientClosed;
@@ -379,8 +458,14 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
             }
             this.upstreamSession = session;
             try {
-                markOutboundSuccess();
                 sendStartMessage();
+                if (!closed) {
+                    if (isFunAsr(config)) {
+                        scheduleIdleDeadline();
+                    } else {
+                        scheduleTaskStartDeadline();
+                    }
+                }
             } catch (RuntimeException | IOException ex) {
                 failAndClose("实时语音初始化消息发送失败：" + ex.getMessage(), ex);
             }
@@ -409,6 +494,7 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
             if (closed) {
                 return;
             }
+            touchActivity();
             if (!taskStarted || upstreamSession == null || !isUpstreamOpen()) {
                 if (closed) {
                     return;
@@ -430,7 +516,11 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
             if (closed) {
                 return;
             }
-            finishRequested = true;
+            if (!finishRequested) {
+                finishRequested = true;
+                cancelIdleDeadline();
+                scheduleFinalDeadline();
+            }
             if (taskStarted && upstreamSession != null && isUpstreamOpen()) {
                 sendFinishMessage();
             }
@@ -451,19 +541,19 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
         }
 
         private synchronized void closeUpstream() {
+            if (closed) {
+                cancelAllDeadlines();
+                releaseCapacityOnce();
+                return;
+            }
             closed = true;
             try {
                 clearAudioBuffer();
                 cancelPendingHandshake();
+                cancelAllDeadlines();
                 closeSessionQuietly(upstreamSession, CloseStatus.NORMAL);
             } finally {
-                try {
-                    clearAudioBuffer();
-                    cancelPendingHandshake();
-                    closeSessionQuietly(upstreamSession, CloseStatus.NORMAL);
-                } finally {
-                    releaseCapacityOnce();
-                }
+                releaseCapacityOnce();
             }
         }
 
@@ -486,6 +576,7 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
                 String event = header.path("event").asText();
                 if ("task-started".equals(event)) {
                     taskStarted = true;
+                    markUpstreamReady();
                     flushAudioBuffer();
                     if (finishRequested) {
                         sendFinishMessage();
@@ -493,6 +584,7 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
                     return;
                 }
                 if ("result-generated".equals(event)) {
+                    touchActivity();
                     JsonNode sentence = root.path("payload").path("output").path("sentence");
                     String text = sentence.path("text").asText("");
                     boolean sentenceEnd = sentence.path("sentence_end").asBoolean(false);
@@ -506,8 +598,10 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
                     log.info("realtime speech upstream task finished. taskId={}, model={}",
                         taskId, resolveRealtimeModel(config));
                     sendFinal();
-                    closeUpstream();
-                    closeClient(CloseStatus.NORMAL);
+                    if (!closed) {
+                        closeUpstream();
+                        closeClient(CloseStatus.NORMAL);
+                    }
                     return;
                 }
                 if ("task-failed".equals(event)) {
@@ -526,12 +620,17 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
                 failAndClose(result.getErrorMessage(), new IOException(result.getErrorMessage()));
                 return;
             }
+            markUpstreamReady();
+            touchActivity();
             if (StringUtils.hasText(result.getText())) {
                 sendText(result.getText(), result.isSentenceEnd());
             }
-            if (result.isFinalSignal()) {
+            if (!closed && result.isFinalSignal()) {
                 sendFinal();
-                closeUpstream();
+                if (!closed) {
+                    closeUpstream();
+                    closeClient(CloseStatus.NORMAL);
+                }
             }
         }
 
@@ -570,6 +669,10 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
         }
 
         private void sendFinishMessage() {
+            if (finishMessageSent || closed) {
+                return;
+            }
+            finishMessageSent = true;
             try {
                 if (isFunAsr(config)) {
                     upstreamSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(funAsrProtocol.finishPayload())));
@@ -651,11 +754,9 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
                                                CloseStatus downstreamStatus,
                                                Throwable failure) {
             if (closed) {
-                try {
-                    cancelPendingHandshake();
-                } finally {
-                    releaseCapacityOnce();
-                }
+                cancelPendingHandshake();
+                cancelAllDeadlines();
+                releaseCapacityOnce();
                 return;
             }
             closed = true;
@@ -666,20 +767,14 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
                 }
                 clearAudioBuffer();
                 cancelPendingHandshake();
+                cancelAllDeadlines();
                 if (!clientClosed) {
-                    sendError(message);
+                    sendErrorQuietly(message);
                 }
                 closeSessionQuietly(upstreamSession, CloseStatus.SERVER_ERROR);
                 closeClient(downstreamStatus);
             } finally {
-                try {
-                    clearAudioBuffer();
-                    cancelPendingHandshake();
-                    closeSessionQuietly(upstreamSession, CloseStatus.SERVER_ERROR);
-                    closeClient(downstreamStatus);
-                } finally {
-                    releaseCapacityOnce();
-                }
+                releaseCapacityOnce();
             }
         }
 
@@ -695,6 +790,89 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
         private void completeHandshakeTracking() {
             pendingHandshake = null;
             cancelHandshakeDeadline();
+        }
+
+        private void scheduleTaskStartDeadline() {
+            cancelTaskStartDeadline();
+            taskStartDeadline = handshakeScheduler.schedule(
+                this::onTaskStartTimeout,
+                taskStartTimeoutMillis,
+                TimeUnit.MILLISECONDS
+            );
+        }
+
+        private synchronized void onTaskStartTimeout() {
+            if (closed || upstreamReady) {
+                return;
+            }
+            failAndClose(
+                "实时语音上游任务启动超时，请稍后重试",
+                UPSTREAM_FAILURE,
+                new TimeoutException("realtime speech upstream task start timed out")
+            );
+        }
+
+        private void markUpstreamReady() {
+            if (upstreamReady || closed) {
+                return;
+            }
+            upstreamReady = true;
+            cancelTaskStartDeadline();
+            markOutboundSuccess();
+            if (!finishRequested) {
+                scheduleIdleDeadline();
+            }
+        }
+
+        private void touchActivity() {
+            if (idleWatchdogActive() && !finishRequested && !closed) {
+                scheduleIdleDeadline();
+            }
+        }
+
+        private boolean idleWatchdogActive() {
+            return upstreamReady || (isFunAsr(config) && taskStarted);
+        }
+
+        private void scheduleIdleDeadline() {
+            cancelIdleDeadline();
+            final long generation = idleGeneration;
+            idleDeadline = handshakeScheduler.schedule(
+                () -> onIdleTimeout(generation),
+                idleTimeoutMillis,
+                TimeUnit.MILLISECONDS
+            );
+        }
+
+        private synchronized void onIdleTimeout(long generation) {
+            if (generation != idleGeneration || closed || finishRequested || !idleWatchdogActive()) {
+                return;
+            }
+            failAndClose(
+                "实时语音会话长时间无活动，已自动关闭",
+                UPSTREAM_FAILURE,
+                new TimeoutException("realtime speech session idle timed out")
+            );
+        }
+
+        private void scheduleFinalDeadline() {
+            cancelFinalDeadline();
+            finalDeadline = handshakeScheduler.schedule(
+                this::onFinalTimeout,
+                finalTimeoutMillis,
+                TimeUnit.MILLISECONDS
+            );
+        }
+
+        private synchronized void onFinalTimeout() {
+            if (closed || finalSent || !finishRequested) {
+                return;
+            }
+            failAndClose(
+                "实时语音上游结束响应超时，请稍后重试",
+                UPSTREAM_FAILURE,
+                new TimeoutException("realtime speech upstream final response timed out")
+            );
         }
 
         private void cancelPendingHandshake() {
@@ -714,6 +892,38 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
                     log.debug("realtime speech ws: failed to cancel handshake deadline. error={}", ex.getMessage());
                 }
             }
+        }
+
+        private void cancelTaskStartDeadline() {
+            taskStartDeadline = cancelDeadline(taskStartDeadline, "task-start");
+        }
+
+        private void cancelIdleDeadline() {
+            idleGeneration++;
+            idleDeadline = cancelDeadline(idleDeadline, "idle");
+        }
+
+        private void cancelFinalDeadline() {
+            finalDeadline = cancelDeadline(finalDeadline, "final");
+        }
+
+        private void cancelAllDeadlines() {
+            cancelHandshakeDeadline();
+            cancelTaskStartDeadline();
+            cancelIdleDeadline();
+            cancelFinalDeadline();
+        }
+
+        private ScheduledFuture<?> cancelDeadline(ScheduledFuture<?> deadline, String name) {
+            if (deadline == null) {
+                return null;
+            }
+            try {
+                deadline.cancel(false);
+            } catch (RuntimeException ex) {
+                log.debug("realtime speech ws: failed to cancel {} deadline. error={}", name, ex.getMessage());
+            }
+            return null;
         }
 
         private void cancelFutureQuietly(ListenableFuture<WebSocketSession> handshake) {
@@ -736,7 +946,28 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
 
         private void releaseCapacityOnce() {
             if (capacityReleased.compareAndSet(false, true)) {
+                activeProxySessions.remove(taskId, this);
                 metrics.release();
+            }
+        }
+
+        private synchronized void onApplicationShutdown() {
+            if (closed) {
+                cancelPendingHandshake();
+                cancelAllDeadlines();
+                releaseCapacityOnce();
+                return;
+            }
+            closed = true;
+            finalSent = true;
+            try {
+                clearAudioBuffer();
+                cancelPendingHandshake();
+                cancelAllDeadlines();
+                closeSessionQuietly(upstreamSession, SERVICE_RESTARTED);
+                closeClient(SERVICE_RESTARTED);
+            } finally {
+                releaseCapacityOnce();
             }
         }
 
@@ -745,13 +976,13 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
                 return;
             }
             clientClosed = true;
-            if (clientSession.isOpen()) {
-                try {
+            try {
+                if (clientSession.isOpen()) {
                     clientSession.close(status);
-                } catch (IOException | RuntimeException ex) {
-                    log.debug("realtime speech ws: failed to close downstream session. taskId={}, error={}",
-                        taskId, ex.getMessage());
                 }
+            } catch (IOException | RuntimeException ex) {
+                log.debug("realtime speech ws: failed to close downstream session. taskId={}, error={}",
+                    taskId, ex.getMessage());
             }
         }
 
@@ -768,13 +999,27 @@ public class RealtimeSpeechWebSocketHandler extends AbstractWebSocketHandler {
         }
 
         private void sendClient(Map<String, Object> payload) {
-            if (clientClosed || !clientSession.isOpen()) {
+            if (closed || clientClosed) {
                 return;
             }
             try {
-                sendJson(clientSession, payload);
-            } catch (IOException | IllegalStateException ex) {
-                log.debug("realtime speech ws: failed to send client payload. error={}", ex.getMessage());
+                if (!clientSession.isOpen()) {
+                    failAndClose("实时语音客户端连接已关闭", UPSTREAM_FAILURE, null);
+                    return;
+                }
+                clientSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(payload)));
+            } catch (IOException | RuntimeException ex) {
+                log.warn("realtime speech ws: downstream send failed. taskId={}, error={}", taskId, safeMessage(ex));
+                failAndClose("实时语音结果发送失败，请重新连接后继续识别", UPSTREAM_FAILURE, null);
+            }
+        }
+
+        private void sendErrorQuietly(String message) {
+            try {
+                sendJson(clientSession, errorPayload(message));
+            } catch (IOException | RuntimeException ex) {
+                log.debug("realtime speech ws: failed to send terminal error payload. taskId={}, error={}",
+                    taskId, safeMessage(ex));
             }
         }
     }

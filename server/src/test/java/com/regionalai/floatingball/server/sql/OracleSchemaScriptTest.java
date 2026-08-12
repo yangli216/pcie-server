@@ -33,10 +33,11 @@ class OracleSchemaScriptTest {
         Set<String> expectedSqlFiles = new HashSet<String>(Arrays.asList(
             "bootstrap.sql", "init.sql", "update_his_org_statistics.sql",
             "update_chronic_disease_followup.sql",
-            "update_chronic_disease_artifact.sql"
+            "update_chronic_disease_artifact.sql",
+            "update_shared_nonce.sql"
         ));
         assertTrue(actualSqlFiles.equals(expectedSqlFiles),
-            "oracle delivery should include the explicit HIS organization update script");
+            "oracle delivery should include all explicit update scripts");
 
         try (DirectoryStream<Path> upgradeScripts = Files.newDirectoryStream(ORACLE_SQL_DIR, "upgrade_*.sql")) {
             assertFalse(upgradeScripts.iterator().hasNext(), "upgrade scripts should be folded into init.sql");
@@ -69,7 +70,7 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_event");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_agg");
         assertContains(initSql, "CREATE TABLE c_security_rejection_log");
-        assertContains(initSql, "CREATE TABLE c_security_request_nonce");
+        assertContains(initSql, "CREATE TABLE c_ai_request_nonce");
         assertContains(initSql, "CREATE TABLE c_ai_inpatient_emr_tpl_cache");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_obs");
@@ -138,8 +139,10 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE INDEX idx_c_security_rej_ip");
         assertContains(initSql, "CREATE INDEX idx_c_security_rej_device");
         assertContains(initSql, "CREATE INDEX idx_c_security_rej_path");
-        assertContains(initSql, "CONSTRAINT pk_c_security_req_nonce PRIMARY KEY (id_device, nonce_value)");
-        assertContains(initSql, "CREATE INDEX idx_c_security_nonce_exp");
+        assertContains(initSql, "nonce_hash           VARCHAR2(64) NOT NULL");
+        assertContains(initSql, "expires_at           NUMBER(19) NOT NULL");
+        assertContains(initSql, "CONSTRAINT pk_c_ai_request_nonce PRIMARY KEY (id_device, nonce_hash)");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_request_nonce_exp");
         assertContains(initSql, "CREATE INDEX idx_c_ai_inemr_tpl_id");
         assertContains(initSql, "CREATE INDEX idx_c_ai_inemr_tpl_hash");
         assertContains(initSql, "CREATE INDEX idx_c_ai_inemr_tpl_status");
@@ -157,10 +160,11 @@ class OracleSchemaScriptTest {
         Set<String> expectedSqlFiles = new HashSet<String>(Arrays.asList(
             "init.sql", "update_his_org_statistics.sql",
             "update_chronic_disease_followup.sql",
-            "update_chronic_disease_artifact.sql"
+            "update_chronic_disease_artifact.sql",
+            "update_shared_nonce.sql"
         ));
         assertTrue(actualSqlFiles.equals(expectedSqlFiles),
-            "gaussdb delivery should include the explicit HIS organization update script");
+            "gaussdb delivery should include all explicit update scripts");
 
         try (DirectoryStream<Path> upgradeScripts = Files.newDirectoryStream(GAUSSDB_SQL_DIR, "upgrade_*.sql")) {
             assertFalse(upgradeScripts.iterator().hasNext(), "gaussdb upgrade scripts should be folded into init.sql");
@@ -177,6 +181,7 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "'qwen-audio-3.0-asr-flash-streaming'");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_event");
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_agg");
+        assertContains(initSql, "CREATE TABLE c_ai_request_nonce");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_rec_pref_event_idem");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_rec_pref_agg_scope");
         assertContains(initSql, "id_his_org           VARCHAR(64)");
@@ -194,9 +199,6 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_audit");
         assertContains(initSql, "CREATE TABLE c_ai_chronic_followup");
         assertContains(initSql, "CREATE TABLE c_ai_chronic_artifact");
-        assertContains(initSql, "CREATE TABLE c_security_request_nonce");
-        assertContains(initSql, "CONSTRAINT pk_c_security_req_nonce PRIMARY KEY (id_device, nonce_value)");
-        assertContains(initSql, "CREATE INDEX idx_c_security_nonce_exp");
         assertContains(initSql, "id_phr                   VARCHAR(64) NOT NULL");
         assertContains(initSql, "sd_visit_kind            VARCHAR(8) NOT NULL");
         assertContains(initSql, "form_data_json           TEXT NOT NULL");
@@ -210,6 +212,10 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE INDEX idx_c_ai_chronic_fu_patient");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_chronic_art_req");
         assertContains(initSql, "CREATE INDEX idx_c_ai_chronic_art_pat");
+        assertContains(initSql, "nonce_hash           VARCHAR(64) NOT NULL");
+        assertContains(initSql, "expires_at           BIGINT NOT NULL");
+        assertContains(initSql, "CONSTRAINT pk_c_ai_request_nonce PRIMARY KEY (id_device, nonce_hash)");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_request_nonce_exp");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_org_code_active");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_device_code_org_active");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_feedback_latest_scope");
@@ -344,23 +350,80 @@ class OracleSchemaScriptTest {
     }
 
     @Test
-    void damengClusterNonceUpdateShouldCreateIdempotentReplayProtectionSchema() throws IOException {
-        String sql = readSql(DAMENG_SQL_DIR.resolve("update_cluster_nonce.sql"));
+    void sharedNonceUpdateScriptsShouldCreateNewSchemaWithoutLegacyMigration() throws IOException {
+        for (Path script : Arrays.asList(
+            ORACLE_SQL_DIR.resolve("update_shared_nonce.sql"),
+            GAUSSDB_SQL_DIR.resolve("update_shared_nonce.sql"),
+            DAMENG_SQL_DIR.resolve("update_shared_nonce.sql")
+        )) {
+            String sql = readSql(script);
+            String normalizedSql = sql.toUpperCase();
+            assertContains(sql, "c_ai_request_nonce");
+            assertContains(sql, "nonce_hash");
+            assertContains(sql, "expires_at");
+            assertContains(sql, "CONSTRAINT pk_c_ai_request_nonce PRIMARY KEY (id_device, nonce_hash)");
+            assertContains(sql, "idx_c_ai_request_nonce_exp");
+            assertNotContains(sql, "c_security_request_nonce");
+            assertNotContains(normalizedSql, "DROP TABLE");
+            assertNotContains(normalizedSql, "\nCONNECT ");
+            assertNotContains(normalizedSql, "PASSWORD");
+        }
 
-        assertContains(sql, "C_SECURITY_REQUEST_NONCE");
-        assertContains(sql, "CREATE TABLE c_security_request_nonce");
-        assertContains(sql, "CONSTRAINT pk_c_security_req_nonce PRIMARY KEY (id_device, nonce_value)");
-        assertContains(sql, "IDX_C_SECURITY_NONCE_EXP");
-        assertContains(sql, "CREATE INDEX idx_c_security_nonce_exp");
-        assertContains(sql, "user_tables");
-        assertContains(sql, "user_constraints");
-        assertContains(sql, "user_cons_columns");
-        assertContains(sql, "GROUP BY id_device, nonce_value");
-        assertContains(sql, "HAVING COUNT(1) > 1");
-        assertContains(sql, "RAISE_APPLICATION_ERROR");
-        assertContains(sql, "ADD CONSTRAINT uk_c_security_req_nonce UNIQUE (id_device, nonce_value)");
-        assertContains(sql, "user_indexes");
-        assertContains(sql, "COMMIT");
+        String oracleSql = readSql(ORACLE_SQL_DIR.resolve("update_shared_nonce.sql"));
+        assertContains(oracleSql, "WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK");
+        assertContains(oracleSql, "user_tables");
+        assertContains(oracleSql, "user_tab_columns");
+        assertContains(oracleSql, "user_constraints");
+        assertContains(oracleSql, "user_cons_columns");
+        assertContains(oracleSql, "user_indexes");
+        assertContains(oracleSql, "user_ind_columns");
+        assertContains(oracleSql, "RAISE_APPLICATION_ERROR");
+        assertContains(oracleSql, "column contract drift detected");
+        assertContains(oracleSql, "primary-key contract drift detected");
+        assertContains(oracleSql, "index contract drift detected");
+        assertContains(oracleSql, "VARCHAR2(32) NOT NULL");
+        assertContains(oracleSql, "VARCHAR2(64) NOT NULL");
+        assertContains(oracleSql, "NUMBER(19) NOT NULL");
+
+        String gaussdbSql = readSql(GAUSSDB_SQL_DIR.resolve("update_shared_nonce.sql"));
+        assertContains(gaussdbSql, "\\set ON_ERROR_STOP on");
+        assertContains(gaussdbSql, "BEGIN;");
+        assertContains(gaussdbSql, "CREATE TABLE IF NOT EXISTS c_ai_request_nonce");
+        assertContains(gaussdbSql, "information_schema.columns");
+        assertContains(gaussdbSql, "information_schema.table_constraints");
+        assertContains(gaussdbSql, "information_schema.key_column_usage");
+        assertContains(gaussdbSql, "pg_index");
+        assertContains(gaussdbSql, "index_meta.indkey[0]");
+        assertContains(gaussdbSql, "index_meta.indnatts = 1");
+        assertContains(gaussdbSql, "NOT index_meta.indisunique");
+        assertNotContains(gaussdbSql, "JOIN LATERAL");
+        assertNotContains(gaussdbSql, "unnest(index_meta.indkey");
+        assertContains(gaussdbSql, "RAISE EXCEPTION");
+        assertContains(gaussdbSql, "column contract drift detected");
+        assertContains(gaussdbSql, "primary-key contract drift detected");
+        assertContains(gaussdbSql, "index contract drift detected");
+        assertContains(gaussdbSql, "VARCHAR(32) NOT NULL");
+        assertContains(gaussdbSql, "VARCHAR(64) NOT NULL");
+        assertContains(gaussdbSql, "BIGINT NOT NULL");
+        assertContains(gaussdbSql, "COMMIT;");
+        assertNotContains(gaussdbSql, "VARCHAR2");
+        assertNotContains(gaussdbSql, "NUMBER(");
+
+        String damengSql = readSql(DAMENG_SQL_DIR.resolve("update_shared_nonce.sql"));
+        assertContains(damengSql, "VARCHAR2(32) NOT NULL");
+        assertContains(damengSql, "VARCHAR2(64) NOT NULL");
+        assertContains(damengSql, "NUMBER(19) NOT NULL");
+        assertContains(damengSql, "WHENEVER SQLERROR EXIT 1 ROLLBACK");
+        assertContains(damengSql, "user_tables");
+        assertContains(damengSql, "user_tab_columns");
+        assertContains(damengSql, "user_constraints");
+        assertContains(damengSql, "user_cons_columns");
+        assertContains(damengSql, "user_indexes");
+        assertContains(damengSql, "user_ind_columns");
+        assertContains(damengSql, "RAISE_APPLICATION_ERROR");
+        assertContains(damengSql, "column contract drift detected");
+        assertContains(damengSql, "primary-key contract drift detected");
+        assertContains(damengSql, "index contract drift detected");
     }
 
     private String readSql(Path path) throws IOException {

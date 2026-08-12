@@ -443,7 +443,7 @@ COMMENT ON COLUMN c_ai_op_log.scene_code IS '业务场景编码';
 COMMENT ON COLUMN c_ai_op_log.trace_id IS '调用链traceId';
 COMMENT ON COLUMN c_ai_op_log.des_op IS '操作描述';
 COMMENT ON COLUMN c_ai_op_log.payload_json IS '日志负载JSON';
-COMMENT ON COLUMN c_ai_op_log.audio_file_path IS '语音代理录音文件路径';
+COMMENT ON COLUMN c_ai_op_log.audio_file_path IS '语音代理录音相对存储键（兼容旧绝对路径）';
 COMMENT ON COLUMN c_ai_op_log.consultation_id IS '关联问诊ID（语音问诊场景）';
 COMMENT ON COLUMN c_ai_op_log.op_result IS '操作结果';
 COMMENT ON COLUMN c_ai_op_log.operation_time IS '操作时间';
@@ -514,7 +514,7 @@ COMMENT ON COLUMN c_ai_user_consultation_log.patient_name IS '患者姓名';
 COMMENT ON COLUMN c_ai_user_consultation_log.patient_gender IS '患者性别';
 COMMENT ON COLUMN c_ai_user_consultation_log.patient_age IS '患者年龄';
 COMMENT ON COLUMN c_ai_user_consultation_log.speech_text IS '语音问诊ASR识别文字';
-COMMENT ON COLUMN c_ai_user_consultation_log.audio_file_path IS '语音问诊录音文件路径';
+COMMENT ON COLUMN c_ai_user_consultation_log.audio_file_path IS '语音问诊录音相对存储键（兼容旧绝对路径）';
 COMMENT ON COLUMN c_ai_user_consultation_log.audio_file_name IS '语音问诊录音原文件名';
 COMMENT ON COLUMN c_ai_user_consultation_log.audio_mime_type IS '语音问诊录音MIME类型';
 COMMENT ON COLUMN c_ai_user_consultation_log.audio_size IS '语音问诊录音字节数';
@@ -775,21 +775,21 @@ CREATE INDEX idx_c_security_rej_device ON c_security_rejection_log (id_device, i
 CREATE INDEX idx_c_security_rej_path ON c_security_rejection_log (request_path, insert_time, fg_active);
 
 
-CREATE TABLE c_security_request_nonce (
+CREATE TABLE c_ai_request_nonce (
     id_device            VARCHAR(32) NOT NULL,
-    nonce_value          VARCHAR(64) NOT NULL,
-    expires_at           TIMESTAMP NOT NULL,
+    nonce_hash           VARCHAR(64) NOT NULL,
+    expires_at           BIGINT NOT NULL,
     insert_time          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    CONSTRAINT pk_c_security_req_nonce PRIMARY KEY (id_device, nonce_value)
+    CONSTRAINT pk_c_ai_request_nonce PRIMARY KEY (id_device, nonce_hash)
 );
 
-COMMENT ON TABLE c_security_request_nonce IS '集群请求签名nonce防重放表';
-COMMENT ON COLUMN c_security_request_nonce.id_device IS '设备ID，与nonce共同唯一';
-COMMENT ON COLUMN c_security_request_nonce.nonce_value IS '已验签请求的随机数';
-COMMENT ON COLUMN c_security_request_nonce.expires_at IS 'nonce安全窗口过期时间';
-COMMENT ON COLUMN c_security_request_nonce.insert_time IS '登记时间';
+COMMENT ON TABLE c_ai_request_nonce IS '多节点请求签名nonce共享防重放表';
+COMMENT ON COLUMN c_ai_request_nonce.id_device IS '设备ID，与nonce哈希共同唯一';
+COMMENT ON COLUMN c_ai_request_nonce.nonce_hash IS '请求nonce的SHA-256十六进制哈希';
+COMMENT ON COLUMN c_ai_request_nonce.expires_at IS 'nonce安全窗口过期时间，epoch毫秒';
+COMMENT ON COLUMN c_ai_request_nonce.insert_time IS '登记时间';
 
-CREATE INDEX idx_c_security_nonce_exp ON c_security_request_nonce (expires_at);
+CREATE INDEX idx_c_ai_request_nonce_exp ON c_ai_request_nonce (expires_at);
 
 
 CREATE TABLE c_ai_feedback (

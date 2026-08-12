@@ -1,6 +1,6 @@
 # 全医慧助服务端（PCIE Server）API 说明
 
-> 更新日期：2026-08-04
+> 更新日期：2026-08-11
 > 范围：全医慧助（PCIE）桌面端当前唯一远程业务契约 `/v1/*`；桌面端已取消本地/区域双模式
 >
 > 仓库与 Maven 工程已更名为 `pcie-server`；为兼容既有部署，`/v1/*`、`/admin/api/*`、`floating-ball.*` 配置键、`FB_*` 环境变量和数据库结构保持不变。
@@ -70,8 +70,25 @@ BODY_SHA256
 6. 客户端收到 `SIG-401` 且响应带 `timestamp` 时，应先用该服务端时间刷新本地签名偏移并重签重试一次；仍失败时再按设备令牌或密钥异常处理。
 7. 管理端停用设备令牌后，服务端必须同时阻止同机构同 `cdDevice` 通过 `/v1/client/register` 匿名重新注册，避免旧客户端在令牌失效后自动领取新令牌继续使用。
 8. 管理端删除设备令牌只用于异常设备重置：删除会移除该令牌记录并释放同机构同 `cdDevice`，允许客户端重新注册并领取新令牌；若目标是封禁旧客户端，必须使用停用而不是删除。
-9. `X-Nonce` 最大 64 个字符，并按设备在 HTTP 与实时语音 WebSocket 之间共同唯一；集群模式通过数据库唯一约束原子登记，同一已签名请求不能在不同节点各通过一次。
-10. nonce 只在 ECDSA 验签成功后登记。重放仍返回 `SIG-401`；集群 nonce 存储不可用时返回 HTTP 503、`SECURITY-503`，客户端只可稍后使用新的时间戳、nonce 和签名重试，不得按密钥失效触发重新注册。
+9. `X-Nonce` 最大 64 个字符，并按设备在 HTTP 与实时语音 WebSocket 之间共同唯一。`standalone` 使用同一 JVM 内存登记；`ai-scale-out` 的所有节点使用同一业务数据库原子登记，同一已签名请求即使到达不同节点也只能接受一次。
+10. nonce 只在 ECDSA 验签成功后登记，重放仍返回 `SIG-401`。数据库 nonce 不可用时返回 HTTP 503、`SECURITY-503`，不得降级到节点内存继续接受请求；实时语音 WebSocket 在 HTTP 握手阶段以同一错误拒绝升级。客户端应保留业务请求并使用新的时间戳、nonce 和签名重试，不得把该错误当成密钥失效或重新注册设备。
+11. Nginx 不得自动重试已签名请求。连接失败、节点摘除或 503 后的重试由客户端发起，并且每次重试都必须重新生成时间戳、nonce 和签名。
+12. 数据库 nonce 深度探针会验证应用账号写入/删除权限及 `(id_device, nonce_hash)` 唯一约束。任一次深度探针失败后，服务端必须锁存 `SECURITY-503` 状态：即使普通数据库查询或轻量 readiness 查询随后成功，HTTP nonce claim 与 WebSocket 握手仍继续 fail-closed；只有后续完整深度探针重新通过，才允许恢复 nonce claim 和接收新连接。
+
+### 2.1.1 AI/长连接容量池路由
+
+默认 `FB_DEPLOYMENT_MODE=standalone` 时，全部接口仍由同一节点处理。显式启用 `FB_DEPLOYMENT_MODE=ai-scale-out` 时，Nginx 只把下列四条路径按 `least_conn` 分发到 `pcie_long`：
+
+- `POST /v1/ai/chat`
+- `POST /v1/ai/speech/transcribe`
+- `POST /v1/ai/speech/realtime`
+- `WebSocket /v1/ai/speech/realtime/ws`
+
+管理端、注册、bootstrap、发布、慢病、PMPHAI 和其他未列出的路径始终进入唯一的 `pcie_primary` 主节点。该路由对客户端 URL 和请求结构透明，不需要会话粘滞；但它只扩展 AI/语音容量，不表示普通业务 active-active 或高可用。新增节点只承接新请求和新 SSE/WebSocket，已建立连接不会迁移。
+
+上述四条路径必须使用无尾斜杠的 canonical 形式并由 Nginx 精确匹配。其余 `/v1/ai` 路径及尾斜杠、分号 path parameter、重复斜杠、额外子路径等变体必须在入口直接拒绝，不能落到 `pcie_primary`，也不能在 URI 规范化后转发；客户端不得依赖 `/v1/ai/chat/` 等非规范路径。实时语音 canonical URI 和所有 WebSocket 变体的入口日志都不得记录 query，禁止出现 `token`、`nonce` 或 `sig` 的值。
+
+扩展模式下每个节点必须使用唯一 `FB_NODE_ID`、`FB_NONCE_STORE=database`、`FB_STORAGE_MODE=shared-posix` 和相同的 `FB_SHARED_STORAGE_ID`；不满足时节点不得承载上述接口。
 
 ### 2.2 管理端接口
 
@@ -344,7 +361,7 @@ BODY_SHA256
 
 说明：运维推荐只选择 `latest.json` 与对应安装包文件；`version`、`target`、`signature` 仅作为解析失败或多平台歧义时的兜底覆盖项。安装包文件名必须与 `latest.json.platforms.{target}.url` 中的文件名一致，例如签名对应 `PCIE.app.tar.gz` 时不能上传 `PCIE.dmg`，否则 Tauri updater 会签名校验失败。勾选强制更新前，必须确认该通道所有实际部署平台的安装包均已上传到当前 `latest.json`，否则旧客户端会被禁止使用但无法下载对应平台更新。
 
-部署说明：生产集群必须设置 `FB_RELEASE_PUBLIC_BASE_URL=https://负载均衡域名`，确保管理端展示、复制的更新源以及 `latest.json` 内下载地址都固定指向 HTTPS 集群入口，不依赖某个节点或 `localhost`。
+部署说明：生产必须把 `FB_RELEASE_PUBLIC_BASE_URL` 设置为客户端可长期访问的稳定基址，确保管理端展示、复制的更新源以及 `latest.json` 内下载地址不依赖临时地址或 `localhost`。启用 Nginx 时填写其 HTTPS 域名；尚未启用时填写现场当前实际入口，协议与端口必须和客户端真实可达方式一致。
 
 首次安装说明：管理员上传当前通道安装包后，管理端“版本发布”列表会展示 `downloadUrl`，可直接复制给新电脑浏览器下载；也可访问 `/client-download?channel=production` 打开公开下载页，由使用者按平台选择安装包。
 
@@ -536,7 +553,7 @@ Content-Type: application/json
 
 用途：公开下载指定通道、版本和平台的不可变安装包文件，供 Tauri updater 下载。服务端仍保留不含 `{version}` 的旧路径用于兼容已有元数据和旧目录安装包；只有对应版本目录中的文件真实存在时才重写为带版本路径，历史旧版本回滚后仍保持旧下载路径可用。
 
-发布一致性：`latest.json` 与 `policy.json` 响应由同一份原子当前发布状态派生，两者不能分别成为事实源。兼容缓存刷新失败时，已提交状态仍同时包含同版本安装包元数据与强更策略，其他节点读取不会观察到永久分裂状态。
+发布一致性：`latest.json` 与 `policy.json` 响应由同一份原子当前发布状态派生，两者不能分别成为事实源。兼容缓存刷新失败时，已提交状态仍同时包含同版本安装包元数据与强更策略，单节点重启后也必须恢复一致结果。`ai-scale-out` 的发布管理接口仍只由 `pcie_primary` 写入，但全部节点必须从 `FB_STORAGE_MODE=shared-posix` 指定的同一发布目录读取当前状态；不得把节点本机同名目录当作共享发布源。
 
 ## 4. 客户端接口
 
@@ -1090,7 +1107,7 @@ AI 调用类 `operation` 事件补充约束：
 2. `consultationRoundId` 为必填字段，由客户端在每轮问诊开始时生成 UUID。`consultationId` 是就诊锚点（visitId/patientId），同一患者多次问诊共用，仅用于 timeline 聚合和展示；`consultationRoundId` 是问诊轮次标识，每轮问诊唯一，贯穿该轮所有提交（speech → firstSnapshot → finalSnapshot/abandoned）。
 3. 服务端按 `consultationRoundId` 合并同一轮问诊的多次提交；数据库通过唯一索引 `uk_c_ai_user_log_round_active` 保证同一 `consultationRoundId` 同时只有一条 `generated` 记录。先收到首版快照则创建记录，后收到最终快照则更新同一条记录为 `completed` 或 `abandoned`。
 4. 若同一就诊在回写或放弃后再次发起智能问诊/语音问诊，客户端必须生成新的 `consultationRoundId`，服务端据此创建新的用户日志记录。客户端不需要上报每一次中间编辑，最终快照只代表医生提交/回写或放弃时的最终状态。
-5. `speechText` / `audio` 仅用于语音问诊输入复盘；`audio` 为 base64，不带 Data URL 前缀。`audioFormat` 可选，用于在 `audioMimeType` 缺失时辅助推断文件扩展名。服务端把音频落到 `floating-ball.audit.speech-file-dir`，数据库只保存文件路径、MIME、文件名和大小，不把原始 base64 写入快照 JSON。
+5. `speechText` / `audio` 仅用于语音问诊输入复盘；`audio` 为 base64，不带 Data URL 前缀。`audioFormat` 可选，用于在 `audioMimeType` 缺失时辅助推断文件扩展名。服务端把音频落到 `floating-ball.audit.speech-file-dir`，数据库只保存形如 `v1/yyyyMMdd/<文件名>` 的服务端内部相对存储键、MIME、原文件名和大小，不把原始 base64 写入快照 JSON，也不把该存储键当成客户端可访问 URL。旧绝对路径仅兼容读取当前配置存储根目录内的历史文件。`ai-scale-out` 中该目录必须属于全部节点共同验证过 `FB_SHARED_STORAGE_ID` 的共享 POSIX 存储，使容量节点写入的录音能够由 `pcie_primary` 管理接口读取；不得回退到容量节点本机文件。
 6. `idOrg` 由设备鉴权解析出的后台机构 ID 持久化，用于后台配置、权限范围和平台机构筛选；`hisOrgId` 表示 HIS 端机构 ID，桌面端只能取 SDK handshake `urt.userRoleDepts.orgId`，服务端持久化到 `id_his_org`，用于问诊来源追踪和 HIS 机构统计，不再覆盖 `id_org`，也不再用 `orgCode` 兜底。
 7. `doctorWorkNo` 桌面端只取 SDK handshake 的真实人员编码 `urt.personCd`，服务端持久化到 `c_ai_user_consultation_log.cd_doctor`；不得用 `doctorId`、`urt.userId / personId / idDoctor` 等内部主键或后台管理员账号兜底。`orgName` 取 `urt.orgPureName`；`deptId` 取 `urt.userRoleDepts.deptId`。
 8. `firstSnapshot` 与 `finalSnapshot` 的病历字段统一包含 `chiefComplaint`、`historyOfPresentIllness`、`pastMedicalHistory`、`personalHistory`、`familyHistory`、`physicalExam`、`precautions`；管理端按这 7 个字段展示首版内容与最终差异。旧客户端缺失新增字段时按空文本兼容。
@@ -2438,7 +2455,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
       "desOp": "接收 PHIS 引用回执",
       "opResult": "1",
       "payloadJson": "{\"module\":\"consultation\",\"action\":\"reference_feedback_diagnosis\",\"title\":\"接收 PHIS 引用回执\",\"sourceModule\":\"consultation_reference\",\"scene\":\"consultation-reference\",\"result\":\"success\",\"operationType\":\"api_call\",\"operationName\":\"reference_feedback:diagnosis\",\"details\":{\"consultationId\":\"CONSULT-001\",\"traceId\":\"TRACE-001\"}}",
-      "audioFilePath": "/var/lib/floating-ball-server/speech-audit/20260422/chat-input-abc123.wav",
+      "audioFilePath": "v1/20260422/chat-input-abc123-7f13a5b4.wav",
       "operationTime": "2026-04-20T16:00:00"
     }
   ]
@@ -2448,7 +2465,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 补充约束：
 
 1. `speech_proxy` 日志的 `payloadJson` 只保留录音元数据、请求摘要和上游回文，不再保存原始 base64 音频
-2. 若存在录音文件落盘，返回记录中的 `audioFilePath` 会指向该文件
+2. 若存在录音文件落盘，`audioFilePath` 返回服务端内部相对存储键，不是客户端 URL；读取仍必须通过受鉴权的音频接口，旧绝对路径仅兼容当前存储根目录内的历史数据
 3. `desOp` 默认优先展示 `title`，缺失时回退 `action / operationName`
 4. `traceId` 默认从顶层 `traceId` 提取；若顶层缺失则回退 `details.traceId`
 5. `displayModule/displayAction/displayTitle/displaySourceModule/displayScene` 为服务端统一生成的中文展示字段；管理端应优先展示这些字段，同时保留 `naModule/opAction/opTitle/sourceModule/sceneCode` 原始码用于精准排障与复制检索

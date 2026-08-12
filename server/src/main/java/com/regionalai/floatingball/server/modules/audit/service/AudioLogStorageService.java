@@ -1,19 +1,21 @@
 package com.regionalai.floatingball.server.modules.audit.service;
 
+import com.regionalai.floatingball.server.common.io.AtomicFileWriter;
 import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.UUID;
 
 @Service
 public class AudioLogStorageService {
@@ -21,6 +23,7 @@ public class AudioLogStorageService {
     private static final Logger log = LoggerFactory.getLogger(AudioLogStorageService.class);
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.BASIC_ISO_DATE;
+    private static final String STORAGE_KEY_VERSION = "v1";
 
     private final Path storageRoot;
 
@@ -32,13 +35,17 @@ public class AudioLogStorageService {
         if (audioBytes == null || audioBytes.length == 0) {
             return null;
         }
-        Path targetDirectory = storageRoot.resolve(LocalDate.now().format(DATE_FORMATTER));
+        String dateSegment = LocalDate.now().format(DATE_FORMATTER);
+        Path targetDirectory = storageRoot.resolve(STORAGE_KEY_VERSION).resolve(dateSegment);
         Files.createDirectories(targetDirectory);
 
         String storedFileName = buildStoredFileName(originalFileName, logId);
         Path targetPath = targetDirectory.resolve(storedFileName).normalize();
-        Files.write(targetPath, audioBytes, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
-        return targetPath.toString();
+        ensureInsideStorage(targetPath);
+        try (ByteArrayInputStream inputStream = new ByteArrayInputStream(audioBytes)) {
+            AtomicFileWriter.write(targetPath, inputStream);
+        }
+        return STORAGE_KEY_VERSION + "/" + dateSegment + "/" + storedFileName;
     }
 
     public void deleteQuietly(String storedPath) {
@@ -46,10 +53,7 @@ public class AudioLogStorageService {
             return;
         }
         try {
-            Path path = Paths.get(storedPath).toAbsolutePath().normalize();
-            if (!path.startsWith(storageRoot)) {
-                return;
-            }
+            Path path = resolveStoredPath(storedPath);
             Files.deleteIfExists(path);
         } catch (IOException | InvalidPathException ex) {
             log.warn("audio log file deletion failed. path={}, error={}", storedPath, ex.getMessage());
@@ -60,14 +64,61 @@ public class AudioLogStorageService {
         if (!StringUtils.hasText(storedPath)) {
             throw new IOException("音频文件路径为空");
         }
-        Path path = Paths.get(storedPath).toAbsolutePath().normalize();
-        if (!path.startsWith(storageRoot)) {
-            throw new IOException("音频文件路径不在允许目录内");
-        }
+        Path path = resolveStoredPath(storedPath);
         if (!Files.isRegularFile(path)) {
             throw new IOException("音频文件不存在");
         }
-        return path;
+        Path realRoot = storageRoot.toRealPath();
+        Path realPath = path.toRealPath();
+        if (!realPath.startsWith(realRoot)) {
+            throw new IOException("音频文件路径不在允许目录内");
+        }
+        return realPath;
+    }
+
+    private Path resolveStoredPath(String storedPath) throws IOException {
+        String value = storedPath == null ? "" : storedPath.trim();
+        if (!StringUtils.hasText(value)) {
+            throw new IOException("音频文件路径为空");
+        }
+        if (value.indexOf('\\') >= 0) {
+            throw new IOException("音频文件路径非法");
+        }
+
+        final Path candidate;
+        try {
+            Path parsed = Paths.get(value);
+            if (parsed.isAbsolute()) {
+                // Compatibility is intentionally limited to files under the currently
+                // configured root. Other historical roots must be migrated explicitly.
+                candidate = parsed.toAbsolutePath().normalize();
+            } else {
+                validateRelativeStorageKey(value);
+                candidate = storageRoot.resolve(parsed).normalize();
+            }
+        } catch (InvalidPathException ex) {
+            throw new IOException("音频文件路径非法", ex);
+        }
+        ensureInsideStorage(candidate);
+        return candidate;
+    }
+
+    private void validateRelativeStorageKey(String value) throws IOException {
+        String[] segments = value.split("/", -1);
+        if (segments.length != 3
+            || !STORAGE_KEY_VERSION.equals(segments[0])
+            || !segments[1].matches("\\d{8}")
+            || !segments[2].matches("[A-Za-z0-9._-]+")
+            || ".".equals(segments[2])
+            || "..".equals(segments[2])) {
+            throw new IOException("音频文件路径非法");
+        }
+    }
+
+    private void ensureInsideStorage(Path path) throws IOException {
+        if (!path.toAbsolutePath().normalize().startsWith(storageRoot)) {
+            throw new IOException("音频文件路径不在允许目录内");
+        }
     }
 
     private String buildStoredFileName(String originalFileName, String logId) {
@@ -75,7 +126,8 @@ public class AudioLogStorageService {
         int dotIndex = normalizedFileName.lastIndexOf('.');
         String extension = dotIndex >= 0 ? normalizedFileName.substring(dotIndex) : ".bin";
         String baseName = dotIndex >= 0 ? normalizedFileName.substring(0, dotIndex) : normalizedFileName;
-        return baseName + "-" + sanitizeSegment(logId) + extension;
+        return baseName + "-" + sanitizeSegment(logId) + "-"
+            + UUID.randomUUID().toString().replace("-", "") + extension;
     }
 
     private String normalizeFileName(String originalFileName) {

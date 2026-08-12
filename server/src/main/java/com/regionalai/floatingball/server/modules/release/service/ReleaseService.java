@@ -1,7 +1,6 @@
 package com.regionalai.floatingball.server.modules.release.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.regionalai.floatingball.server.common.cluster.ClusterProperties;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.io.AtomicFileWriter;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseBatchUploadRequest;
@@ -65,23 +64,14 @@ public class ReleaseService {
     private final Path storageRoot;
     private final ObjectMapper objectMapper;
     private final String publicBaseUrl;
-    private final ClusterProperties clusterProperties;
 
     @Autowired
     public ReleaseService(@Value("${floating-ball.release.storage-dir:${java.io.tmpdir}/floating-ball-server/releases}") String storageRoot,
                           @Value("${floating-ball.release.public-base-url:}") String publicBaseUrl,
-                          ObjectMapper objectMapper,
-                          ClusterProperties clusterProperties) {
+                          ObjectMapper objectMapper) {
         this.storageRoot = Paths.get(storageRoot).toAbsolutePath().normalize();
         this.publicBaseUrl = trimTrailingSlash(publicBaseUrl);
         this.objectMapper = objectMapper;
-        this.clusterProperties = clusterProperties;
-    }
-
-    public ReleaseService(String storageRoot,
-                          String publicBaseUrl,
-                          ObjectMapper objectMapper) {
-        this(storageRoot, publicBaseUrl, objectMapper, new ClusterProperties());
     }
 
     public List<ReleaseView> list(String channel) {
@@ -135,7 +125,6 @@ public class ReleaseService {
     }
 
     public synchronized ReleaseView rollback(ReleaseRollbackRequest request) {
-        requireReleaseWriter();
         if (request == null) {
             throw new BusinessException("请求体不能为空");
         }
@@ -170,7 +159,6 @@ public class ReleaseService {
     }
 
     public synchronized ReleaseView updatePolicy(ReleasePolicyUpdateRequest request) {
-        requireReleaseWriter();
         if (request == null) {
             throw new BusinessException("请求体不能为空");
         }
@@ -203,7 +191,6 @@ public class ReleaseService {
     }
 
     public synchronized ReleaseView upload(ReleaseUploadRequest request) {
-        requireReleaseWriter();
         String channel = normalizeChannel(request.getChannel());
         MultipartFile file = request.getFile();
         if (file == null || file.isEmpty()) {
@@ -253,7 +240,6 @@ public class ReleaseService {
     }
 
     public synchronized List<ReleaseView> uploadBatch(ReleaseBatchUploadRequest request) {
-        requireReleaseWriter();
         if (request == null) {
             throw new BusinessException("请求体不能为空");
         }
@@ -1159,15 +1145,6 @@ public class ReleaseService {
             throw new BusinessException(message);
         }
         return value.trim();
-    }
-
-    private void requireReleaseWriter() {
-        if (!clusterProperties.isReleaseWriterNode()) {
-            throw new BusinessException(
-                "RELEASE-READ-ONLY",
-                "当前集群节点为发布只读节点，请在指定的发布写节点执行此操作"
-            );
-        }
     }
 
     private String requireSafeText(String value, String emptyMessage, String invalidMessage) {

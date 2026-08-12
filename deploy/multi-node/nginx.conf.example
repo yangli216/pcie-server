@@ -1,0 +1,143 @@
+worker_processes auto;
+
+events {
+    # 必须根据并发长连接数量与系统文件句柄上限核算，不照抄为容量结论。
+    worker_connections 8192;
+}
+
+http {
+    # 保留重复斜杠供下面的 AI namespace catch-all 识别并拒绝。
+    merge_slashes off;
+
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        ''      '';
+    }
+
+    # 普通业务只进入一个主节点；本 upstream 不做自动故障切换。
+    upstream pcie_primary {
+        zone pcie_primary 64k;
+        server 192.0.2.11:8080 max_fails=2 fail_timeout=10s;
+        keepalive 64;
+    }
+
+    # 仅承载四条 AI 长任务路径。新增节点先以低权重预热，验证后再逐步调平。
+    upstream pcie_long {
+        zone pcie_long 64k;
+        least_conn;
+        server 192.0.2.11:8080 weight=10 max_fails=2 fail_timeout=10s;
+        server 192.0.2.12:8080 weight=1  max_fails=2 fail_timeout=10s;
+        # server 192.0.2.13:8080 weight=1 max_fails=2 fail_timeout=10s;
+        keepalive 128;
+    }
+
+    server {
+        # 示例使用内网 HTTP 便于 nginx -t。正式环境按现场规范配置受控 TLS 证书。
+        listen 80;
+        server_name pcie.example.invalid;
+
+        # query 中包含 token、nonce 和签名，禁止写入访问日志。
+        location = /v1/ai/speech/realtime/ws {
+            access_log off;
+            proxy_pass http://pcie_long;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Request-Id $request_id;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_next_upstream off;
+            proxy_buffering off;
+            proxy_connect_timeout 3s;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+
+        # 同一路径承载普通响应和 SSE，必须关闭响应缓冲。
+        location = /v1/ai/chat {
+            proxy_pass http://pcie_long;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Request-Id $request_id;
+            proxy_set_header Connection "";
+            proxy_next_upstream off;
+            proxy_buffering off;
+            proxy_cache off;
+            proxy_connect_timeout 3s;
+            proxy_read_timeout 150s;
+            proxy_send_timeout 150s;
+        }
+
+        location = /v1/ai/speech/transcribe {
+            client_max_body_size 2048m;
+            proxy_pass http://pcie_long;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Request-Id $request_id;
+            proxy_set_header Connection "";
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_read_timeout 600s;
+            proxy_send_timeout 600s;
+        }
+
+        location = /v1/ai/speech/realtime {
+            client_max_body_size 2048m;
+            proxy_pass http://pcie_long;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Request-Id $request_id;
+            proxy_set_header Connection "";
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_read_timeout 600s;
+            proxy_send_timeout 600s;
+        }
+
+        # 四条 canonical AI 路径以外的变体一律拒绝，不能回落到主节点。
+        # 关闭访问日志，避免伪造的 WebSocket 变体把 token、nonce、签名 query 写入日志。
+        location ~ "^/+v1/+ai(?:/+|;|$)" {
+            access_log off;
+            return 404;
+        }
+
+        # 发布上传仍固定进入主节点。
+        location ^~ /admin/api/releases {
+            client_max_body_size 2048m;
+            proxy_pass http://pcie_primary;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Request-Id $request_id;
+            proxy_set_header Connection "";
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_read_timeout 600s;
+            proxy_send_timeout 600s;
+        }
+
+        # 除上面四条精确匹配路径外，其余请求全部固定到主节点。
+        location / {
+            proxy_pass http://pcie_primary;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Request-Id $request_id;
+            proxy_set_header Connection "";
+            # 已签名请求中的 nonce 只能使用一次，代理不得自动重放请求。
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_read_timeout 150s;
+            proxy_send_timeout 150s;
+        }
+    }
+}

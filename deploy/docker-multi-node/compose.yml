@@ -1,0 +1,223 @@
+name: pcie-docker-multi-node-test
+
+x-pcie-environment: &pcie-environment
+  SPRING_PROFILES_ACTIVE: gaussdb
+  SERVER_ADDRESS: 0.0.0.0
+  FB_SERVER_PORT: "8080"
+  FB_MANAGEMENT_ADDRESS: 0.0.0.0
+  FB_MANAGEMENT_PORT: "8081"
+  FB_DB_DRIVER: org.opengauss.Driver
+  FB_DB_URL: jdbc:opengauss://opengauss:5432/${PCIE_DB_NAME:-pcie_cluster_test}?currentSchema=public
+  FB_DB_USERNAME: ${PCIE_DB_USERNAME:-rbmh_ai}
+  FB_DB_PASSWORD: ${PCIE_DB_PASSWORD:?set PCIE_DB_PASSWORD in deploy/docker-multi-node/.env}
+  FB_DB_TYPE: opengauss
+  FB_DEPLOYMENT_MODE: ai-scale-out
+  FB_NONCE_STORE: database
+  FB_NONCE_DEEP_PROBE_INTERVAL_MS: ${PCIE_NONCE_DEEP_PROBE_INTERVAL_MS:-300000}
+  FB_STORAGE_MODE: shared-posix
+  FB_SHARED_STORAGE_ID: ${PCIE_SHARED_STORAGE_ID:-pcie-docker-shared-v1}
+  FB_RELEASE_STORAGE_DIR: /mnt/pcie-shared/releases
+  FB_AUDIT_SPEECH_FILE_DIR: /mnt/pcie-shared/speech-audit
+  FB_RELEASE_PUBLIC_BASE_URL: http://127.0.0.1:18000
+  FB_LOG_PATH: /tmp/pcie-server/logs
+  FB_AES_KEY: ${PCIE_AES_KEY:?set PCIE_AES_KEY in deploy/docker-multi-node/.env}
+  FB_ADMIN_BOOTSTRAP_RESET_ENABLED: "false"
+  FB_ADMIN_ORIGIN: http://127.0.0.1:18000
+  FB_AI_PROXY_ENABLED: "false"
+  FB_OUTBOUND_ALLOWED_HOSTS: ""
+  FB_OUTBOUND_ALLOW_ALL_HOSTS: "false"
+  FB_OUTBOUND_ALLOW_PRIVATE_NETWORK: "false"
+  FB_OUTBOUND_ALLOW_INSECURE_HTTP: "false"
+  FB_OUTBOUND_ALLOW_PROXY_FAKE_IP: "false"
+  FB_TOMCAT_MAX_THREADS: ${PCIE_TOMCAT_MAX_THREADS:-80}
+  FB_TOMCAT_MIN_SPARE_THREADS: ${PCIE_TOMCAT_MIN_SPARE_THREADS:-8}
+  FB_TOMCAT_ACCEPT_COUNT: ${PCIE_TOMCAT_ACCEPT_COUNT:-32}
+  FB_AI_BLOCKING_POOL_SIZE: ${PCIE_AI_BLOCKING_POOL_SIZE:-16}
+  FB_AI_BLOCKING_QUEUE_CAPACITY: ${PCIE_AI_BLOCKING_QUEUE_CAPACITY:-4}
+  FB_AI_HTTP_MAX_TOTAL: ${PCIE_AI_HTTP_MAX_TOTAL:-32}
+  FB_AI_HTTP_MAX_PER_ROUTE: ${PCIE_AI_HTTP_MAX_PER_ROUTE:-24}
+  FB_AI_STREAM_CORE_POOL_SIZE: ${PCIE_AI_STREAM_POOL_SIZE:-8}
+  FB_AI_STREAM_MAX_POOL_SIZE: ${PCIE_AI_STREAM_POOL_SIZE:-8}
+  FB_AI_STREAM_QUEUE_CAPACITY: ${PCIE_AI_STREAM_QUEUE_CAPACITY:-4}
+  FB_AI_REALTIME_MAX_ACTIVE_SESSIONS: ${PCIE_AI_REALTIME_MAX_ACTIVE_SESSIONS:-16}
+  JAVA_TOOL_OPTIONS: ${PCIE_JAVA_TOOL_OPTIONS:--Xms256m -Xmx768m -Xss512k}
+  TZ: Asia/Shanghai
+
+x-pcie-service: &pcie-service
+  image: ${PCIE_SERVER_IMAGE:-pcie-server:docker-multi-node-local}
+  build:
+    context: ../..
+    dockerfile: deploy/docker-multi-node/Dockerfile
+  depends_on:
+    opengauss:
+      condition: service_healthy
+    schema-init:
+      condition: service_completed_successfully
+    storage-init:
+      condition: service_completed_successfully
+  environment:
+    <<: *pcie-environment
+  command:
+    - --spring.datasource.hikari.maximum-pool-size=${PCIE_DB_POOL_MAX_SIZE:-10}
+    - --spring.datasource.hikari.minimum-idle=${PCIE_DB_POOL_MIN_IDLE:-2}
+    - --spring.datasource.hikari.connection-timeout=${PCIE_DB_CONNECTION_TIMEOUT_MS:-10000}
+  volumes:
+    - pcie-shared:/mnt/pcie-shared
+  networks:
+    - pcie-test
+  user: "${PCIE_CONTAINER_UID:-10001}:${PCIE_CONTAINER_GID:-10001}"
+  read_only: true
+  tmpfs:
+    - /tmp:size=256m,mode=1777
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  init: true
+  stop_grace_period: 180s
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "/opt/pcie-server/container-healthcheck.sh"]
+    interval: 5s
+    timeout: 5s
+    retries: 24
+    start_period: 60s
+
+services:
+  opengauss:
+    image: ${OPENGAUSS_IMAGE:-enmotech/opengauss-lite:5.0.3}
+    platform: linux/arm64
+    environment:
+      GS_DB: ${PCIE_DB_NAME:-pcie_cluster_test}
+      GS_USERNAME: ${PCIE_DB_USERNAME:-rbmh_ai}
+      GS_PASSWORD: ${PCIE_DB_PASSWORD:?set PCIE_DB_PASSWORD in deploy/docker-multi-node/.env}
+    volumes:
+      - pcie-db-data:/var/lib/opengauss/data
+      - ./prepare-database.sh:/docker-entrypoint-initdb.d/010-prepare-database.sh:ro
+    ports:
+      - "127.0.0.1:15433:5432"
+    networks:
+      - pcie-test
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          export GAUSSHOME=/usr/local/opengauss;
+          export PATH=$$GAUSSHOME/bin:$$PATH;
+          export LD_LIBRARY_PATH=$$GAUSSHOME/lib:$$LD_LIBRARY_PATH;
+          gsql -h 127.0.0.1 -p 5432 -d "$$GS_DB" -U "$$GS_USERNAME"
+          -W "$$GS_PASSWORD" -t -A -c 'SELECT 1' >/dev/null
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+
+  schema-init:
+    image: ${OPENGAUSS_IMAGE:-enmotech/opengauss-lite:5.0.3}
+    platform: linux/arm64
+    depends_on:
+      opengauss:
+        condition: service_healthy
+    environment:
+      PCIE_DB_HOST: opengauss
+      PCIE_DB_PORT: "5432"
+      PCIE_DB_NAME: ${PCIE_DB_NAME:-pcie_cluster_test}
+      PCIE_DB_USERNAME: ${PCIE_DB_USERNAME:-rbmh_ai}
+      PCIE_DB_PASSWORD: ${PCIE_DB_PASSWORD:?set PCIE_DB_PASSWORD in deploy/docker-multi-node/.env}
+      PCIE_SCHEMA_SQL: /opt/pcie/init.sql
+    entrypoint: ["/bin/bash", "/opt/pcie/init-schema.sh"]
+    volumes:
+      - ./init-schema.sh:/opt/pcie/init-schema.sh:ro
+      - ../../server/src/main/resources/sql/gaussdb/init.sql:/opt/pcie/init.sql:ro
+    networks:
+      - pcie-test
+    user: "70:70"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
+  storage-init:
+    image: ${NGINX_IMAGE:-nginx:1.27-alpine}
+    environment:
+      PCIE_SHARED_STORAGE_ID: ${PCIE_SHARED_STORAGE_ID:-pcie-docker-shared-v1}
+      PCIE_CONTAINER_UID: ${PCIE_CONTAINER_UID:-10001}
+      PCIE_CONTAINER_GID: ${PCIE_CONTAINER_GID:-10001}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        test -n "$$PCIE_SHARED_STORAGE_ID"
+        for directory in releases speech-audit; do
+          root="/mnt/pcie-shared/$$directory"
+          marker="$$root/.pcie-storage-id"
+          mkdir -p "$$root"
+          if [ -e "$$marker" ]; then
+            test -f "$$marker"
+            test "$$(cat "$$marker")" = "$$PCIE_SHARED_STORAGE_ID"
+          else
+            umask 0027
+            printf '%s' "$$PCIE_SHARED_STORAGE_ID" > "$$marker"
+          fi
+          chown -R "$$PCIE_CONTAINER_UID:$$PCIE_CONTAINER_GID" "$$root"
+          chmod 0770 "$$root"
+          chmod 0640 "$$marker"
+        done
+    volumes:
+      - pcie-shared:/mnt/pcie-shared
+    networks:
+      - pcie-test
+    restart: "no"
+
+  pcie-primary:
+    <<: *pcie-service
+    environment:
+      <<: *pcie-environment
+      FB_NODE_ID: pcie-primary
+    ports:
+      - "127.0.0.1:18101:8080"
+      - "127.0.0.1:19101:8081"
+
+  pcie-capacity:
+    <<: *pcie-service
+    environment:
+      <<: *pcie-environment
+      FB_NODE_ID: pcie-capacity
+    ports:
+      - "127.0.0.1:18102:8080"
+      - "127.0.0.1:19102:8081"
+
+  nginx:
+    image: ${NGINX_IMAGE:-nginx:1.27-alpine}
+    depends_on:
+      pcie-primary:
+        condition: service_healthy
+      pcie-capacity:
+        condition: service_healthy
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "127.0.0.1:18000:8080"
+    networks:
+      - pcie-test
+    init: true
+    stop_grace_period: 30s
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/admin/"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+networks:
+  pcie-test:
+    driver: bridge
+
+volumes:
+  pcie-db-data:
+  pcie-shared:

@@ -8,6 +8,7 @@ import com.regionalai.floatingball.server.modules.security.service.SecurityRejec
 import com.regionalai.floatingball.server.security.RequestSignatureVerifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
@@ -59,7 +60,16 @@ public class RealtimeSpeechHandshakeInterceptor implements HandshakeInterceptor 
             return false;
         }
 
-        AiDevice device = deviceService.findActiveByToken(token);
+        AiDevice device;
+        try {
+            device = deviceService.findActiveByToken(token);
+        } catch (DataAccessException ex) {
+            log.error("realtime speech ws handshake dependency unavailable. uri={}", safeUri(request.getURI()), ex);
+            response.getHeaders().set("Retry-After", "1");
+            response.getHeaders().set("X-PCIE-Error-Code", "SECURITY-503");
+            response.setStatusCode(HttpStatus.SERVICE_UNAVAILABLE);
+            return false;
+        }
         if (device == null) {
             log.warn("realtime speech ws handshake rejected: invalid token. uri={}", safeUri(request.getURI()));
             recordWsRejection("WS_AUTH_INVALID_TOKEN", request, null, "设备令牌无效", "Token does not match any active device", false, null, null);
@@ -105,6 +115,8 @@ public class RealtimeSpeechHandshakeInterceptor implements HandshakeInterceptor 
                     device.getIdDevice());
                 recordWsRejection("WS_NONCE_STORE_UNAVAILABLE", request, device,
                     "请求安全校验服务不可用", result.getErrorMessage(), true, ts, nonce);
+                response.getHeaders().set("Retry-After", "1");
+                response.getHeaders().set("X-PCIE-Error-Code", "SECURITY-503");
                 response.setStatusCode(HttpStatus.SERVICE_UNAVAILABLE);
                 return false;
             }

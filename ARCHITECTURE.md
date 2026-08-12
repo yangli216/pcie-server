@@ -135,7 +135,7 @@ pcie-server/
 - `modules/prompt` 负责 Prompt 配置化的逐步迁移：保留桌面端 `prompts/delta` 读取链路，管理端提供 Prompt 列表、新增、编辑、发布、归档和停用；服务端内置首批语音问诊默认 Prompt，配置表存在已发布覆盖时按机构级 > 区域级 > 全局级优先级生效。
 - `modules/datapackage` 继续负责映射数据包读取；`template` 类型数据包仅作为症状模板表未初始化时的兼容回退来源，管理端不再提供数据包维护入口
 - `modules/recommendationpreference` 负责接收桌面端在目录匹配之后产生的诊断和医嘱标准候选选择事件，按机构/科室/医生聚合偏好分，并为灰度客户端返回带样本置信度与作用域权重的名次 boost；管理端提供只读观测页查看聚合偏好分、样本计数和原始事件，便于确认采集效果与排查上报链路。该模块不学习 AI 原始文案，不注入 Prompt，不生成新的候选项，首版管理端不提供人工编辑偏好分入口
-- `modules/release` 使用配置文件目录托管桌面端安装包、签名文件、`latest.json` 元数据、`policy.json` 发布策略与历史发布快照，不新增数据库表；单节点可使用本地持久目录，集群必须使用共享挂载。管理端上传后由客户端通过公开 `/v1/client/releases/{channel}/latest.json` 检测更新，并通过 `/v1/client/releases/{channel}/policy.json` 判断是否必须更新
+- `modules/release` 使用配置文件目录托管桌面端安装包、签名文件、`latest.json` 元数据、`policy.json` 发布策略与历史发布快照，不新增数据库表。`standalone` 使用本机持久目录；`ai-scale-out` 中发布管理仍只到主节点，但全部节点必须把发布根目录挂载到同一共享 POSIX 存储，因为容量节点也会在签名过滤器中读取强更策略。管理端上传后由客户端通过公开 `/v1/client/releases/{channel}/latest.json` 检测更新，并通过 `/v1/client/releases/{channel}/policy.json` 判断是否必须更新
 
 ### 4.2.1 内网客户端版本发布
 
@@ -277,7 +277,7 @@ pcie-server/
 代理日志补充约束：
 
 1. 服务端对 `/v1/ai/chat`、`/v1/ai/speech/*` 等上游代理请求，除了成功/失败结果外，还应在 `payload_json` 中保留请求元数据、实际上游请求体与上游回文，便于排障；桌面端 AI trace 生成的操作日志也必须在 `details.requestPayload/responsePayload` 中保留完整业务出入参。
-2. `speech_proxy` 日志的原始录音不得写入 `payload_json`；录音文件单独落盘，表中通过 `audio_file_path` 指向对应文件
+2. `speech_proxy` 日志的原始录音不得写入 `payload_json`；录音文件单独落盘，表中 `audio_file_path` 保存版本化相对存储键，不能作为客户端 URL 或节点绝对路径使用
 3. API Key、Bearer Token 等凭据不得入库；除此之外，业务请求正文与回文可按原文保留
 4. 管理端日志页应支持按 `ai_proxy`、`speech_proxy` 等代理日志类型筛选与查看详情
 
@@ -303,7 +303,7 @@ pcie-server/
 ### 5.6 运维用户日志链路
 
 1. 用户日志是面向运维人员的问诊聚合视图，独立于 `modules/audit` 的原始操作日志，不复用 `/admin/api/logs` 与 `c_ai_op_log`。
-2. 桌面端语音问诊停止录音后先上报 `speechText` 与录音 base64；服务端将录音文件落到 `floating-ball.audit.speech-file-dir`，表内仅保存 `audio_file_path`、原文件名、MIME 和大小，避免把原始音频写入 JSON。
+2. 桌面端语音问诊停止录音后先上报 `speechText` 与录音 base64；服务端将录音文件落到 `floating-ball.audit.speech-file-dir`，表内仅保存版本化相对存储键 `audio_file_path`、原文件名、MIME 和大小，避免把原始音频写入 JSON；旧绝对路径仅兼容当前存储根目录内的历史文件。
 3. 桌面端在智能问诊、语音问诊产生首版 AI 内容时上报 `firstSnapshot`；医生最终完成回写/提交或放弃时上报 `finalSnapshot`、`selectionSnapshot` 与结束状态。
 4. 服务端按 `consultationId + consultationType + idDevice` 只聚合同一轮尚未结束的问诊日志；记录进入 `completed` 或 `abandoned` 后，同一就诊再次发起智能问诊/语音问诊必须创建新记录，保证“同一病人多次问诊多条记录”，且不记录医生每次中间编辑。
 5. 服务端在写入最终快照时同步计算 `change_summary_json` 与 `total_changes`，供统计分析计算诊断符合率与用户日志变更筛选使用。
@@ -456,7 +456,7 @@ pcie-server/
 9. `c_ai_op_log`
    - 代理日志主体仍保存在 `payload_json`
    - 同步冗余结构化列：`op_action`、`op_title`、`source_module`、`scene_code`、`trace_id`、`consultation_id`、`id_his_org`、`na_his_org`
-   - 语音代理的录音文件路径保存在 `audio_file_path`
+   - 语音代理的录音文件引用以版本化相对存储键保存在 `audio_file_path`
    - `id_org` 保存后台机构，`id_his_org/na_his_org` 保存事件产生时的 HIS 机构上下文；用于排障、审计和反馈关联，不作为辅诊功能调用次数统计源
 10. `c_ai_feedback`
    - 统一存储四类反馈：`general`（设置入口）、`recommendation`（语音推荐）、`record_field`（语音病例字段）、`session`（语音整页评分）
@@ -468,7 +468,7 @@ pcie-server/
    - 按一次问诊聚合运维用户日志，关键列包括后台机构、HIS 机构 ID、医生、患者、问诊类型、问诊时间
    - `id_org` 保存设备鉴权得到的后台机构 ID；`id_his_org` 保存桌面端从 SDK handshake `urt.userRoleDepts.orgId` 上报的 HIS 机构 ID，不参与后台机构级配置解析；`na_org` 来自 `urt.orgPureName`，`id_dept` 来自 `urt.userRoleDepts.deptId`
    - `first_snapshot_json` 保存 AI 首次生成内容，`final_snapshot_json` 保存医生最终修改后内容，`selection_json` 保存诊断/用药/检查/检验最终选中状态
-   - `speech_text` 保存语音问诊 ASR 识别文字；`audio_file_path` / `audio_file_name` / `audio_mime_type` / `audio_size` 保存录音文件引用和元数据
+   - `speech_text` 保存语音问诊 ASR 识别文字；`audio_file_path` 保存版本化相对存储键，配合 `audio_file_name` / `audio_mime_type` / `audio_size` 保存录音文件引用和元数据
    - `change_summary_json` 保存主诉、现病史、诊断、用药、检查、检验、处置和选中状态等类别变更计数，`total_changes` 保存总变更数，统计分析诊断符合率依赖其中的 `diagnosisChanges`
    - 索引：`idx_c_ai_user_log_time` / `_patient` / `_doctor` / `_consultation` / `_round`，并通过 `uk_c_ai_user_log_round_active` 保证激活且尚未结束的 `consultation_round_id` 只有一条，已回写/放弃后同一就诊可再次生成新日志
 12. `c_ai_feature_event`
@@ -536,7 +536,7 @@ GaussDB/openGauss 初始化：
 2. 升级文件同时补充历史基线中已经声明、但部分现场库遗漏的 `c_ai_user_consultation_log.id_his_org`、`consultation_round_id`、`idx_c_ai_user_log_round`、`uk_c_ai_user_log_round_active`，以及本次新增的操作日志和功能事件 HIS 机构列。
 3. 新建库仍只执行对应 `init.sql`；存量库执行升级文件前必须先备份，并由 DBA 确认目标 schema。升级脚本使用各数据库方言的存在性判断，允许已包含部分字段或索引的现场库重复执行；若现场库已存在重复的激活 `generated` 轮次，必须先确认并清理重复数据，再创建 `uk_c_ai_user_log_round_active`，脚本不得静默修改业务记录。
 
-## 9. 单体部署约定
+## 9. 单体交付与当前单节点生产基线
 
 本轮管理端改造采用“单体托管，不重写页面”的策略：
 
@@ -548,6 +548,10 @@ GaussDB/openGauss 初始化：
 6. 语音配置页必须区分“服务端实际转写地址/密钥/模型”和“桌面端感知的 provider/model”：前者用于服务端上游语音协议选择与调用，后者用于 `floating-ball` 设置页展示与策略选择。
 7. 服务端 AI / 语音上游出站请求允许通过 `floating-ball.ai.proxy.*` 配置显式走 HTTP 代理；在 macOS 开发环境下同时建议启用 Netty 的 native DNS 解析依赖，避免 Java 进程与终端 `curl` 的网络行为不一致。
 8. AI 配置页应提供“服务端到上游 LLM”的单独测试入口，用于区分“floating-ball -> server”链路故障与“server -> LLM”链路故障。
+9. 当前客户量由单节点即可承载，`FB_DEPLOYMENT_MODE=standalone` 是默认正式运行模式，不是开发降级模式；一个节点必须能够脱离 Nginx 独立提供完整业务。
+10. `standalone` 继续使用现有业务数据库，`FB_NONCE_STORE=memory`，`FB_STORAGE_MODE=local`；发布包和语音审计使用显式本机持久目录，不得沿用 `java.io.tmpdir` 默认值。
+11. 只有计划新增机构或用户批次的 AI、SSE、实时语音长连接峰值超过单机安全容量时，才显式设置 `FB_DEPLOYMENT_MODE=ai-scale-out`。扩展模式不是全站 active-active，其范围和运行合同见第 11 节。
+12. 所有新增生产代码必须先通过单节点行为、拥塞保护和资源回收验证；不得以容量扩展为由引入 Redis、MQ、服务发现、微服务拆分或自动扩缩容平台。
 
 ## 10. 两慢病随访持久化
 
@@ -563,45 +567,42 @@ GaussDB/openGauss 初始化：
 8. `c_ai_chronic_artifact` 固化患者锚点、病种集合、数据截至时间、模板/路径/依据/规则版本、年度指标、医生确认项及打印医生。
 9. 一期不增加管理端页面；正式模板与临床路径由代码仓库受审清单发布，AI 和医生均无规则发布权限。
 
-## 11. 集群运行基线
+## 11. AI/长连接容量池
 
-`pcie-server` 继续保持单体应用交付，但支持多个相同版本实例通过 L7 负载均衡组成 active-active 集群。首轮生产容量基线为三节点、N+1：正常运行三节点，失去一个节点后仍承载 200 个已部署终端中 40 名医生同时进入核心四路 AI 推荐阶段的流量。
+### 11.1 范围与路由
 
-### 11.1 无服务端业务 Session
+`FB_DEPLOYMENT_MODE=ai-scale-out` 只扩展四条资源驻留时间长的路径，不把整个模块化单体改成 active-active：
 
-1. 设备与管理员认证不使用 `HttpSession`；普通 HTTP 请求不要求粘性会话。
-2. SSE 和 WebSocket 连接在建立后自然固定在承载该 TCP 连接的节点，节点下线前必须先从 LB 摘除并等待连接排空。
-3. `DeviceContextHolder` / `AdminContextHolder` 仍是单请求 ThreadLocal，不属于需要跨节点复制的状态。
+| Nginx upstream | 路由 | 节点合同 |
+| --- | --- | --- |
+| `pcie_primary` | 管理端、注册、bootstrap、发布、慢病、PMPHAI 和所有未列入下行的默认路径 | 只允许一个主节点 |
+| `pcie_long` | `/v1/ai/chat`、`/v1/ai/speech/transcribe`、`/v1/ai/speech/realtime`、`/v1/ai/speech/realtime/ws` | 一个或多个同构节点，使用 `least_conn`；主节点可以同时加入 |
 
-### 11.2 跨节点 nonce 防重放
+该边界保证 PatientMemory、LIS/PACS、推荐偏好聚合、问诊日志、EMR 缓存等普通业务仍只在主节点执行，当前阶段无需以不完整的跨节点锁补丁冒充全站并发治理。主节点仍是普通业务和管理面的单点；Nginx、数据库、共享存储和外部上游也仍是共享故障边界，因此本模式只承诺容量扩展，不承诺全链路高可用。
 
-1. 单节点模式可以使用 JVM 内存 nonce 存储；`floating-ball.cluster.enabled=true` 时必须切换为数据库存储。
-2. 集群模式以 `(id_device, nonce_value)` 数据库唯一约束原子登记 nonce；禁止先查询再插入。
-3. ECDSA 验签成功后才登记 nonce，避免无效签名抢占合法 nonce。
-4. nonce 有效期使用“请求时间戳 + 签名允许偏移”，HTTP 与实时语音 WebSocket 共用同一存储。
-5. 唯一键冲突按重放拒绝；数据库不可用按安全失败关闭返回 `SECURITY-503`，不得回退本地缓存或继续放行。
-6. 过期 nonce 由各节点低频、幂等清理；清理失败只影响存储增长，不改变拒绝重放的安全语义。
+Nginx 仅为新请求和新 SSE/WebSocket 选择节点，已经建立的长连接不会迁移。所有签名路径必须关闭代理自动重试；节点故障后由客户端生成新的时间戳、nonce 和签名重试，Nginx 不得透明重放原请求。
 
-### 11.3 共享文件与发布单写
+四条容量路径必须用 Nginx 精确匹配 canonical URI；其他 `/v1/ai` 路径及尾斜杠、分号 path parameter、重复斜杠、额外子路径等变体一律在入口拒绝，不能回落 `pcie_primary` 或经 URI 规范化进入容量池。实时语音 canonical 路径及所有 WebSocket 变体的访问日志不得包含 query；只能记录不含 `$args` 的规范化路径和受控诊断字段，或直接关闭对应 access log，避免泄露 token、nonce 和签名。
 
-1. 集群模式的 `floating-ball.release.storage-dir` 与 `floating-ball.audit.speech-file-dir` 必须是所有节点以相同绝对路径挂载的共享 POSIX 文件系统，不得使用 `java.io.tmpdir`。
-2. 启动期校验目录、集群 marker、读写和同目录原子移动能力；readiness 持续检查轻量读写。单节点探针不能证明三个节点挂载的是同一存储。
-3. 管理端口额外暴露受控 Actuator `clusterStorageChallenge` 端点，只允许对 `release`、`speech` 两个预定义根目录使用 UUID token/content 创建、读取、删除派生文件名的短生命周期 challenge；不得接收任意路径或文件名，不得暴露到业务端口。challenge 默认 60 秒失效，过期文件按上限清理，活动文件数量有硬上限。
-4. 入池前 preflight 必须对两个根目录分别执行：节点 A 原子写入随机 token/content，节点 B/C 读取并核对，另一节点删除，A/B/C 再确认文件消失。任一步失败都证明共享挂载未建立或不可跨节点一致访问，禁止节点入池。
-5. 安装包按 `channel/version/target/fileName` 不可变保存；生成的下载 URL 包含版本。历史遗留的 `channel/target/fileName` 安装包在未完成安全迁移前继续生成旧兼容下载 URL，不能只改元数据 URL 后让旧包变成不可下载。
-6. 当前发布由同一个 `current-state.json` 原子状态文件同时承载 `latest` 与 `policy`，所有服务端读取均从该事实源派生；`latest.json`、`policy.json` 仅作为兼容缓存。全部安装包与历史快照准备完成后只原子切换一次当前状态，再尽力刷新兼容缓存；任一缓存刷新失败不得形成“新强更策略 + 旧安装包元数据”或相反组合。集群共享文件系统若不支持原子移动，启动校验必须失败，不得静默降级。
-7. 集群所有节点使用同一个 `release-writer-node-id`，只有 `node-id` 与它相等的单一 writer 节点可执行 `/admin/api/releases/**` 写操作；LB 将该路径固定路由到 writer。下载、策略和元数据读取可由全部节点提供。单节点模式不受 writer 配置限制。
-8. 后续如迁移到对象存储，仍需保留单写或数据库版本/CAS 语义，不得把 JVM `synchronized` 当作跨节点锁。
+### 11.2 启动强校验与共享状态
 
-### 11.4 节点身份、探针与下线
+每个容量池节点必须同时满足：
 
-1. 集群节点必须提供唯一 `FB_NODE_ID` 和一致的 `FB_CLUSTER_ID`；所有节点使用相同数据库、`FB_AES_KEY` 与共享目录。
-2. Actuator 使用独立管理端口，只暴露 `health`、`info`、`prometheus` 与受限的 `clusterStorageChallenge`；challenge 仅供受控 preflight 使用，管理端默认绑定 loopback，不得向医生终端业务入口公开。
-3. liveness 只判断 JVM 生存；readiness 包含数据库和集群共享存储，不把外部模型云健康直接纳入 readiness，避免外部故障导致全部节点同时被摘除。
-4. Spring Boot 使用 graceful shutdown；滚动发布顺序固定为 LB drain、等待在途请求和长连接、SIGTERM、启动、readiness UP、重新入池。
-5. 负载均衡使用 least-connections；SSE 关闭代理缓冲，WebSocket 透传 Upgrade，不能使用医院 NAT 源 IP 粘性造成节点倾斜。
+1. `FB_NODE_ID` 非空且在本次部署中唯一，所有节点运行相同应用版本和业务配置。应用启动只校验本机值非空；由于本阶段不引入成员注册或服务发现，跨节点唯一性必须由运维在入池前对完整节点清单查重，并通过日志和指标标签复核。
+2. `FB_NONCE_STORE=database`；HTTP 与实时语音 WebSocket 在验签成功后使用现有共享数据库原子登记 nonce，跨节点同一设备同一 nonce 只能接受一次。共享 nonce 不可用时安全失败，不得降级为内存存储继续接流量。启动时深度探针强校验表结构、写删权限和复合唯一键，运行中 readiness 使用轻量查询并读取低频深检结果。任一次深度探针发现写权限或唯一约束漂移后，必须锁存 nonce 不可信状态：readiness 转为 DOWN，之后所有 HTTP nonce claim 和 WebSocket 握手都 fail-closed，统一返回 `SECURITY-503`；轻量查询成功不能清除该状态，只有后续完整深度探针再次验证写入、唯一冲突和清理均成功后才能恢复接流。
+3. `FB_STORAGE_MODE=shared-posix`，`FB_SHARED_STORAGE_ID` 非空且所有节点一致；`FB_RELEASE_STORAGE_DIR` 与 `FB_AUDIT_SPEECH_FILE_DIR` 必须来自同一部署约定的共享 POSIX 文件系统，而不是碰巧同名的本机目录。
+4. 共享存储必须支持同目录原子 rename；发布的 `current-state.json` 继续作为 latest 与 policy 的单一原子事实源。发布管理请求只经 `pcie_primary` 写入，容量节点只共享读取发布状态；语音文件可由任一容量节点写入并由主节点读取。
+5. `ai-scale-out` 发现 nonce 模式、存储模式、节点 ID 或共享存储 ID 不满足上述合同，必须拒绝启动或保持 readiness DOWN，不能自动回退到 `standalone`。
 
-## 12. 单节点并发治理
+### 11.3 人工扩容与缩容
+
+扩容发生在新增机构或用户批次上线前，不使用自动扩缩容：新节点先在 Nginx 池外启动，依次验证版本和配置、节点/存储标识、liveness/readiness、四条容量路径、跨节点 nonce 和共享文件交叉读取；通过后才加入 `pcie_long`，执行 `nginx -t` 与 reload，并观察 active、queue、rejected、数据库连接、文件 I/O 和上游配额。失败时从 `pcie_long` 移除候选节点并 reload，再停止节点。
+
+缩容前先确认剩余池容量，然后从 `pcie_long` 移除目标节点并 reload，确认不再有新请求进入，再调用管理端口的 traffic drain。`GET /actuator/traffic` 必须至少返回统一 `inFlight`，并可同时给出 `blocking/sse/websocket/queued` 明细；`inFlight` 必须覆盖执行中和仍在队列中的全部任务，只有总数及已返回的全部明细均为 `0` 时才能标记 `drained=true`。正常停机只能以 `drained=true` 为依据，不能只看 readiness DOWN 或 Nginx 已摘除。超出维护窗口仍未排空而强制停止会影响在途生成或语音会话，必须作为故障处置记录；既有长连接不迁移，客户端后续以新签名连接其他节点。
+
+未来若要让 `pcie_primary` 包含多个普通业务节点，必须另行授权并先修复普通业务的数据库读改写、唯一约束、状态迁移和文件事务边界，再补全站多节点故障测试；不得直接扩大本节路径白名单。
+
+## 12. 节点内并发治理
 
 单节点改造目标不是无限增加线程，而是把慢 AI I/O 从通用 Tomcat 请求线程隔离，并让连接、执行、排队、取消和拒绝都具有明确上限。
 
@@ -626,22 +627,28 @@ GaussDB/openGauss 初始化：
 3. 正常完成先可靠写入审计，再完成 emitter；客户端断开不计为上游失败，不推动上游熔断。
 4. 节点负载、流式 active/queue/rejected/cancelled 与连接池 leased/pending/available 进入 Micrometer 指标。
 
-### 12.4 200 终端容量参数
+### 12.4 单节点安全容量与扩展触发线
 
-首轮基线：
+单节点容量由计划上线批次的真实混合峰值决定，不能按注册终端总数直接换算。每次容量验收同时覆盖核心 AI、Reviewer、知识检索、批量语音、SSE 和实时语音 WebSocket，并使用桌面端当期真实重试时序；不能把各舱壁分别测出的上限简单相加。
 
-| 维度 | 单节点安全默认 | 三节点生产每节点 |
-| --- | ---: | ---: |
-| 非流式 AI 有界执行并发 | 80 | 96 |
-| 非流式短队列 | 8 | 8 |
-| Reviewer 并发 / 短队列 | 16 / 4 | 16 / 4 |
-| 语音并发 / 短队列 | 8 / 4 | 8 / 4 |
-| 实时语音 WebSocket 活跃会话 | 64 | 64（按压测覆盖） |
-| 单实时语音会话建连前缓存 | 2 MiB | 2 MiB（按音频帧节奏校准） |
-| 知识检索并发 / 短队列 | 16 / 4 | 16 / 4 |
-| 流式执行并发 | 16 | 24 |
-| 流式短队列 | 4 | 4 |
-| HTTP 连接池 max total | 160 | 224 |
-| HTTP 连接池 max per route | 144 | 192 |
+“单节点安全容量”必须来自目标规格主机、目标数据库、真实签名链路和近似真实上游延迟的压测，并同时满足约定 P95/P99、队列等待、拒绝率、GC、RSS、线程、FD、网络出口和连接池恢复门槛。执行器或连接池配置上限只是保护边界，不是容量承诺。
 
-三节点生产值通过环境变量覆盖；默认值是压测起点，不是未经验证的容量承诺。健康场景按 40 名医生同时四路生成核算 160 个首波请求；桌面端当前每次调用最多再重试 3 次、没有 jitter 且不读取 `Retry-After`，故障时理论上可放大到 640 attempts。有界池能够保证节点快速拒绝并保持可用，但不能据此承诺 640 次全部成功。正式验收必须覆盖 60 秒响应、当前真实重试策略、N-1 与长时间 soak test；若要把 N-1 下的全部成功作为目标，还必须同步调整 `pcie` 重试策略或重新核算容量。
+当前代码参数只作为单节点压测起点：
+
+| 维度 | 代码默认 |
+| --- | ---: |
+| 非流式 AI 有界执行并发 | 80 |
+| 非流式短队列 | 8 |
+| Reviewer 并发 / 短队列 | 16 / 4 |
+| 语音并发 / 短队列 | 8 / 4 |
+| 实时语音 WebSocket 活跃会话 | 64 |
+| 单实时语音会话建连前缓存 | 2 MiB |
+| 知识检索并发 / 短队列 | 16 / 4 |
+| 流式执行并发 | 16 |
+| 流式短队列 | 4 |
+| HTTP 连接池 max total | 160 |
+| HTTP 连接池 max per route | 144 |
+
+新增机构或用户批次前，必须确认包含预测余量的混合峰值不超过最近一次同规格单节点安全容量，并同时确认数据库连接预算、模型/语音/知识账号配额和网络出口仍有余量。桌面端当前对 503 最多再尝试 3 次、没有 jitter 且不读取 `Retry-After`，压测必须计入这类重叠放大；有界池只能保证快速拒绝和节点受控，不能据此承诺所有重试成功。
+
+如果四条 AI/语音路径的预测峰值超过单节点安全容量，不得只提高线程、队列、连接池或超时继续部署；应暂停新增批次，按第 11 节启用并实测 `ai-scale-out`。增加节点前仍须核对 `N × 单节点数据库连接池`、共享 POSIX I/O、Nginx FD、网络出口和模型/语音账号总配额；应用节点数量不能直接乘成端到端容量承诺。普通业务容量或主节点故障余量不足时，`ai-scale-out` 不解决该问题，必须另立全站多节点任务。

@@ -88,18 +88,19 @@ public class RequestSignatureVerifier {
                 return VerificationResult.fail("签名验证失败");
             }
 
-            try {
-                boolean claimed = nonceStore.claim(deviceId, nonce, ts + MAX_SKEW_MS);
-                return claimed
-                    ? VerificationResult.ok()
-                    : VerificationResult.fail("随机数已使用，疑似重放攻击");
-            } catch (NonceStoreUnavailableException ex) {
-                log.error("request nonce store unavailable for deviceId={}: {}", deviceId, ex.getMessage());
-                return VerificationResult.storeUnavailable();
-            }
         } catch (Exception e) {
             log.warn("signature verification error: {}", e.getMessage());
             return VerificationResult.fail("签名验证异常: " + e.getMessage());
+        }
+
+        try {
+            boolean claimed = nonceStore.claim(deviceId, nonce, ts + MAX_SKEW_MS);
+            return claimed
+                ? VerificationResult.ok()
+                : VerificationResult.fail("随机数已使用，疑似重放攻击");
+        } catch (NonceStoreUnavailableException ex) {
+            log.error("request nonce store unavailable for deviceId={}: {}", deviceId, ex.getMessage());
+            return VerificationResult.storeUnavailable();
         }
     }
 

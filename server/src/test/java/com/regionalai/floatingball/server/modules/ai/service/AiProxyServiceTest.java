@@ -34,8 +34,11 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -343,8 +346,56 @@ class AiProxyServiceTest {
         assertThat(body.closed).isTrue();
         assertThat(queued.isCancelled()).isTrue();
         assertThat(executor.getThreadPoolExecutor().getQueue()).isEmpty();
+        ReflectionTestUtils.invokeMethod(lifecycle, "detachAndClose", body);
+        ReflectionTestUtils.invokeMethod(lifecycle, "finished");
+        Boolean cancelledAgain = ReflectionTestUtils.invokeMethod(lifecycle, "cancel");
+        assertThat(cancelledAgain).isFalse();
+        assertThat(body.closeCount.get()).isEqualTo(1);
         release.countDown();
         executor.shutdown();
+    }
+
+    @Test
+    void streamCancellationAndCompletionRaceReleasesBodyOnlyOnce() throws Exception {
+        AsyncTaskExecutor directExecutor = new TaskExecutorAdapter(Runnable::run);
+        Class<?> lifecycleClass = Class.forName(
+            "com.regionalai.floatingball.server.modules.ai.service.AiProxyService$StreamLifecycle"
+        );
+        Constructor<?> constructor = lifecycleClass.getDeclaredConstructor(AsyncTaskExecutor.class);
+        constructor.setAccessible(true);
+        ExecutorService raceExecutor = Executors.newFixedThreadPool(2);
+
+        try {
+            for (int attempt = 0; attempt < 100; attempt++) {
+                Object lifecycle = constructor.newInstance(directExecutor);
+                CloseAwareInputStream body = new CloseAwareInputStream();
+                ReflectionTestUtils.invokeMethod(lifecycle, "attach", body);
+                CountDownLatch start = new CountDownLatch(1);
+
+                Future<Boolean> cancellation = raceExecutor.submit(() -> {
+                    start.await();
+                    return ReflectionTestUtils.invokeMethod(lifecycle, "cancel");
+                });
+                Future<?> completion = raceExecutor.submit(() -> {
+                    start.await();
+                    ReflectionTestUtils.invokeMethod(lifecycle, "finished");
+                    return null;
+                });
+
+                start.countDown();
+                boolean cancellationWon = cancellation.get(2, TimeUnit.SECONDS);
+                completion.get(2, TimeUnit.SECONDS);
+                ReflectionTestUtils.invokeMethod(lifecycle, "detachAndClose", body);
+
+                Boolean cancelled = ReflectionTestUtils.invokeMethod(lifecycle, "isCancelled");
+                Boolean cancelledAgain = ReflectionTestUtils.invokeMethod(lifecycle, "cancel");
+                assertThat(cancelled).isEqualTo(cancellationWon);
+                assertThat(cancelledAgain).isFalse();
+                assertThat(body.closeCount.get()).isEqualTo(1);
+            }
+        } finally {
+            raceExecutor.shutdownNow();
+        }
     }
 
     @Test
@@ -537,6 +588,7 @@ class AiProxyServiceTest {
     private static final class CloseAwareInputStream extends ByteArrayInputStream {
 
         private boolean closed;
+        private final AtomicInteger closeCount = new AtomicInteger();
 
         private CloseAwareInputStream() {
             super(new byte[] { 1 });
@@ -545,6 +597,7 @@ class AiProxyServiceTest {
         @Override
         public void close() throws IOException {
             closed = true;
+            closeCount.incrementAndGet();
             super.close();
         }
     }

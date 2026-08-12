@@ -3,29 +3,27 @@ package com.regionalai.floatingball.server.security.nonce;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.Status;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.core.ResultSetExtractor;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
 
 import java.sql.Connection;
-import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.SQLIntegrityConstraintViolationException;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,235 +31,175 @@ import static org.mockito.Mockito.when;
 class NonceStoreHealthIndicatorTest {
 
     @Test
-    void health_standaloneModeIsUpWithoutDatabaseProbe() throws SQLException {
-        Connection connection = mock(Connection.class);
-        JdbcTemplate jdbcTemplate = new CallbackJdbcTemplate(connection);
-        NonceStoreHealthIndicator indicator = new NonceStoreHealthIndicator(jdbcTemplate, false);
-
-        indicator.afterSingletonsInstantiated();
-        Health health = indicator.health();
-
-        assertEquals(Status.UP, health.getStatus());
-        assertEquals("standalone", health.getDetails().get("mode"));
-        verify(connection, never()).getMetaData();
-    }
-
-    @Test
-    void h2ExactCompositePrimaryKey_passesStartupAndReadinessWithoutPersistingProbeRows() {
-        JdbcTemplate jdbcTemplate = h2Template("pk", "sa", "");
-        createNonceTable(jdbcTemplate,
-            "CONSTRAINT pk_nonce PRIMARY KEY (id_device, nonce_value)");
-        NonceStoreHealthIndicator indicator = new NonceStoreHealthIndicator(jdbcTemplate, true);
-
-        indicator.afterSingletonsInstantiated();
-        Health health = indicator.health();
-
-        assertEquals(Status.UP, health.getStatus());
-        assertEquals("cluster", health.getDetails().get("mode"));
-        assertEquals(0, jdbcTemplate.queryForObject(
-            "SELECT COUNT(1) FROM c_security_request_nonce", Integer.class));
-    }
-
-    @Test
-    void h2ExactCompositeUniqueIndex_isAccepted() {
-        JdbcTemplate jdbcTemplate = h2Template("unique", "sa", "");
-        createNonceTable(jdbcTemplate, "");
-        jdbcTemplate.execute(
-            "CREATE UNIQUE INDEX uk_nonce ON c_security_request_nonce (id_device, nonce_value)");
-
-        Health health = new NonceStoreHealthIndicator(jdbcTemplate, true).health();
-
-        assertEquals(Status.UP, health.getStatus());
-        assertEquals(0, jdbcTemplate.queryForObject(
-            "SELECT COUNT(1) FROM c_security_request_nonce", Integer.class));
-    }
-
-    @Test
-    void h2ConstraintWithExtraColumn_isRejectedAndFailsStartupClosed() {
-        JdbcTemplate jdbcTemplate = h2Template("extra", "sa", "");
-        createNonceTable(jdbcTemplate,
-            "CONSTRAINT uk_nonce UNIQUE (id_device, nonce_value, expires_at)");
-        NonceStoreHealthIndicator indicator = new NonceStoreHealthIndicator(jdbcTemplate, true);
-
-        Health health = indicator.health();
-
-        assertEquals(Status.DOWN, health.getStatus());
-        assertThrows(IllegalStateException.class, indicator::afterSingletonsInstantiated);
-        assertEquals(0, jdbcTemplate.queryForObject(
-            "SELECT COUNT(1) FROM c_security_request_nonce", Integer.class));
-    }
-
-    @Test
-    void h2ClusterUserWithoutInsertPermission_isDownAndFailsStartupClosed() {
-        String database = "permission_" + UUID.randomUUID().toString().replace("-", "");
-        JdbcTemplate admin = h2Template(database, "sa", "");
-        createNonceTable(admin,
-            "CONSTRAINT pk_nonce PRIMARY KEY (id_device, nonce_value)");
-        admin.execute("CREATE USER nonce_reader PASSWORD 'secret'");
-        admin.execute("GRANT SELECT ON c_security_request_nonce TO nonce_reader");
-        JdbcTemplate readOnly = h2Template(database, "nonce_reader", "secret");
-        NonceStoreHealthIndicator indicator = new NonceStoreHealthIndicator(readOnly, true);
-
-        Health health = indicator.health();
-
-        assertEquals(Status.DOWN, health.getStatus());
-        assertThrows(IllegalStateException.class, indicator::afterSingletonsInstantiated);
-        assertEquals(0, admin.queryForObject(
-            "SELECT COUNT(1) FROM c_security_request_nonce", Integer.class));
-    }
-
-    @Test
-    void metadataClaimWithoutActualConflict_isDownAndRollsBack() throws SQLException {
-        Connection connection = mockProbeConnection();
-        PreparedStatement statement = mock(PreparedStatement.class);
-        when(connection.prepareStatement(any(String.class))).thenReturn(statement);
-        when(statement.executeUpdate()).thenReturn(1);
-
-        Health health = new NonceStoreHealthIndicator(
-            new CallbackJdbcTemplate(connection), true).health();
-
-        assertEquals(Status.DOWN, health.getStatus());
-        verify(statement, times(2)).executeUpdate();
-        verify(connection).rollback();
-        verify(connection).setAutoCommit(true);
-        verify(connection, never()).commit();
-    }
-
-    @Test
-    void oracleGaussAndDamengUniqueViolations_areRecognized() throws SQLException {
-        List<SQLException> vendorFailures = Arrays.asList(
-            new SQLException("ORA-00001", null, 1),
-            new SQLException("duplicate key value violates unique constraint", "23505"),
-            new SQLException("违反唯一性约束", null, -6602)
+    void memoryModeIsUpWithoutDatabaseProbe() {
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        NonceStoreHealthIndicator indicator = new NonceStoreHealthIndicator(
+            jdbcTemplate,
+            properties(NonceStoreProperties.Store.MEMORY),
+            new DatabaseNonceStoreAvailability()
         );
 
-        for (SQLException vendorFailure : vendorFailures) {
-            Connection connection = mockProbeConnection();
-            PreparedStatement first = mock(PreparedStatement.class);
-            PreparedStatement second = mock(PreparedStatement.class);
-            when(connection.prepareStatement(any(String.class))).thenReturn(first, second);
-            when(first.executeUpdate()).thenReturn(1);
-            when(second.executeUpdate()).thenThrow(vendorFailure);
+        indicator.afterSingletonsInstantiated();
+        Health health = indicator.health();
 
-            Health health = new NonceStoreHealthIndicator(
-                new CallbackJdbcTemplate(connection), true).health();
-
-            assertEquals(Status.UP, health.getStatus());
-            verify(connection).rollback();
-            verify(connection).setAutoCommit(true);
-            verify(connection, never()).commit();
-        }
+        assertEquals(Status.UP, health.getStatus());
+        assertEquals("memory", health.getDetails().get("mode"));
+        verify(jdbcTemplate, never()).query(
+            anyString(),
+            org.mockito.ArgumentMatchers.<ResultSetExtractor<Void>>any()
+        );
     }
 
     @Test
-    void h2StyleUniqueViolation_butRollbackFailureIsDown() throws SQLException {
-        Connection connection = mockProbeConnection();
-        PreparedStatement first = mock(PreparedStatement.class);
-        PreparedStatement second = mock(PreparedStatement.class);
-        when(connection.prepareStatement(any(String.class))).thenReturn(first, second);
-        when(first.executeUpdate()).thenReturn(1);
-        when(second.executeUpdate()).thenThrow(
-            new SQLIntegrityConstraintViolationException("unique", "23505"));
-        SQLException rollbackFailure = new SQLException("rollback unavailable");
-        org.mockito.Mockito.doThrow(rollbackFailure).when(connection).rollback();
+    void databaseModeLightweightProbeControlsReadiness() {
+        ProbeJdbcTemplate jdbcTemplate = new ProbeJdbcTemplate(null);
+        DatabaseNonceStoreAvailability availability = new DatabaseNonceStoreAvailability();
+        NonceStoreHealthIndicator indicator = new NonceStoreHealthIndicator(
+            jdbcTemplate,
+            properties(NonceStoreProperties.Store.DATABASE),
+            availability
+        );
 
-        Health health = new NonceStoreHealthIndicator(
-            new CallbackJdbcTemplate(connection), true).health();
+        assertEquals(Status.DOWN, indicator.health().getStatus());
+        assertEquals(0, jdbcTemplate.queryCount);
 
-        assertEquals(Status.DOWN, health.getStatus());
+        availability.markTrusted();
+        Health health = indicator.health();
+
+        assertEquals(Status.UP, health.getStatus());
+        assertEquals("database", health.getDetails().get("mode"));
+        assertEquals(1, jdbcTemplate.queryCount);
+
+        jdbcTemplate.queryFailure = new CannotGetJdbcConnectionException("database down");
+        assertEquals(Status.DOWN, indicator.health().getStatus());
+    }
+
+    @Test
+    void databaseStartupProbeVerifiesWriteDeleteAndUniqueConflictWithoutPersisting() throws SQLException {
+        Connection connection = mock(Connection.class);
+        PreparedStatement insert = mock(PreparedStatement.class);
+        PreparedStatement delete = mock(PreparedStatement.class);
+        when(connection.getAutoCommit()).thenReturn(true);
+        when(connection.prepareStatement(NonceStoreHealthIndicator.INSERT_PROBE_SQL)).thenReturn(insert);
+        when(connection.prepareStatement(NonceStoreHealthIndicator.DELETE_PROBE_SQL)).thenReturn(delete);
+        when(insert.executeUpdate())
+            .thenReturn(1, 1)
+            .thenThrow(new SQLException("duplicate", "23505"));
+        when(delete.executeUpdate()).thenReturn(1);
+        DatabaseNonceStoreAvailability availability = new DatabaseNonceStoreAvailability();
+        NonceStoreHealthIndicator indicator = new NonceStoreHealthIndicator(
+            new ProbeJdbcTemplate(connection),
+            properties(NonceStoreProperties.Store.DATABASE),
+            availability
+        );
+
+        indicator.afterSingletonsInstantiated();
+
+        assertTrue(availability.isTrusted());
+        verify(insert, times(3)).executeUpdate();
+        verify(delete).executeUpdate();
+        verify(connection).rollback();
+        verify(connection).setAutoCommit(false);
         verify(connection).setAutoCommit(true);
     }
 
-    private JdbcTemplate h2Template(String database, String username, String password) {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource();
-        dataSource.setDriverClassName("org.h2.Driver");
-        dataSource.setUrl("jdbc:h2:mem:" + database + ";DB_CLOSE_DELAY=-1");
-        dataSource.setUsername(username);
-        dataSource.setPassword(password);
-        return new JdbcTemplate(dataSource);
-    }
-
-    private void createNonceTable(JdbcTemplate jdbcTemplate, String constraint) {
-        String separator = constraint.isEmpty() ? "" : ", ";
-        jdbcTemplate.execute(
-            "CREATE TABLE c_security_request_nonce ("
-                + "id_device VARCHAR(32) NOT NULL, "
-                + "nonce_value VARCHAR(64) NOT NULL, "
-                + "expires_at TIMESTAMP NOT NULL, "
-                + "insert_time TIMESTAMP NOT NULL"
-                + separator + constraint + ")");
-    }
-
-    private Connection mockProbeConnection() throws SQLException {
+    @Test
+    void databaseStartupProbeRejectsMissingUniqueConstraint() throws SQLException {
         Connection connection = mock(Connection.class);
-        DatabaseMetaData metadata = mock(DatabaseMetaData.class);
-        when(connection.getMetaData()).thenReturn(metadata);
-        when(connection.getCatalog()).thenReturn(null);
-        when(connection.getSchema()).thenReturn("PUBLIC");
+        PreparedStatement insert = mock(PreparedStatement.class);
+        PreparedStatement delete = mock(PreparedStatement.class);
         when(connection.getAutoCommit()).thenReturn(true);
-        when(metadata.getUserName()).thenReturn("SA");
-        when(metadata.getPrimaryKeys(
-            nullable(String.class), nullable(String.class), any(String.class)))
-            .thenAnswer(invocation -> {
-                String schema = invocation.getArgument(1);
-                String table = invocation.getArgument(2);
-                if ("PUBLIC".equals(schema) && "C_SECURITY_REQUEST_NONCE".equals(table)) {
-                    return primaryKeyRows();
-                }
-                return resultSet(Collections.<MetadataRow>emptyList());
-            });
-        when(metadata.getIndexInfo(
-            nullable(String.class), nullable(String.class), any(String.class),
-            anyBoolean(), anyBoolean()))
-            .thenAnswer(invocation -> resultSet(Collections.<MetadataRow>emptyList()));
-        return connection;
+        when(connection.prepareStatement(NonceStoreHealthIndicator.INSERT_PROBE_SQL)).thenReturn(insert);
+        when(connection.prepareStatement(NonceStoreHealthIndicator.DELETE_PROBE_SQL)).thenReturn(delete);
+        when(insert.executeUpdate()).thenReturn(1);
+        when(delete.executeUpdate()).thenReturn(1);
+        DatabaseNonceStoreAvailability availability = new DatabaseNonceStoreAvailability();
+        NonceStoreHealthIndicator indicator = new NonceStoreHealthIndicator(
+            new ProbeJdbcTemplate(connection),
+            properties(NonceStoreProperties.Store.DATABASE),
+            availability
+        );
+
+        assertThrows(IllegalStateException.class, indicator::afterSingletonsInstantiated);
+        assertFalse(availability.isTrusted());
+        verify(connection).rollback();
+        verify(connection).setAutoCommit(true);
     }
 
-    private ResultSet primaryKeyRows() throws SQLException {
-        return resultSet(Arrays.asList(
-            new MetadataRow("PK_NONCE", "ID_DEVICE", 1),
-            new MetadataRow("PK_NONCE", "NONCE_VALUE", 2)
-        ));
+    @Test
+    void cachedDeepProbeFailureControlsReadinessUntilAProbeRecovers() throws SQLException {
+        Connection connection = mock(Connection.class);
+        PreparedStatement insert = mock(PreparedStatement.class);
+        PreparedStatement delete = mock(PreparedStatement.class);
+        when(connection.getAutoCommit()).thenReturn(true);
+        when(connection.prepareStatement(NonceStoreHealthIndicator.INSERT_PROBE_SQL)).thenReturn(insert);
+        when(connection.prepareStatement(NonceStoreHealthIndicator.DELETE_PROBE_SQL)).thenReturn(delete);
+        when(insert.executeUpdate()).thenReturn(1);
+        when(delete.executeUpdate()).thenReturn(1);
+        ProbeJdbcTemplate jdbcTemplate = new ProbeJdbcTemplate(connection);
+        DatabaseNonceStoreAvailability availability = new DatabaseNonceStoreAvailability();
+        NonceStoreHealthIndicator indicator = new NonceStoreHealthIndicator(
+            jdbcTemplate,
+            properties(NonceStoreProperties.Store.DATABASE),
+            availability
+        );
+        JdbcNonceStore store = new JdbcNonceStore(
+            jdbcTemplate,
+            transactionManager(),
+            availability
+        );
+
+        indicator.refreshDeepProbe();
+        assertEquals(Status.DOWN, indicator.health().getStatus());
+        assertFalse(availability.isTrusted());
+        assertThrows(
+            NonceStoreUnavailableException.class,
+            () -> store.claim("DEV001", "nonce-1", 123456789L)
+        );
+        assertEquals(0, jdbcTemplate.updateCount);
+
+        reset(insert);
+        when(insert.executeUpdate())
+            .thenReturn(1, 1)
+            .thenThrow(new SQLException("duplicate", "23505"));
+        indicator.refreshDeepProbe();
+
+        assertEquals(Status.UP, indicator.health().getStatus());
+        assertTrue(availability.isTrusted());
+        assertTrue(store.claim("DEV001", "nonce-2", 123456790L));
+        assertEquals(1, jdbcTemplate.updateCount);
     }
 
-    private ResultSet resultSet(List<MetadataRow> rows) throws SQLException {
-        ResultSet resultSet = mock(ResultSet.class);
-        AtomicInteger index = new AtomicInteger(-1);
-        when(resultSet.next()).thenAnswer(invocation -> index.incrementAndGet() < rows.size());
-        when(resultSet.getString(any(String.class))).thenAnswer(invocation -> {
-            MetadataRow row = rows.get(index.get());
-            String column = invocation.getArgument(0);
-            if ("PK_NAME".equals(column) || "INDEX_NAME".equals(column)) {
-                return row.name;
-            }
-            if ("COLUMN_NAME".equals(column)) {
-                return row.column;
+    private NonceStoreProperties properties(NonceStoreProperties.Store store) {
+        NonceStoreProperties properties = new NonceStoreProperties();
+        properties.setStore(store);
+        return properties;
+    }
+
+    private PlatformTransactionManager transactionManager() {
+        PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+        when(transactionManager.getTransaction(any(TransactionDefinition.class)))
+            .thenReturn(mock(TransactionStatus.class));
+        return transactionManager;
+    }
+
+    private static final class ProbeJdbcTemplate extends JdbcTemplate {
+        private final Connection connection;
+        private RuntimeException queryFailure;
+        private int queryCount;
+        private int updateCount;
+
+        private ProbeJdbcTemplate(Connection connection) {
+            this.connection = connection;
+        }
+
+        @Override
+        public <T> T query(String sql, ResultSetExtractor<T> extractor) {
+            queryCount++;
+            if (queryFailure != null) {
+                throw queryFailure;
             }
             return null;
-        });
-        when(resultSet.getInt(any(String.class)))
-            .thenAnswer(invocation -> rows.get(index.get()).position);
-        when(resultSet.getBoolean(any(String.class))).thenReturn(false);
-        return resultSet;
-    }
-
-    private static final class MetadataRow {
-        private final String name;
-        private final String column;
-        private final int position;
-
-        private MetadataRow(String name, String column, int position) {
-            this.name = name;
-            this.column = column;
-            this.position = position;
-        }
-    }
-
-    private static final class CallbackJdbcTemplate extends JdbcTemplate {
-        private final Connection connection;
-
-        private CallbackJdbcTemplate(Connection connection) {
-            this.connection = connection;
         }
 
         @Override
@@ -269,9 +207,14 @@ class NonceStoreHealthIndicatorTest {
             try {
                 return action.doInConnection(connection);
             } catch (SQLException ex) {
-                throw new org.springframework.jdbc.CannotGetJdbcConnectionException(
-                    "probe failed", ex);
+                throw new CannotGetJdbcConnectionException("probe failed", ex);
             }
+        }
+
+        @Override
+        public int update(String sql, Object... args) {
+            updateCount++;
+            return 1;
         }
     }
 }

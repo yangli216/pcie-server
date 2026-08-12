@@ -47,6 +47,12 @@ mybatis-plus:
 
 floating-ball:
   aes-key: ${FB_AES_KEY:FloatingBallKey!}
+  deployment:
+    mode: ${FB_DEPLOYMENT_MODE:standalone}
+    node-id: ${FB_NODE_ID:}
+  storage:
+    mode: ${FB_STORAGE_MODE:local}
+    shared-storage-id: ${FB_SHARED_STORAGE_ID:}
   admin:
     bootstrap-reset:
       enabled: ${FB_ADMIN_BOOTSTRAP_RESET_ENABLED:false}
@@ -54,25 +60,21 @@ floating-ball:
       password: ${FB_ADMIN_BOOTSTRAP_RESET_PASSWORD:}
   audit:
     speech-file-dir: ${FB_AUDIT_SPEECH_FILE_DIR:${java.io.tmpdir}/floating-ball-server/speech-audit}
+  security:
+    nonce:
+      store: ${FB_NONCE_STORE:memory}
+      cleanup-interval-ms: ${FB_NONCE_CLEANUP_INTERVAL_MS:60000}
+      cleanup-grace-ms: ${FB_NONCE_CLEANUP_GRACE_MS:300000}
+      deep-probe-interval-ms: ${FB_NONCE_DEEP_PROBE_INTERVAL_MS:300000}
   release:
     storage-dir: ${FB_RELEASE_STORAGE_DIR:${java.io.tmpdir}/floating-ball-server/releases}
     public-base-url: ${FB_RELEASE_PUBLIC_BASE_URL:}
-  cluster:
-    enabled: ${FB_CLUSTER_ENABLED:false}
-    node-id: ${FB_NODE_ID:${HOSTNAME:standalone}}
-    cluster-id: ${FB_CLUSTER_ID:standalone}
-    shared-storage-required: ${FB_CLUSTER_SHARED_STORAGE_REQUIRED:true}
-    release-writer-node-id: ${FB_RELEASE_WRITER_NODE_ID:}
-    marker-file-name: ${FB_CLUSTER_MARKER_FILE:.pcie-cluster-id}
-    storage-challenge-ttl-seconds: ${FB_CLUSTER_STORAGE_CHALLENGE_TTL_SECONDS:60}
   cors:
     allowed-origins:
       - ${FB_ADMIN_ORIGIN_LOCALHOST:http://localhost:5174}
       - ${FB_ADMIN_ORIGIN_LOOPBACK:http://127.0.0.1:5174}
       - ${FB_ADMIN_PREVIEW_ORIGIN_LOCALHOST:http://localhost:4173}
       - ${FB_ADMIN_PREVIEW_ORIGIN_LOOPBACK:http://127.0.0.1:4173}
-  security:
-    nonce-cleanup-grace-ms: ${FB_NONCE_CLEANUP_GRACE_MS:300000}
   ai:
     connect-timeout-ms: ${FB_AI_CONNECT_TIMEOUT_MS:5000}
     read-timeout-ms: ${FB_AI_READ_TIMEOUT_MS:120000}
@@ -100,6 +102,9 @@ floating-ball:
       max-active-sessions: ${FB_AI_REALTIME_MAX_ACTIVE_SESSIONS:64}
       max-buffered-audio-bytes: ${FB_AI_REALTIME_MAX_BUFFERED_AUDIO_BYTES:2097152}
       handshake-timeout-ms: ${FB_AI_REALTIME_HANDSHAKE_TIMEOUT_MS:10000}
+      task-start-timeout-ms: ${FB_AI_REALTIME_TASK_START_TIMEOUT_MS:10000}
+      idle-timeout-ms: ${FB_AI_REALTIME_IDLE_TIMEOUT_MS:60000}
+      final-timeout-ms: ${FB_AI_REALTIME_FINAL_TIMEOUT_MS:15000}
     proxy:
       enabled: ${FB_AI_PROXY_ENABLED:false}
       host: ${FB_AI_PROXY_HOST:}
@@ -129,7 +134,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,clusterStorageChallenge
+        include: health,info,prometheus,traffic
   endpoint:
     health:
       probes:
@@ -139,9 +144,8 @@ management:
         liveness:
           include: livenessState,ping
         readiness:
-          include: readinessState,db,clusterStorage,nonceStore
+          include: readinessState,db,nonceStore,storage
   metrics:
     tags:
       application: ${spring.application.name}
-      cluster: ${floating-ball.cluster.cluster-id}
-      node: ${floating-ball.cluster.node-id}
+      instance: ${FB_NODE_ID:${HOSTNAME:standalone}}

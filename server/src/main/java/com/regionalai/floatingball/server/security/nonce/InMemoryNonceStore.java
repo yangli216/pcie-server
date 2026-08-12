@@ -9,7 +9,11 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
-@ConditionalOnProperty(name = "floating-ball.cluster.enabled", havingValue = "false", matchIfMissing = true)
+@ConditionalOnProperty(
+    name = "floating-ball.security.nonce.store",
+    havingValue = "memory",
+    matchIfMissing = true
+)
 public class InMemoryNonceStore implements NonceStore {
 
     private static final int CLEANUP_THRESHOLD = 10_000;

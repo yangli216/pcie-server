@@ -1,139 +1,117 @@
 package com.regionalai.floatingball.server.security.nonce;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.sql.Timestamp;
-import java.util.concurrent.atomic.AtomicLong;
 
 @Component
-@ConditionalOnProperty(name = "floating-ball.cluster.enabled", havingValue = "true")
+@ConditionalOnProperty(
+    name = "floating-ball.security.nonce.store",
+    havingValue = "database"
+)
 public class JdbcNonceStore implements NonceStore {
 
-    private static final Logger log = LoggerFactory.getLogger(JdbcNonceStore.class);
-    private static final long CLEANUP_INTERVAL_MS = 60_000L;
-    private static final long DEFAULT_CLEANUP_GRACE_MS = 300_000L;
-
-    private static final String INSERT_SQL =
-        "INSERT INTO c_security_request_nonce (id_device, nonce_value, expires_at, insert_time) "
+    static final String INSERT_SQL =
+        "INSERT INTO c_ai_request_nonce (id_device, nonce_hash, expires_at, insert_time) "
             + "VALUES (?, ?, ?, ?)";
-    private static final String DELETE_EXPIRED_KEY_SQL =
-        "DELETE FROM c_security_request_nonce WHERE id_device = ? AND nonce_value = ? AND expires_at <= ?";
-    private static final String DELETE_EXPIRED_SQL =
-        "DELETE FROM c_security_request_nonce WHERE expires_at <= ?";
-    private static final String COUNT_KEY_SQL =
-        "SELECT COUNT(1) FROM c_security_request_nonce WHERE id_device = ? AND nonce_value = ?";
+    static final String COUNT_KEY_SQL =
+        "SELECT COUNT(1) FROM c_ai_request_nonce WHERE id_device = ? AND nonce_hash = ?";
+    static final String DELETE_EXPIRED_SQL =
+        "DELETE FROM c_ai_request_nonce WHERE expires_at <= ?";
 
     private final JdbcTemplate jdbcTemplate;
-    private final long cleanupGraceMs;
-    private final AtomicLong nextCleanupAt = new AtomicLong(0L);
+    private final TransactionTemplate transactionTemplate;
+    private final DatabaseNonceStoreAvailability availability;
 
-    public JdbcNonceStore(JdbcTemplate jdbcTemplate) {
-        this(jdbcTemplate, DEFAULT_CLEANUP_GRACE_MS);
-    }
-
-    @Autowired
-    public JdbcNonceStore(
-        JdbcTemplate jdbcTemplate,
-        @Value("${floating-ball.security.nonce-cleanup-grace-ms:300000}") long cleanupGraceMs
-    ) {
-        if (cleanupGraceMs < 0L) {
-            throw new IllegalArgumentException("floating-ball.security.nonce-cleanup-grace-ms must be >= 0");
-        }
+    public JdbcNonceStore(JdbcTemplate jdbcTemplate,
+                          PlatformTransactionManager transactionManager,
+                          DatabaseNonceStoreAvailability availability) {
         this.jdbcTemplate = jdbcTemplate;
-        this.cleanupGraceMs = cleanupGraceMs;
+        this.availability = availability;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Override
     public boolean claim(String deviceId, String nonce, long expiresAtEpochMs) {
-        long now = System.currentTimeMillis();
-        cleanupExpiredBestEffort(now);
-
+        availability.requireTrusted();
+        String nonceHash = sha256Hex(nonce);
         try {
-            insert(deviceId, nonce, expiresAtEpochMs, now);
-            return true;
+            Boolean inserted = transactionTemplate.execute(status -> {
+                jdbcTemplate.update(
+                    INSERT_SQL,
+                    deviceId,
+                    nonceHash,
+                    expiresAtEpochMs,
+                    new Timestamp(System.currentTimeMillis())
+                );
+                return Boolean.TRUE;
+            });
+            return Boolean.TRUE.equals(inserted);
         } catch (DuplicateKeyException duplicate) {
-            return replaceExpiredClaim(deviceId, nonce, expiresAtEpochMs, now);
-        } catch (DataAccessException ex) {
-            return resolveUnknownClaimFailure(deviceId, nonce, ex);
+            return false;
+        } catch (NonceStoreUnavailableException unavailable) {
+            throw unavailable;
+        } catch (RuntimeException claimFailure) {
+            return resolveUnknownClaimFailure(deviceId, nonceHash, claimFailure);
         }
     }
 
-    private boolean replaceExpiredClaim(String deviceId,
-                                        String nonce,
-                                        long expiresAtEpochMs,
-                                        long now) {
+    int cleanupExpired(long cutoffEpochMs) {
         try {
-            int deleted = jdbcTemplate.update(
-                DELETE_EXPIRED_KEY_SQL,
-                deviceId,
-                nonce,
-                cleanupCutoff(now)
+            Integer deleted = transactionTemplate.execute(status ->
+                jdbcTemplate.update(DELETE_EXPIRED_SQL, cutoffEpochMs)
             );
-            if (deleted == 0) {
-                return false;
-            }
-            try {
-                insert(deviceId, nonce, expiresAtEpochMs, now);
-                return true;
-            } catch (DuplicateKeyException concurrentClaim) {
-                return false;
-            } catch (DataAccessException ex) {
-                return resolveUnknownClaimFailure(deviceId, nonce, ex);
-            }
-        } catch (DataAccessException ex) {
+            return deleted == null ? 0 : deleted.intValue();
+        } catch (RuntimeException ex) {
             throw unavailable(ex);
         }
     }
 
     private boolean resolveUnknownClaimFailure(String deviceId,
-                                               String nonce,
-                                               DataAccessException claimFailure) {
+                                               String nonceHash,
+                                               RuntimeException claimFailure) {
         try {
-            Integer count = jdbcTemplate.queryForObject(COUNT_KEY_SQL, Integer.class, deviceId, nonce);
+            Integer count = transactionTemplate.execute(status ->
+                jdbcTemplate.queryForObject(
+                    COUNT_KEY_SQL,
+                    Integer.class,
+                    deviceId,
+                    nonceHash
+                )
+            );
             if (count != null && count.intValue() > 0) {
                 return false;
             }
-        } catch (DataAccessException lookupFailure) {
+        } catch (RuntimeException lookupFailure) {
             claimFailure.addSuppressed(lookupFailure);
         }
         throw unavailable(claimFailure);
     }
 
-    private void insert(String deviceId, String nonce, long expiresAtEpochMs, long now) {
-        jdbcTemplate.update(
-            INSERT_SQL,
-            deviceId,
-            nonce,
-            new Timestamp(expiresAtEpochMs),
-            new Timestamp(now)
-        );
-    }
-
-    private void cleanupExpiredBestEffort(long now) {
-        long scheduledAt = nextCleanupAt.get();
-        if (now < scheduledAt || !nextCleanupAt.compareAndSet(scheduledAt, now + CLEANUP_INTERVAL_MS)) {
-            return;
-        }
+    static String sha256Hex(String nonce) {
         try {
-            jdbcTemplate.update(DELETE_EXPIRED_SQL, cleanupCutoff(now));
-        } catch (DataAccessException ex) {
-            log.warn("request nonce cleanup failed; replay protection remains fail-closed on claim: {}", ex.getMessage());
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(nonce.getBytes(StandardCharsets.UTF_8));
+            StringBuilder value = new StringBuilder(hash.length * 2);
+            for (byte item : hash) {
+                value.append(String.format("%02x", item));
+            }
+            return value.toString();
+        } catch (Exception ex) {
+            throw new IllegalStateException("SHA-256 digest unavailable", ex);
         }
     }
 
-    private NonceStoreUnavailableException unavailable(DataAccessException cause) {
+    private NonceStoreUnavailableException unavailable(RuntimeException cause) {
         return new NonceStoreUnavailableException("request nonce store unavailable", cause);
-    }
-
-    private Timestamp cleanupCutoff(long now) {
-        return new Timestamp(now - cleanupGraceMs);
     }
 }

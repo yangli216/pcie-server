@@ -29,7 +29,7 @@ java -jar pcie-server.jar
 \i init.sql
 ```
 
-`init.sql` 是 GaussDB 业务 schema 的初始化基线，结构与 Oracle `sql/oracle/init.sql` 对齐，包含业务表、索引、注释和默认种子数据。当前基线也包含 `c_ai_chronic_followup` 原 `TcdVisitForm` 两慢病融合随访表：`id_phr/id_record/sd_visit_kind` 独立检索，`form_data_json` 无损保存强类型 DTO，`request_id` 来自 `X-Request-Id`；旧通用列暂留作未发布实验表兼容，不再作为业务请求结构。`c_ai_chronic_artifact` 固化健康处方与年度评估打印前的患者证据、版本和医生确认快照，两表都以平台机构 + `request_id` 保证激活记录幂等。`c_security_request_nonce` 通过 `(id_device, nonce_value)` 主键原子登记已验签请求，供集群节点共同防重放，过期记录通过 `idx_c_security_nonce_exp` 低频清理。同时包含第三方 ODS 检验检查申请单 `hi_ods_apply`、检验常规报告 `hi_ods_apply_lis_report` 与检查报告 `hi_ods_apply_pacs_report`，用于管理端手工模拟第三方结果回写；未提供结构的 `hi_ods_lis_result` 不作为常驻工程资产创建。实时语音 WebSocket 上游独立保存在 `speech_realtime_url`，自建 FunASR 使用 `speech_provider=funasr-websocket`。问诊日志 `cd_doctor` 保存 SDK handshake `urt.personCd` 对应的真实工号，`id_doctor` 仍是 HIS 内部主键；问诊日志唯一索引只约束尚未结束的 `generated` 记录，同一就诊回写或放弃后再次问诊会保留为新的日志轮次；`c_ai_user_consultation_log.id_his_org` 单独记录桌面端从 HIS 握手上报的机构 ID，不覆盖后台机构 `id_org`。
+`init.sql` 是 GaussDB 业务 schema 的初始化基线，结构与 Oracle `sql/oracle/init.sql` 对齐，包含业务表、索引、注释和默认种子数据。当前基线也包含 `c_ai_chronic_followup` 原 `TcdVisitForm` 两慢病融合随访表：`id_phr/id_record/sd_visit_kind` 独立检索，`form_data_json` 无损保存强类型 DTO，`request_id` 来自 `X-Request-Id`；旧通用列暂留作未发布实验表兼容，不再作为业务请求结构。`c_ai_chronic_artifact` 固化健康处方与年度评估打印前的患者证据、版本和医生确认快照，两表都以平台机构 + `request_id` 保证激活记录幂等。`c_ai_request_nonce` 以 `(id_device, nonce_hash)` 复合主键保存已验签请求 nonce 的 SHA-256 哈希，并用 epoch 毫秒 `expires_at` 支撑所有应用节点共享防重放状态和过期清理。同时包含第三方 ODS 检验检查申请单 `hi_ods_apply`、检验常规报告 `hi_ods_apply_lis_report` 与检查报告 `hi_ods_apply_pacs_report`，用于管理端手工模拟第三方结果回写；未提供结构的 `hi_ods_lis_result` 不作为常驻工程资产创建。实时语音 WebSocket 上游独立保存在 `speech_realtime_url`，自建 FunASR 使用 `speech_provider=funasr-websocket`。问诊日志 `cd_doctor` 保存 SDK handshake `urt.personCd` 对应的真实工号，`id_doctor` 仍是 HIS 内部主键；问诊日志唯一索引只约束尚未结束的 `generated` 记录，同一就诊回写或放弃后再次问诊会保留为新的日志轮次；`c_ai_user_consultation_log.id_his_org` 单独记录桌面端从 HIS 握手上报的机构 ID，不覆盖后台机构 `id_org`。
 
 ## 本地 Docker 验证
 
@@ -72,6 +72,18 @@ FB_DB_PASSWORD=Rbmh_ai@123
 4. 若需要普通 PostgreSQL 运行，优先复用本目录结构作为 PG 兼容基线，再结合现场版本验证 JSON、表达式索引和时间函数兼容性。
 5. 本次保留 `update_his_org_statistics.sql`、`update_chronic_disease_followup.sql` 与 `update_chronic_disease_artifact.sql`。存量库使用当前应用账号分别执行三个脚本：第一个补齐可能遗漏的 `c_ai_config.speech_realtime_url`、`c_ai_user_consultation_log.id_his_org`、`consultation_round_id`、真实工号列 `cd_doctor`、问诊轮次索引，以及操作日志和功能事件 HIS 机构字段、索引与可确定关联的数据回填；已执行过旧版脚本的存量库需要再次执行以补充 `cd_doctor`。后两个创建两慢病随访强类型表和打印留痕快照表及幂等/查询索引。新建库仍只执行 `init.sql`。若现场已存在重复的激活 `generated` 轮次，须先清理重复数据再创建轮次唯一索引。
 6. `init.sql` 默认 AI 配置 `CFG001` 使用 DashScope `qwen-audio-3.0-asr-flash-streaming` 作为实时模型；存量库需在管理端修改对应配置，不通过常驻升级脚本覆盖现场模型选择。
-7. 启用 `floating-ball.cluster.enabled=true` 前，存量库必须由 DBA 基于 `init.sql` 补齐 `c_security_request_nonce`、`pk_c_security_req_nonce` 和 `idx_c_security_nonce_exp`；表缺失或数据库不可用时服务端返回 `SECURITY-503`，不会回退 JVM 本地缓存。
-8. 集群所有节点必须通过 NTP 或 chrony 持续校时并对节点时钟偏差告警；`floating-ball.security.nonce-cleanup-grace-ms` 默认保留 300000 毫秒清理宽限，只用于避免时钟微小偏差导致过早删除，不能替代可靠校时。
-9. 集群启动与 `nonceStore` readiness 会先通过 JDBC 元数据确认唯一键精确覆盖 `(id_device, nonce_value)`，再在同一连接的可回滚事务中完成首次插入和同键冲突验证；探针始终回滚，不保留数据。缺约束、缺 INSERT 权限、第二次插入未冲突或回滚失败均按不可就绪处理。
+## 多节点共享 nonce（显式启用）
+
+`FB_DEPLOYMENT_MODE=standalone` 与 JVM 本地 nonce 不需要执行本节。存量库准备启用 `ai-scale-out` 时，仓库交付定向脚本 `update_shared_nonce.sql`，由现场 DBA 先审核脚本和目标 database/schema，再使用与应用一致的账号直接执行并检查非零退出码：
+
+```bash
+gsql -v ON_ERROR_STOP=1 -f update_shared_nonce.sql
+```
+
+交付边界固定如下：
+
+1. 脚本只负责幂等创建 `c_ai_request_nonce`、复合主键 `(id_device, nonce_hash)` 和过期索引 `idx_c_ai_request_nonce_exp`；`nonce_hash` 保存 SHA-256 十六进制哈希，`expires_at` 保存 epoch 毫秒数。
+2. 对象已经按当前合同存在时重复执行为 no-op；发现同名对象结构、主键或索引定义不一致时必须报错停止，由 DBA 先处理漂移，脚本不得静默改列、重建约束或覆盖现场对象。索引核对使用 openGauss 兼容的 `pg_index.indkey[0]` 元数据查询，已在 `openGauss-lite 5.0.3` 验证。
+3. 脚本不包含数据库地址、账号或口令，不执行 `\connect`，应用启动和部署脚本也不会连接数据库代为执行。执行动作、目标 schema、备份和结果确认都由 DBA 负责。
+4. 脚本不读取、不迁移、不删除旧 `c_security_request_nonce`，也不包含任何 `DROP TABLE`、`DROP INDEX` 或历史 nonce 数据搬迁。nonce 是短期防重放状态，旧表如需清理由 DBA 在独立变更中另行评估。
+5. 执行脚本不会自动切换应用模式。DBA 还必须确认应用账号对新表具备实际查询、插入和删除权限，并在节点入池前让 nonce 深度探针完整通过；深探发现权限或唯一约束漂移时，HTTP/WS 必须持续 `SECURITY-503`，直到后续深探恢复。

@@ -23,6 +23,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
@@ -144,10 +146,7 @@ public class UserConsultationLogService {
             } else {
                 userConsultationLogMapper.updateById(entity);
             }
-            if (storedAudioPath != null && StringUtils.hasText(previousAudioPath)
-                && !storedAudioPath.equals(previousAudioPath)) {
-                audioLogStorageService.deleteQuietly(previousAudioPath);
-            }
+            registerAudioLifecycle(storedAudioPath, previousAudioPath);
         } catch (RuntimeException ex) {
             audioLogStorageService.deleteQuietly(storedAudioPath);
             if (create && !retryingAfterDuplicate && ex instanceof DuplicateKeyException) {
@@ -158,6 +157,41 @@ public class UserConsultationLogService {
         }
         log.info("user consultation log saved. consultationId={}, type={}, status={}, create={}", consultationId, consultationType, entity.getStatus(), create);
         return entity;
+    }
+
+    private void registerAudioLifecycle(String storedAudioPath, String previousAudioPath) {
+        if (!StringUtils.hasText(storedAudioPath)) {
+            return;
+        }
+        final String newPath = storedAudioPath;
+        final String oldPath = StringUtils.hasText(previousAudioPath)
+            && !storedAudioPath.equals(previousAudioPath) ? previousAudioPath : null;
+
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            // Direct unit usage or a deliberately non-transactional caller: the mapper
+            // operation has already returned, so preserve the historical immediate-commit
+            // behavior while keeping the production transaction path commit-aware.
+            if (oldPath != null) {
+                audioLogStorageService.deleteQuietly(oldPath);
+            }
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                if (oldPath != null) {
+                    audioLogStorageService.deleteQuietly(oldPath);
+                }
+            }
+
+            @Override
+            public void afterCompletion(int status) {
+                if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                    audioLogStorageService.deleteQuietly(newPath);
+                }
+            }
+        });
     }
 
     public PageResponse<UserConsultationLogListItem> list(long current,

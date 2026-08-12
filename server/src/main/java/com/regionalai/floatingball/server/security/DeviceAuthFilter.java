@@ -11,6 +11,7 @@ import com.regionalai.floatingball.server.modules.release.service.ReleaseService
 import com.regionalai.floatingball.server.modules.security.service.SecurityRejectionLogService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StreamUtils;
@@ -78,7 +79,14 @@ public class DeviceAuthFilter extends OncePerRequestFilter {
         }
 
         String token = authHeader.substring("Bearer ".length()).trim();
-        AiDevice device = deviceService.findActiveByToken(token);
+        AiDevice device;
+        try {
+            device = deviceService.findActiveByToken(token);
+        } catch (DataAccessException ex) {
+            log.error("device auth dependency unavailable. uri={}", wrappedRequest.getRequestURI(), ex);
+            writeSecurityUnavailable(response, wrappedRequest);
+            return;
+        }
         if (device == null) {
             log.warn("device auth failed: invalid or inactive token. uri={}", wrappedRequest.getRequestURI());
             recordRejection("AUTH_INVALID_TOKEN", wrappedRequest, null, "设备令牌无效或已停用", "Token does not match any active device", false, null, null);

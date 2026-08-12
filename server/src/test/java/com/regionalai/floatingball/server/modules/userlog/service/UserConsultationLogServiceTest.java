@@ -18,6 +18,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.ByteArrayInputStream;
 import java.util.Collections;
@@ -363,6 +365,81 @@ class UserConsultationLogServiceTest {
 
         verify(audioLogStorageService).deleteQuietly("/tmp/floating-ball-server/speech-audit/new.wav");
         verify(mapper).updateById(existing);
+    }
+
+    @Test
+    void saveShouldDeletePreviousAudioOnlyAfterTransactionCommit() throws Exception {
+        AiUserConsultationLog existing = existingGeneratedLogWithAudio("v1/20260810/old.wav");
+        when(mapper.selectOne(any())).thenReturn(existing);
+        when(audioLogStorageService.store(any(byte[].class), any(String.class), any(String.class)))
+            .thenReturn("v1/20260811/new.wav");
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.save(device(), audioRequest());
+
+            verify(audioLogStorageService, never()).deleteQuietly("v1/20260810/old.wav");
+            List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
+            assertEquals(1, synchronizations.size());
+            synchronizations.get(0).afterCommit();
+            synchronizations.get(0).afterCompletion(TransactionSynchronization.STATUS_COMMITTED);
+
+            verify(audioLogStorageService).deleteQuietly("v1/20260810/old.wav");
+            verify(audioLogStorageService, never()).deleteQuietly("v1/20260811/new.wav");
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void saveShouldKeepPreviousAudioAndDeleteNewAudioAfterTransactionRollback() throws Exception {
+        AiUserConsultationLog existing = existingGeneratedLogWithAudio("v1/20260810/old.wav");
+        when(mapper.selectOne(any())).thenReturn(existing);
+        when(audioLogStorageService.store(any(byte[].class), any(String.class), any(String.class)))
+            .thenReturn("v1/20260811/new.wav");
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.save(device(), audioRequest());
+
+            List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
+            assertEquals(1, synchronizations.size());
+            synchronizations.get(0).afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
+
+            verify(audioLogStorageService, never()).deleteQuietly("v1/20260810/old.wav");
+            verify(audioLogStorageService).deleteQuietly("v1/20260811/new.wav");
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    private AiUserConsultationLog existingGeneratedLogWithAudio(String audioPath) {
+        AiUserConsultationLog existing = new AiUserConsultationLog();
+        existing.setIdLog("LOG001");
+        existing.setConsultationId("CONSULT-001");
+        existing.setConsultationRoundId("ROUND-001");
+        existing.setConsultationType("voice");
+        existing.setIdDevice("DEV001");
+        existing.setFgActive("1");
+        existing.setStatus("generated");
+        existing.setAudioFilePath(audioPath);
+        return existing;
+    }
+
+    private AiDevice device() {
+        AiDevice device = new AiDevice();
+        device.setIdDevice("DEV001");
+        device.setIdOrg("ORG001");
+        return device;
+    }
+
+    private UserConsultationLogRequest audioRequest() throws Exception {
+        UserConsultationLogRequest request = new UserConsultationLogRequest();
+        request.setConsultationId("CONSULT-001");
+        request.setConsultationRoundId("ROUND-001");
+        request.setConsultationType("voice");
+        request.setAudio(Base64.getEncoder().encodeToString("audio-bytes".getBytes("UTF-8")));
+        request.setAudioMimeType("audio/wav");
+        request.setAudioFileName("voice.wav");
+        return request;
     }
 
     @Test

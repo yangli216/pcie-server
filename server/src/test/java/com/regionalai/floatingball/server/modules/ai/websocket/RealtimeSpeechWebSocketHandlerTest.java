@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Map;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -54,6 +55,20 @@ class RealtimeSpeechWebSocketHandlerTest {
         assertThat(parameters.get("heartbeat")).isEqualTo(true);
         assertThat(parameters.get("format")).isEqualTo("pcm");
         assertThat(parameters.get("sample_rate")).isEqualTo(16000);
+    }
+
+    @Test
+    void productionDeadlineSchedulerRemovesCancelledTasksImmediately() {
+        RealtimeSpeechWebSocketHandler handler = newHandler();
+        try {
+            ScheduledThreadPoolExecutor scheduler = (ScheduledThreadPoolExecutor)
+                ReflectionTestUtils.getField(handler, "handshakeScheduler");
+            assertThat(scheduler).isNotNull();
+            assertThat(scheduler.getRemoveOnCancelPolicy()).isTrue();
+            assertThat(scheduler.getExecuteExistingDelayedTasksAfterShutdownPolicy()).isFalse();
+        } finally {
+            handler.shutdownHandshakeScheduler();
+        }
     }
 
     private RealtimeSpeechWebSocketHandler newHandler() {

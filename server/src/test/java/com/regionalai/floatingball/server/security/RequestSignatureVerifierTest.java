@@ -1,8 +1,7 @@
 package com.regionalai.floatingball.server.security;
 
-import com.regionalai.floatingball.server.security.nonce.NonceStore;
-import com.regionalai.floatingball.server.security.nonce.NonceStoreUnavailableException;
 import com.regionalai.floatingball.server.security.nonce.InMemoryNonceStore;
+import com.regionalai.floatingball.server.security.nonce.NonceStoreUnavailableException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -227,23 +226,29 @@ class RequestSignatureVerifierTest {
 
     @Test
     void verify_nonceStoreUnavailable_returnsDedicatedResult() throws Exception {
-        NonceStore unavailableStore = (deviceId, nonce, expiresAtEpochMs) -> {
+        verifier = new RequestSignatureVerifier((deviceId, nonce, expiresAtEpochMs) -> {
             throw new NonceStoreUnavailableException("down", new IllegalStateException("db down"));
-        };
-        verifier = new RequestSignatureVerifier(unavailableStore);
-
+        });
         String method = "GET";
         String path = "/v1/client/bootstrap";
         String timestamp = String.valueOf(System.currentTimeMillis());
         String nonce = java.util.UUID.randomUUID().toString();
-        String bodySha256Hex = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        String bodyHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
         RequestSignatureVerifier.VerificationResult result = verifier.verify(
-            "DEV001", publicKeyBase64, method, path, timestamp, nonce, bodySha256Hex,
-            sign(method, path, timestamp, nonce, bodySha256Hex));
+            "DEV001",
+            publicKeyBase64,
+            method,
+            path,
+            timestamp,
+            nonce,
+            bodyHash,
+            sign(method, path, timestamp, nonce, bodyHash)
+        );
 
         assertFalse(result.isValid());
         assertTrue(result.isStoreUnavailable());
+        assertTrue(result.getErrorMessage().contains("暂时不可用"));
     }
 
     @Test

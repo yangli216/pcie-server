@@ -17,7 +17,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -46,14 +45,16 @@ class AuditServiceTest {
     Path tempDir;
 
     private AuditService auditService;
+    private AudioLogStorageService audioLogStorageService;
 
     @BeforeEach
     void setUp() {
+        audioLogStorageService = new AudioLogStorageService(tempDir.resolve("speech-audit").toString());
         auditService = new AuditService(
             aiOpLogMapper,
             aiOpLogService,
             new ObjectMapper(),
-            new AudioLogStorageService(tempDir.resolve("speech-audit").toString())
+            audioLogStorageService
         );
     }
 
@@ -187,7 +188,10 @@ class AuditServiceTest {
         assertEquals("transcribe", log.getOpTitle());
         assertEquals("chat-input", log.getSceneCode());
         assertNotNull(log.getAudioFilePath());
-        assertEquals("hello-audio", new String(Files.readAllBytes(Paths.get(log.getAudioFilePath())), StandardCharsets.UTF_8));
+        assertEquals(
+            "hello-audio",
+            new String(Files.readAllBytes(audioLogStorageService.resolveExistingPath(log.getAudioFilePath())), StandardCharsets.UTF_8)
+        );
         assertEquals(
             OBJECT_MAPPER.readTree("{\"scene\":\"chat-input\",\"requestBody\":{\"fileName\":\"speech.wav\"}}"),
             OBJECT_MAPPER.readTree(log.getPayloadJson())

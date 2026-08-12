@@ -22,16 +22,11 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -47,22 +42,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * Opt-in local capacity simulation for the production three-node sizing contract.
+ * Opt-in local capacity regression for the standalone deployment baseline.
  *
  * <p>This test deliberately exercises the real bounded Spring executor and Apache
  * HTTP connection pool against a delayed loopback upstream. It is not an
- * end-to-end substitute for signed requests, a production database, three JVMs,
- * the load balancer, shared storage, or host-level memory/FD measurements.</p>
+ * end-to-end substitute for signed requests, a production database, Nginx, or
+ * host-level memory/FD measurements.</p>
  */
 class AiCapacitySimulationTest {
 
-    private static final int PRODUCTION_POOL_SIZE = 96;
-    private static final int PRODUCTION_QUEUE_CAPACITY = 8;
-    private static final int PRODUCTION_HTTP_MAX_TOTAL = 224;
-    private static final int PRODUCTION_HTTP_MAX_PER_ROUTE = 192;
-    private static final int PRODUCTION_HTTP_READ_TIMEOUT_MS = 120_000;
-    private static final int HEALTHY_ATTEMPTS = 160;
-    private static final int RETRY_AMPLIFIED_ATTEMPTS = 640;
+    private static final int STANDALONE_POOL_SIZE = 80;
+    private static final int STANDALONE_QUEUE_CAPACITY = 8;
+    private static final int STANDALONE_HTTP_MAX_TOTAL = 160;
+    private static final int STANDALONE_HTTP_MAX_PER_ROUTE = 144;
+    private static final int STANDALONE_HTTP_READ_TIMEOUT_MS = 120_000;
+    private static final int HEALTHY_ATTEMPTS = STANDALONE_POOL_SIZE;
+    private static final int OVERLOAD_ATTEMPTS = 160;
     private static final long DEFAULT_UPSTREAM_DELAY_MS = 2_000L;
     private static final long DEFAULT_HEALTHY_WAVE_SPREAD_MS = 1_000L;
     private final List<ch.qos.logback.classic.Logger> quietLoggers = new ArrayList<>();
@@ -96,38 +91,13 @@ class AiCapacitySimulationTest {
     }
 
     @Test
-    void productionCapacityConstants_matchClusterEnvironmentExample() throws Exception {
-        Path moduleBase = Paths.get(System.getProperty("basedir", ".")).toAbsolutePath().normalize();
-        Path environmentExample = moduleBase.resolve("../deploy/cluster/pcie-server.env.example").normalize();
-        assertThat(environmentExample).exists();
-
-        Map<String, String> environment = new HashMap<>();
-        for (String rawLine : Files.readAllLines(environmentExample, StandardCharsets.UTF_8)) {
-            String line = rawLine.trim();
-            if (line.isEmpty() || line.startsWith("#") || !line.contains("=")) {
-                continue;
-            }
-            int delimiter = line.indexOf('=');
-            environment.put(line.substring(0, delimiter), line.substring(delimiter + 1));
-        }
-
-        assertThat(environment)
-            .containsEntry("FB_AI_BLOCKING_POOL_SIZE", String.valueOf(PRODUCTION_POOL_SIZE))
-            .containsEntry("FB_AI_BLOCKING_QUEUE_CAPACITY", String.valueOf(PRODUCTION_QUEUE_CAPACITY))
-            .containsEntry("FB_AI_HTTP_MAX_TOTAL", String.valueOf(PRODUCTION_HTTP_MAX_TOTAL))
-            .containsEntry("FB_AI_HTTP_MAX_PER_ROUTE", String.valueOf(PRODUCTION_HTTP_MAX_PER_ROUTE))
-            .containsEntry("FLOATING_BALL_AI_READ_TIMEOUT_MS",
-                String.valueOf(PRODUCTION_HTTP_READ_TIMEOUT_MS));
-    }
-
-    @Test
-    void threeNode_uniformDistributionAcceptsHealthy160WithRealHttpPool() throws Exception {
+    void singleNode_completesWorkWithinBoundedCapacityWithRealHttpPool() throws Exception {
         long delayMillis = configuredDelayMillis();
         try (DelayedUpstream upstream = new DelayedUpstream(delayMillis);
-             NodeGroup nodes = NodeGroup.create(3, upstream.url())) {
+             NodeHarness node = new NodeHarness(upstream.url())) {
             ScenarioResult result = runScenario(
-                "three-node-healthy-160",
-                nodes,
+                "single-node-healthy",
+                node,
                 upstream,
                 new int[]{HEALTHY_ATTEMPTS},
                 new long[]{0L},
@@ -135,33 +105,9 @@ class AiCapacitySimulationTest {
             );
 
             assertHealthy(result, HEALTHY_ATTEMPTS);
-            assertThat(result.maxAcceptedByNode()).isLessThanOrEqualTo(54);
-            assertThat(result.maxPeakActiveByNode()).isLessThanOrEqualTo(PRODUCTION_POOL_SIZE);
-            assertThat(result.maxPeakLeasedByNode()).isLessThanOrEqualTo(PRODUCTION_POOL_SIZE);
-            assertThat(result.sumPeakPending()).isZero();
-            assertReleased(result);
-        }
-    }
-
-    @Test
-    void nMinusOne_uniformDistributionAcceptsHealthy160WithRealHttpPool() throws Exception {
-        long delayMillis = configuredDelayMillis();
-        try (DelayedUpstream upstream = new DelayedUpstream(delayMillis);
-             NodeGroup nodes = NodeGroup.create(2, upstream.url())) {
-            ScenarioResult result = runScenario(
-                "n-minus-one-healthy-160",
-                nodes,
-                upstream,
-                new int[]{HEALTHY_ATTEMPTS},
-                new long[]{0L},
-                configuredHealthyWaveSpreadMillis()
-            );
-
-            assertHealthy(result, HEALTHY_ATTEMPTS);
-            assertThat(result.acceptedByNode).containsExactly(80, 80);
-            assertThat(result.maxPeakActiveByNode()).isLessThanOrEqualTo(PRODUCTION_POOL_SIZE);
-            assertThat(result.maxPeakLeasedByNode()).isLessThanOrEqualTo(PRODUCTION_POOL_SIZE);
-            assertThat(result.sumPeakPending()).isZero();
+            assertThat(result.peakActive).isLessThanOrEqualTo(STANDALONE_POOL_SIZE);
+            assertThat(result.peakLeased).isLessThanOrEqualTo(STANDALONE_POOL_SIZE);
+            assertThat(result.peakPending).isZero();
             assertReleased(result);
         }
     }
@@ -174,90 +120,50 @@ class AiCapacitySimulationTest {
             .as("single-node overload wave must finish before delayed tasks can complete")
             .isLessThan(delayMillis);
         try (DelayedUpstream upstream = new DelayedUpstream(delayMillis);
-             NodeGroup nodes = NodeGroup.create(1, upstream.url())) {
+             NodeHarness node = new NodeHarness(upstream.url())) {
             ScenarioResult overloaded = runScenario(
-                "single-node-overload-160",
-                nodes,
+                "single-node-overload",
+                node,
                 upstream,
-                new int[]{HEALTHY_ATTEMPTS},
+                new int[]{OVERLOAD_ATTEMPTS},
                 new long[]{0L},
                 waveSpreadMillis
             );
 
-            assertThat(overloaded.accepted).isEqualTo(PRODUCTION_POOL_SIZE + PRODUCTION_QUEUE_CAPACITY);
-            assertThat(overloaded.completed).isEqualTo(PRODUCTION_POOL_SIZE + PRODUCTION_QUEUE_CAPACITY);
+            assertThat(overloaded.accepted).isEqualTo(STANDALONE_POOL_SIZE + STANDALONE_QUEUE_CAPACITY);
+            assertThat(overloaded.completed).isEqualTo(STANDALONE_POOL_SIZE + STANDALONE_QUEUE_CAPACITY);
             assertThat(overloaded.rejected).isEqualTo(
-                HEALTHY_ATTEMPTS - PRODUCTION_POOL_SIZE - PRODUCTION_QUEUE_CAPACITY);
+                OVERLOAD_ATTEMPTS - STANDALONE_POOL_SIZE - STANDALONE_QUEUE_CAPACITY);
             assertThat(overloaded.failed).isZero();
             assertThat(overloaded.submissionMillis).isLessThan(delayMillis);
-            assertThat(overloaded.maxPeakActiveByNode()).isEqualTo(PRODUCTION_POOL_SIZE);
-            assertThat(overloaded.maxPeakQueueByNode()).isEqualTo(PRODUCTION_QUEUE_CAPACITY);
-            assertThat(overloaded.sumPeakPending()).isZero();
+            assertThat(overloaded.peakActive).isEqualTo(STANDALONE_POOL_SIZE);
+            assertThat(overloaded.peakQueue).isEqualTo(STANDALONE_QUEUE_CAPACITY);
+            assertThat(overloaded.peakPending).isZero();
             assertReleased(overloaded);
 
             ScenarioResult recovered = runScenario(
-                "single-node-recovery-96",
-                nodes,
+                "single-node-recovery",
+                node,
                 upstream,
-                new int[]{PRODUCTION_POOL_SIZE},
+                new int[]{STANDALONE_POOL_SIZE},
                 new long[]{0L},
                 waveSpreadMillis
             );
-            assertHealthy(recovered, PRODUCTION_POOL_SIZE);
+            assertHealthy(recovered, STANDALONE_POOL_SIZE);
             assertReleased(recovered);
         }
     }
 
     @Test
-    void nMinusOne_boundsCompressedRetryBurst640AndRecovers() throws Exception {
-        long delayMillis = Math.max(configuredDelayMillis(), 5_000L);
-        try (DelayedUpstream upstream = new DelayedUpstream(delayMillis);
-             NodeGroup nodes = NodeGroup.create(2, upstream.url())) {
-            ScenarioResult amplified = runScenario(
-                "n-minus-one-compressed-retry-burst-640",
-                nodes,
-                upstream,
-                new int[]{160, 160, 160, 160},
-                new long[]{0L, 100L, 200L, 400L},
-                100L
-            );
-
-            int boundedCapacity = 2 * (PRODUCTION_POOL_SIZE + PRODUCTION_QUEUE_CAPACITY);
-            assertThat(amplified.attempts).isEqualTo(RETRY_AMPLIFIED_ATTEMPTS);
-            assertThat(amplified.accepted).isEqualTo(boundedCapacity);
-            assertThat(amplified.completed).isEqualTo(boundedCapacity);
-            assertThat(amplified.rejected).isEqualTo(RETRY_AMPLIFIED_ATTEMPTS - boundedCapacity);
-            assertThat(amplified.failed).isZero();
-            assertThat(amplified.submissionMillis).isLessThan(delayMillis);
-            assertThat(amplified.maxPeakActiveByNode()).isEqualTo(PRODUCTION_POOL_SIZE);
-            assertThat(amplified.maxPeakQueueByNode()).isEqualTo(PRODUCTION_QUEUE_CAPACITY);
-            assertThat(amplified.maxPeakLeasedByNode()).isLessThanOrEqualTo(PRODUCTION_POOL_SIZE);
-            assertThat(amplified.sumPeakPending()).isZero();
-            assertReleased(amplified);
-
-            ScenarioResult recovered = runScenario(
-                "n-minus-one-recovery-160",
-                nodes,
-                upstream,
-                new int[]{HEALTHY_ATTEMPTS},
-                new long[]{0L},
-                configuredHealthyWaveSpreadMillis()
-            );
-            assertHealthy(recovered, HEALTHY_ATTEMPTS);
-            assertReleased(recovered);
-        }
-    }
-
-    @Test
-    void nMinusOne_uniformDistributionReleasesResourcesAt120SecondReadTimeout() throws Exception {
+    void singleNode_releasesResourcesAt120SecondReadTimeout() throws Exception {
         assumeTrue(Boolean.getBoolean("pcie.capacity.timeout-boundary-simulation"),
             "Enable the long boundary run with -Dpcie.capacity.timeout-boundary-simulation=true");
-        long upstreamDelayMillis = PRODUCTION_HTTP_READ_TIMEOUT_MS + 5_000L;
+        long upstreamDelayMillis = STANDALONE_HTTP_READ_TIMEOUT_MS + 5_000L;
         try (DelayedUpstream upstream = new DelayedUpstream(upstreamDelayMillis);
-             NodeGroup nodes = NodeGroup.create(2, upstream.url())) {
+             NodeHarness node = new NodeHarness(upstream.url())) {
             ScenarioResult timedOut = runScenario(
-                "n-minus-one-read-timeout-120s",
-                nodes,
+                "single-node-read-timeout-120s",
+                node,
                 upstream,
                 new int[]{HEALTHY_ATTEMPTS},
                 new long[]{0L},
@@ -269,10 +175,9 @@ class AiCapacitySimulationTest {
             assertThat(timedOut.rejected).isZero();
             assertThat(timedOut.failed).isEqualTo(HEALTHY_ATTEMPTS);
             assertThat(timedOut.p95Millis).isBetween(115_000L, 130_000L);
-            assertThat(timedOut.acceptedByNode).containsExactly(80, 80);
-            assertThat(timedOut.maxPeakActiveByNode()).isLessThanOrEqualTo(PRODUCTION_POOL_SIZE);
-            assertThat(timedOut.maxPeakLeasedByNode()).isLessThanOrEqualTo(PRODUCTION_POOL_SIZE);
-            assertThat(timedOut.sumPeakPending()).isZero();
+            assertThat(timedOut.peakActive).isLessThanOrEqualTo(STANDALONE_POOL_SIZE);
+            assertThat(timedOut.peakLeased).isLessThanOrEqualTo(STANDALONE_POOL_SIZE);
+            assertThat(timedOut.peakPending).isZero();
             assertReleased(timedOut);
         }
     }
@@ -288,15 +193,15 @@ class AiCapacitySimulationTest {
     }
 
     private static ScenarioResult runScenario(String name,
-                                              NodeGroup nodes,
+                                              NodeHarness node,
                                               DelayedUpstream upstream,
                                               int[] waveSizes,
                                               long[] pausesBeforeWaveMillis,
                                               long waveSpreadMillis) throws Exception {
         assertThat(waveSizes).hasSameSizeAs(pausesBeforeWaveMillis);
-        nodes.resetPeaks();
+        node.resetPeaks();
         upstream.resetPeak();
-        nodes.printState("before-" + name);
+        node.printState("before-" + name);
 
         int attempts = Arrays.stream(waveSizes).sum();
         CountDownLatch outcomes = new CountDownLatch(attempts);
@@ -307,15 +212,13 @@ class AiCapacitySimulationTest {
         AtomicLong maxSubmitMicros = new AtomicLong();
         ConcurrentLinkedQueue<Long> endToEndLatenciesMillis = new ConcurrentLinkedQueue<>();
         ConcurrentLinkedQueue<Long> serviceLatenciesMillis = new ConcurrentLinkedQueue<>();
-        int[] acceptedByNode = new int[nodes.size()];
-        long[] completedTasksBefore = nodes.completedTasks();
+        long completedTasksBefore = node.completedTaskCount();
 
         ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(
             daemonThreadFactory("capacity-monitor-"));
-        monitor.scheduleAtFixedRate(nodes::observePools, 0L, 5L, TimeUnit.MILLISECONDS);
+        monitor.scheduleAtFixedRate(node::observePool, 0L, 5L, TimeUnit.MILLISECONDS);
 
         long submissionStarted = System.nanoTime();
-        int requestIndex = 0;
         try {
             for (int wave = 0; wave < waveSizes.length; wave++) {
                 if (pausesBeforeWaveMillis[wave] > 0L) {
@@ -323,8 +226,6 @@ class AiCapacitySimulationTest {
                 }
                 long waveStarted = System.nanoTime();
                 for (int request = 0; request < waveSizes[wave]; request++) {
-                    int nodeIndex = requestIndex++ % nodes.size();
-                    NodeHarness node = nodes.get(nodeIndex);
                     long submitStarted = System.nanoTime();
                     long requestSubmitted = System.nanoTime();
                     try {
@@ -342,12 +243,11 @@ class AiCapacitySimulationTest {
                             }
                         });
                         accepted.incrementAndGet();
-                        acceptedByNode[nodeIndex]++;
                     } catch (TaskRejectedException ex) {
                         if (rejected.incrementAndGet() == 1) {
                             System.out.printf(Locale.ROOT,
-                                "CAPACITY_REJECTION {\"scenario\":\"%s\",\"node\":%d,\"message\":\"%s\",\"state\":\"%s\"}%n",
-                                name, nodeIndex + 1,
+                                "CAPACITY_REJECTION {\"scenario\":\"%s\",\"message\":\"%s\",\"state\":\"%s\"}%n",
+                                name,
                                 String.valueOf(ex.getMessage()).replace("\"", "'"),
                                 node.state().replace("\"", "'"));
                         }
@@ -366,7 +266,7 @@ class AiCapacitySimulationTest {
             monitor.shutdownNow();
             throw error;
         } finally {
-            nodes.observePools();
+            node.observePool();
         }
         long submissionMillis = elapsedMillis(submissionStarted);
         long completionTimeoutMillis = Math.max(30_000L, upstream.delayMillis * 2L + 10_000L);
@@ -377,9 +277,9 @@ class AiCapacitySimulationTest {
             monitor.shutdownNow();
         }
         assertThat(finished).as("all simulated requests must reach a terminal outcome").isTrue();
-        awaitExecutorBookkeeping(nodes, completedTasksBefore, acceptedByNode, 5_000L);
-        awaitReleased(nodes, 5_000L);
-        nodes.observePools();
+        awaitExecutorBookkeeping(node, completedTasksBefore, accepted.get(), 5_000L);
+        awaitReleased(node, 5_000L);
+        node.observePool();
 
         ScenarioResult result = new ScenarioResult(
             name,
@@ -393,16 +293,15 @@ class AiCapacitySimulationTest {
             percentile95(endToEndLatenciesMillis),
             percentile95(serviceLatenciesMillis),
             upstream.peakActive.get(),
-            acceptedByNode,
-            nodes.peakActive(),
-            nodes.peakQueue(),
-            nodes.peakLeased(),
-            nodes.peakPending(),
-            nodes.activeNow(),
-            nodes.queuedNow(),
-            nodes.leasedNow(),
-            nodes.pendingNow(),
-            nodes.availableNow()
+            node.peakActive.get(),
+            node.peakQueue.get(),
+            node.peakLeased.get(),
+            node.peakPending.get(),
+            node.active.get(),
+            node.queuedNow(),
+            node.leasedNow(),
+            node.pendingNow(),
+            node.availableNow()
         );
         result.print();
         return result;
@@ -428,56 +327,40 @@ class AiCapacitySimulationTest {
         assertThat(result.completed).isEqualTo(expected);
         assertThat(result.rejected).isZero();
         assertThat(result.failed).isZero();
-        assertThat(result.sumAvailableAfter()).isGreaterThan(0);
+        assertThat(result.availableAfter).isGreaterThan(0);
     }
 
     private static void assertReleased(ScenarioResult result) {
-        assertThat(result.sumActiveAfter()).isZero();
-        assertThat(result.sumQueuedAfter()).isZero();
-        assertThat(result.sumLeasedAfter()).isZero();
-        assertThat(result.sumPendingAfter()).isZero();
+        assertThat(result.activeAfter).isZero();
+        assertThat(result.queuedAfter).isZero();
+        assertThat(result.leasedAfter).isZero();
+        assertThat(result.pendingAfter).isZero();
     }
 
-    private static void awaitReleased(NodeGroup nodes, long timeoutMillis) throws InterruptedException {
+    private static void awaitReleased(NodeHarness node, long timeoutMillis) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
         while (System.nanoTime() < deadline) {
-            if (nodes.isReleased()) {
+            if (node.isReleased()) {
                 return;
             }
             Thread.sleep(20L);
         }
     }
 
-    private static void awaitExecutorBookkeeping(NodeGroup nodes,
-                                                 long[] completedBefore,
-                                                 int[] acceptedByNode,
+    private static void awaitExecutorBookkeeping(NodeHarness node,
+                                                 long completedBefore,
+                                                 int accepted,
                                                  long timeoutMillis) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
         while (System.nanoTime() < deadline) {
-            long[] completedNow = nodes.completedTasks();
-            boolean complete = true;
-            for (int index = 0; index < completedNow.length; index++) {
-                if (completedNow[index] < completedBefore[index] + acceptedByNode[index]) {
-                    complete = false;
-                    break;
-                }
-            }
-            if (complete) {
+            if (node.completedTaskCount() >= completedBefore + accepted) {
                 return;
             }
             Thread.sleep(20L);
         }
-        assertThat(nodes.completedTasks())
+        assertThat(node.completedTaskCount())
             .as("executor completed-task counters must include every accepted request")
-            .containsExactly(expectedCompleted(completedBefore, acceptedByNode));
-    }
-
-    private static long[] expectedCompleted(long[] completedBefore, int[] acceptedByNode) {
-        long[] expected = new long[completedBefore.length];
-        for (int index = 0; index < expected.length; index++) {
-            expected[index] = completedBefore[index] + acceptedByNode[index];
-        }
-        return expected;
+            .isGreaterThanOrEqualTo(completedBefore + accepted);
     }
 
     private static long elapsedMillis(long startedNanos) {
@@ -517,117 +400,6 @@ class AiCapacitySimulationTest {
         };
     }
 
-    private static final class NodeGroup implements AutoCloseable {
-        private final List<NodeHarness> nodes;
-
-        private NodeGroup(List<NodeHarness> nodes) {
-            this.nodes = nodes;
-        }
-
-        static NodeGroup create(int count, String upstreamUrl) {
-            List<NodeHarness> nodes = new ArrayList<>();
-            for (int index = 0; index < count; index++) {
-                nodes.add(new NodeHarness("node-" + (index + 1), upstreamUrl));
-            }
-            return new NodeGroup(nodes);
-        }
-
-        int size() {
-            return nodes.size();
-        }
-
-        NodeHarness get(int index) {
-            return nodes.get(index);
-        }
-
-        void resetPeaks() {
-            for (NodeHarness node : nodes) {
-                node.resetPeaks();
-            }
-        }
-
-        void observePools() {
-            for (NodeHarness node : nodes) {
-                node.observePool();
-            }
-        }
-
-        int[] peakActive() {
-            return nodes.stream().mapToInt(node -> node.peakActive.get()).toArray();
-        }
-
-        int[] peakQueue() {
-            return nodes.stream().mapToInt(node -> node.peakQueue.get()).toArray();
-        }
-
-        int[] peakLeased() {
-            return nodes.stream().mapToInt(node -> node.peakLeased.get()).toArray();
-        }
-
-        int[] peakPending() {
-            return nodes.stream().mapToInt(node -> node.peakPending.get()).toArray();
-        }
-
-        int[] activeNow() {
-            return nodes.stream().mapToInt(NodeHarness::executorActiveNow).toArray();
-        }
-
-        int[] queuedNow() {
-            return nodes.stream().mapToInt(NodeHarness::queuedNow).toArray();
-        }
-
-        int[] leasedNow() {
-            return nodes.stream().mapToInt(NodeHarness::leasedNow).toArray();
-        }
-
-        int[] pendingNow() {
-            return nodes.stream().mapToInt(NodeHarness::pendingNow).toArray();
-        }
-
-        int[] availableNow() {
-            return nodes.stream().mapToInt(NodeHarness::availableNow).toArray();
-        }
-
-        long[] completedTasks() {
-            return nodes.stream().mapToLong(NodeHarness::completedTaskCount).toArray();
-        }
-
-        void printState(String label) {
-            for (int index = 0; index < nodes.size(); index++) {
-                System.out.printf(Locale.ROOT,
-                    "CAPACITY_EXECUTOR_STATE {\"label\":\"%s\",\"node\":%d,\"state\":\"%s\"}%n",
-                    label, index + 1, nodes.get(index).state().replace("\"", "'"));
-            }
-        }
-
-        boolean isReleased() {
-            for (NodeHarness node : nodes) {
-                if (node.active.get() != 0 || node.executorActiveNow() != 0 || node.queuedNow() != 0
-                    || node.leasedNow() != 0 || node.pendingNow() != 0) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        @Override
-        public void close() throws Exception {
-            Exception first = null;
-            for (NodeHarness node : nodes) {
-                try {
-                    node.close();
-                } catch (Exception ex) {
-                    if (first == null) {
-                        first = ex;
-                    }
-                }
-            }
-            if (first != null) {
-                throw first;
-            }
-        }
-    }
-
     private static final class NodeHarness implements AutoCloseable {
         private final String upstreamUrl;
         private final ThreadPoolTaskExecutor executor;
@@ -640,34 +412,34 @@ class AiCapacitySimulationTest {
         private final AtomicInteger peakLeased = new AtomicInteger();
         private final AtomicInteger peakPending = new AtomicInteger();
 
-        private NodeHarness(String nodeName, String upstreamUrl) {
+        private NodeHarness(String upstreamUrl) {
             this.upstreamUrl = upstreamUrl;
             AiHttpClientProperties properties = new AiHttpClientProperties();
-            properties.setMaxTotal(PRODUCTION_HTTP_MAX_TOTAL);
-            properties.setMaxPerRoute(PRODUCTION_HTTP_MAX_PER_ROUTE);
+            properties.setMaxTotal(STANDALONE_HTTP_MAX_TOTAL);
+            properties.setMaxPerRoute(STANDALONE_HTTP_MAX_PER_ROUTE);
             properties.setConnectionRequestTimeoutMs(500);
             properties.setValidateAfterInactivityMs(5_000);
             properties.setIdleEvictSeconds(30);
 
             RestTemplateConfig restTemplateConfig = new RestTemplateConfig();
             this.connectionManager = restTemplateConfig.aiHttpConnectionManager(properties);
-            assertThat(connectionManager.getMaxTotal()).isEqualTo(PRODUCTION_HTTP_MAX_TOTAL);
+            assertThat(connectionManager.getMaxTotal()).isEqualTo(STANDALONE_HTTP_MAX_TOTAL);
             assertThat(connectionManager.getDefaultMaxPerRoute())
-                .isEqualTo(PRODUCTION_HTTP_MAX_PER_ROUTE);
+                .isEqualTo(STANDALONE_HTTP_MAX_PER_ROUTE);
             this.httpClient = restTemplateConfig.aiHttpClient(
-                connectionManager, properties, 5_000, PRODUCTION_HTTP_READ_TIMEOUT_MS,
+                connectionManager, properties, 5_000, STANDALONE_HTTP_READ_TIMEOUT_MS,
                 false, "", 7_890, "", "");
             HttpComponentsClientHttpRequestFactory requestFactory =
                 restTemplateConfig.aiHttpRequestFactory(
-                    httpClient, properties, 5_000, PRODUCTION_HTTP_READ_TIMEOUT_MS);
+                    httpClient, properties, 5_000, STANDALONE_HTTP_READ_TIMEOUT_MS);
             this.restTemplate = restTemplateConfig.restTemplate(new RestTemplateBuilder(), requestFactory);
             this.executor = new AiBlockingExecutorConfig().aiBlockingExecutor(
-                PRODUCTION_POOL_SIZE, PRODUCTION_QUEUE_CAPACITY, 60L);
-            this.executor.setThreadNamePrefix("capacity-" + nodeName + "-");
+                STANDALONE_POOL_SIZE, STANDALONE_QUEUE_CAPACITY, 60L);
+            this.executor.setThreadNamePrefix("capacity-single-node-");
             java.util.concurrent.ThreadPoolExecutor pool = executor.getThreadPoolExecutor();
-            assertThat(pool.getCorePoolSize()).isEqualTo(PRODUCTION_POOL_SIZE);
-            assertThat(pool.getMaximumPoolSize()).isEqualTo(PRODUCTION_POOL_SIZE);
-            assertThat(pool.getQueue().remainingCapacity()).isEqualTo(PRODUCTION_QUEUE_CAPACITY);
+            assertThat(pool.getCorePoolSize()).isEqualTo(STANDALONE_POOL_SIZE);
+            assertThat(pool.getMaximumPoolSize()).isEqualTo(STANDALONE_POOL_SIZE);
+            assertThat(pool.getQueue().remainingCapacity()).isEqualTo(STANDALONE_QUEUE_CAPACITY);
         }
 
         void execute(Runnable task) {
@@ -708,6 +480,17 @@ class AiCapacitySimulationTest {
 
         long completedTaskCount() {
             return executor.getThreadPoolExecutor().getCompletedTaskCount();
+        }
+
+        void printState(String label) {
+            System.out.printf(Locale.ROOT,
+                "CAPACITY_EXECUTOR_STATE {\"label\":\"%s\",\"state\":\"%s\"}%n",
+                label, state().replace("\"", "'"));
+        }
+
+        boolean isReleased() {
+            return active.get() == 0 && executorActiveNow() == 0 && queuedNow() == 0
+                && leasedNow() == 0 && pendingNow() == 0;
         }
 
         String state() {
@@ -825,16 +608,15 @@ class AiCapacitySimulationTest {
         private final long p95Millis;
         private final long serviceP95Millis;
         private final int upstreamPeakActive;
-        private final int[] acceptedByNode;
-        private final int[] peakActiveByNode;
-        private final int[] peakQueueByNode;
-        private final int[] peakLeasedByNode;
-        private final int[] peakPendingByNode;
-        private final int[] activeAfter;
-        private final int[] queuedAfter;
-        private final int[] leasedAfter;
-        private final int[] pendingAfter;
-        private final int[] availableAfter;
+        private final int peakActive;
+        private final int peakQueue;
+        private final int peakLeased;
+        private final int peakPending;
+        private final int activeAfter;
+        private final int queuedAfter;
+        private final int leasedAfter;
+        private final int pendingAfter;
+        private final int availableAfter;
 
         private ScenarioResult(String name,
                                int attempts,
@@ -847,16 +629,15 @@ class AiCapacitySimulationTest {
                                long p95Millis,
                                long serviceP95Millis,
                                int upstreamPeakActive,
-                               int[] acceptedByNode,
-                               int[] peakActiveByNode,
-                               int[] peakQueueByNode,
-                               int[] peakLeasedByNode,
-                               int[] peakPendingByNode,
-                               int[] activeAfter,
-                               int[] queuedAfter,
-                               int[] leasedAfter,
-                               int[] pendingAfter,
-                               int[] availableAfter) {
+                               int peakActive,
+                               int peakQueue,
+                               int peakLeased,
+                               int peakPending,
+                               int activeAfter,
+                               int queuedAfter,
+                               int leasedAfter,
+                               int pendingAfter,
+                               int availableAfter) {
             this.name = name;
             this.attempts = attempts;
             this.accepted = accepted;
@@ -868,56 +649,15 @@ class AiCapacitySimulationTest {
             this.p95Millis = p95Millis;
             this.serviceP95Millis = serviceP95Millis;
             this.upstreamPeakActive = upstreamPeakActive;
-            this.acceptedByNode = acceptedByNode;
-            this.peakActiveByNode = peakActiveByNode;
-            this.peakQueueByNode = peakQueueByNode;
-            this.peakLeasedByNode = peakLeasedByNode;
-            this.peakPendingByNode = peakPendingByNode;
+            this.peakActive = peakActive;
+            this.peakQueue = peakQueue;
+            this.peakLeased = peakLeased;
+            this.peakPending = peakPending;
             this.activeAfter = activeAfter;
             this.queuedAfter = queuedAfter;
             this.leasedAfter = leasedAfter;
             this.pendingAfter = pendingAfter;
             this.availableAfter = availableAfter;
-        }
-
-        int maxAcceptedByNode() {
-            return max(acceptedByNode);
-        }
-
-        int maxPeakActiveByNode() {
-            return max(peakActiveByNode);
-        }
-
-        int maxPeakQueueByNode() {
-            return max(peakQueueByNode);
-        }
-
-        int maxPeakLeasedByNode() {
-            return max(peakLeasedByNode);
-        }
-
-        int sumPeakPending() {
-            return sum(peakPendingByNode);
-        }
-
-        int sumActiveAfter() {
-            return sum(activeAfter);
-        }
-
-        int sumQueuedAfter() {
-            return sum(queuedAfter);
-        }
-
-        int sumLeasedAfter() {
-            return sum(leasedAfter);
-        }
-
-        int sumPendingAfter() {
-            return sum(pendingAfter);
-        }
-
-        int sumAvailableAfter() {
-            return sum(availableAfter);
         }
 
         void print() {
@@ -926,33 +666,13 @@ class AiCapacitySimulationTest {
                     + "\"completed\":%d,\"rejected\":%d,\"failed\":%d,\"submissionMs\":%d,"
                     + "\"maxSubmitMicros\":%d,\"endToEndP95Ms\":%d,\"serviceP95Ms\":%d,"
                     + "\"upstreamPeakActive\":%d,"
-                    + "\"acceptedByNode\":%s,\"peakActiveByNode\":%s,\"peakQueueByNode\":%s,"
-                    + "\"peakLeasedByNode\":%s,\"peakPendingByNode\":%s,\"activeAfter\":%s,"
-                    + "\"queuedAfter\":%s,\"leasedAfter\":%s,\"pendingAfter\":%s,"
-                    + "\"availableAfter\":%s}%n",
+                    + "\"peakActive\":%d,\"peakQueue\":%d,\"peakLeased\":%d,"
+                    + "\"peakPending\":%d,\"activeAfter\":%d,\"queuedAfter\":%d,"
+                    + "\"leasedAfter\":%d,\"pendingAfter\":%d,\"availableAfter\":%d}%n",
                 name, attempts, accepted, completed, rejected, failed, submissionMillis,
                 maxSubmitMicros, p95Millis, serviceP95Millis, upstreamPeakActive,
-                Arrays.toString(acceptedByNode), Arrays.toString(peakActiveByNode),
-                Arrays.toString(peakQueueByNode), Arrays.toString(peakLeasedByNode),
-                Arrays.toString(peakPendingByNode), Arrays.toString(activeAfter),
-                Arrays.toString(queuedAfter), Arrays.toString(leasedAfter),
-                Arrays.toString(pendingAfter), Arrays.toString(availableAfter));
-        }
-
-        private static int max(int[] values) {
-            int max = 0;
-            for (int value : values) {
-                max = Math.max(max, value);
-            }
-            return max;
-        }
-
-        private static int sum(int[] values) {
-            int sum = 0;
-            for (int value : values) {
-                sum += value;
-            }
-            return sum;
+                peakActive, peakQueue, peakLeased, peakPending, activeAfter, queuedAfter,
+                leasedAfter, pendingAfter, availableAfter);
         }
     }
 }
