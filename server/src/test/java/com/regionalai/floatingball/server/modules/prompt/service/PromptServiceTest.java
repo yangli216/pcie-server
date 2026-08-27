@@ -10,8 +10,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -56,6 +58,19 @@ class PromptServiceTest {
 
         assertEquals("3.0.0", delta.getVersion());
         assertTrue(delta.getPrompts().isEmpty());
+    }
+
+    @Test
+    void shouldExposeVersionedVoiceIntentStreamDefault() {
+        when(aiPromptMapper.selectList(any())).thenReturn(Collections.emptyList());
+
+        com.regionalai.floatingball.server.modules.prompt.dto.PromptView prompt =
+            promptService.resolveEffectivePrompt("voiceIntentRecognitionStream", null, null);
+
+        assertNotNull(prompt);
+        assertEquals("v1.0", prompt.getVersionNum());
+        assertTrue(prompt.getSysPrompt().contains("record_suggestions"));
+        assertTrue(prompt.getSysPrompt().contains("recommendation_plan"));
     }
 
     private AiPrompt buildPrompt(String idPrompt,

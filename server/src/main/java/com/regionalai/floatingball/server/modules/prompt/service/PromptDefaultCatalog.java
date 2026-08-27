@@ -37,6 +37,14 @@ public class PromptDefaultCatalog {
             "prompt-defaults/voiceIntentRecognition.system.txt",
             "prompt-defaults/voiceIntentRecognition.user.txt"
         ));
+        values.put("voiceIntentRecognitionStream", new Definition(
+            "voiceIntentRecognitionStream",
+            "语音问诊渐进结构化抽取",
+            "consultation",
+            "v1.0",
+            "prompt-defaults/voiceIntentRecognitionStream.system.txt",
+            "prompt-defaults/voiceIntentRecognitionStream.user.txt"
+        ));
         values.put("voiceIntentRepair", new Definition(
             "voiceIntentRepair",
             "语音问诊结构修复",

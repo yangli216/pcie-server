@@ -1,0 +1,2 @@
+医患对话内容：
+{{transcribedText}}
