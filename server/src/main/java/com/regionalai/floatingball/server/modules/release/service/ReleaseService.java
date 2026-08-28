@@ -1,6 +1,8 @@
 package com.regionalai.floatingball.server.modules.release.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.regionalai.floatingball.server.common.api.PageRequest;
+import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseBatchUploadRequest;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseDownloadItem;
@@ -97,6 +99,19 @@ public class ReleaseService {
         }
         views.sort(historyUpdatedAtDesc());
         return views;
+    }
+
+    public PageResponse<ReleaseHistoryView> history(String channel, long current, long size) {
+        PageRequest pageRequest = PageRequest.of(current, size);
+        List<ReleaseHistoryView> views = history(channel);
+        int fromIndex = pageRequest.fromIndex(views.size());
+        int toIndex = pageRequest.toIndex(views.size());
+        return new PageResponse<ReleaseHistoryView>(
+            pageRequest.getCurrent(),
+            pageRequest.getSize(),
+            views.size(),
+            new ArrayList<ReleaseHistoryView>(views.subList(fromIndex, toIndex))
+        );
     }
 
     public List<ReleaseDownloadItem> downloadItems(String channel, String baseUrl) {

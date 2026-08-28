@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.db.DatabaseDialect;
 import com.regionalai.floatingball.server.modules.device.entity.AiDevice;
 import com.regionalai.floatingball.server.modules.security.dto.SecurityDistributionVO;
@@ -83,7 +84,8 @@ public class SecurityRejectionLogService {
                                                      String rejectReason,
                                                      String dateFrom,
                                                      String dateTo) {
-        Page<SecurityRejectionLog> page = new Page<>(current, size);
+        PageRequest pageRequest = PageRequest.of(current, size);
+        Page<SecurityRejectionLog> page = new Page<>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<SecurityRejectionLog> wrapper = new LambdaQueryWrapper<SecurityRejectionLog>()
             .eq(SecurityRejectionLog::getFgActive, "1")
             .orderByDesc(SecurityRejectionLog::getInsertTime);

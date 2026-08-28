@@ -13,6 +13,7 @@ import com.regionalai.floatingball.server.modules.analytics.dto.RegionDistributi
 import com.regionalai.floatingball.server.modules.analytics.dto.TrendDataVO;
 import com.regionalai.floatingball.server.modules.analytics.mapper.AnalyticsMapper;
 import com.regionalai.floatingball.server.modules.audit.service.AuditLogDisplayCatalog;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.util.ExcelColumnWidthUtils;
 import org.apache.poi.ss.usermodel.Cell;
@@ -438,10 +439,11 @@ public class AnalyticsService {
         vo.setRanking(ranking);
         vo.setTotal((long) ranking.size());
 
-        int page = query.getCurrent() != null ? query.getCurrent() : 1;
-        int size = query.getSize() != null ? query.getSize() : 20;
-        int from = Math.min((page - 1) * size, ranking.size());
-        int to = Math.min(from + size, ranking.size());
+        PageRequest pageRequest = PageRequest.of(normalizedQuery.getCurrent(), normalizedQuery.getSize());
+        int from = pageRequest.fromIndex(ranking.size());
+        int to = pageRequest.toIndex(ranking.size());
+        vo.setCurrent(pageRequest.getCurrent());
+        vo.setSize(pageRequest.getSize());
         vo.setRecords(ranking.subList(from, to));
 
         List<Map<String, Object>> trendRows = analyticsMapper.queryFunctionUsageTrend(normalizedQuery);

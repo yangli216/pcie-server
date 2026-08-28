@@ -76,7 +76,8 @@
     <section class="page-section page-section--table user-table-card">
       <el-table :data="userList" size="small" class="admin-table">
         <el-table-column prop="naDoctor" label="医生姓名" min-width="120" />
-        <el-table-column prop="cdDevice" label="设备编码" min-width="120" />
+        <el-table-column prop="idDoctor" label="医生ID" min-width="140" />
+        <el-table-column prop="deviceCount" label="关联设备数" width="110" />
         <el-table-column label="HIS机构" min-width="180">
           <template slot-scope="{ row }">
             {{ row.hisOrgName || row.hisOrgId || '-' }}
@@ -100,12 +101,11 @@
         </el-table-column>
       </el-table>
       <div class="pagination-bar">
-        <el-pagination
-          :current-page="userPage.current"
-          :page-size="userPage.size"
+        <AdminPagination
+          :current.sync="userPage.current"
+          :size.sync="userPage.size"
           :total="userPage.total"
-          layout="total, prev, pager, next"
-          @current-change="onPageChange"
+          @change="searchUsers"
         />
       </div>
     </section>
@@ -129,9 +129,9 @@ const TIME_RANGES = [
 ]
 
 const CARD_DEFS = [
-  { key: 'activeUsers', label: '活跃用户数', desc: '所选时段内有问诊记录的设备数', isAbs: true },
-  { key: 'inactiveUsers', label: '不活跃用户数', desc: '所选时段内无问诊记录的设备数', isAbs: true },
-  { key: 'activityRate', label: '活跃率', desc: '活跃用户数 / 总设备数', isPct: true },
+  { key: 'activeUsers', label: '活跃医生数', desc: '所选时段内有问诊记录的医生数', isAbs: true },
+  { key: 'inactiveUsers', label: '不活跃医生数', desc: '历史医生中所选时段无问诊记录的人数', isAbs: true },
+  { key: 'activityRate', label: '活跃率', desc: '活跃医生数 / 历史医生总数', isPct: true },
   { key: 'effectiveConsultationRate', label: '有效问诊率', desc: '有效问诊数 / 总问诊数', isPct: true }
 ]
 
@@ -284,10 +284,6 @@ export default {
       } catch (e) {
         // degrade gracefully
       }
-    },
-    onPageChange(page) {
-      this.userPage.current = page
-      this.searchUsers()
     },
     async search() {
       this.loading = true

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.InpatientEmrTemplateCacheVO;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.InpatientEmrTemplateFieldGenerationRequest;
@@ -66,7 +67,8 @@ public class InpatientEmrTemplateCacheService {
                                                           long size,
                                                           String keyword,
                                                           String sdStatus) {
-        Page<AiInpatientEmrTemplateCache> page = new Page<AiInpatientEmrTemplateCache>(current, size);
+        PageRequest pageRequest = PageRequest.of(current, size);
+        Page<AiInpatientEmrTemplateCache> page = new Page<AiInpatientEmrTemplateCache>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<AiInpatientEmrTemplateCache> wrapper = new LambdaQueryWrapper<AiInpatientEmrTemplateCache>()
             .eq(AiInpatientEmrTemplateCache::getFgActive, ACTIVE_ENABLED)
             .orderByDesc(AiInpatientEmrTemplateCache::getUpdateTime);

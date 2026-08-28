@@ -3,6 +3,7 @@ package com.regionalai.floatingball.server.modules.role.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.db.DatabaseDialect;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.role.dto.AdminRoleSaveRequest;
@@ -33,7 +34,8 @@ public class RoleService {
     }
 
     public PageResponse<AiRole> list(long current, long size, String keyword) {
-        Page<AiRole> page = new Page<AiRole>(current, size);
+        PageRequest pageRequest = PageRequest.of(current, size);
+        Page<AiRole> page = new Page<AiRole>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<AiRole> wrapper = new LambdaQueryWrapper<AiRole>()
             .eq(AiRole::getFgActive, "1")
             .orderByDesc(AiRole::getUpdateTime);

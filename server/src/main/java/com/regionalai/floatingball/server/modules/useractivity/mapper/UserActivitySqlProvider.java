@@ -1,35 +1,16 @@
 package com.regionalai.floatingball.server.modules.useractivity.mapper;
 
-import com.regionalai.floatingball.server.common.db.DatabaseDialect;
-import com.regionalai.floatingball.server.common.db.DatabaseDialectHolder;
-
 public class UserActivitySqlProvider {
 
-    private static final String DEVICE_SCOPE_JOIN = "JOIN c_ai_org o ON o.id_org = d.id_org AND o.fg_active = '1' AND o.sd_status = '1'";
-    private static final String DEVICE_REGION_JOIN = "JOIN c_ai_region r ON r.id_region = o.id_region AND r.fg_active = '1' AND r.sd_status = '1'";
+    private static final String CONSULTATION_SCOPE_JOIN = "JOIN c_ai_org o ON o.id_org = ucl.id_org AND o.fg_active = '1' AND o.sd_status = '1'";
+    private static final String CONSULTATION_REGION_JOIN = "JOIN c_ai_region r ON r.id_region = o.id_region AND r.fg_active = '1' AND r.sd_status = '1'";
 
-    public String countActiveUsers() {
-        return "<script>"
-            + "SELECT COUNT(DISTINCT d.id_device) AS cnt "
-            + "FROM c_ai_device d "
-            + DEVICE_SCOPE_JOIN + " "
-            + DEVICE_REGION_JOIN + " "
-            + "WHERE d.fg_active = '1' "
-            + activeConsultationExists("")
-            + scopeFilters()
-            + "</script>";
+    public String countActiveDoctors() {
+        return doctorCount(true);
     }
 
-    public String countTotalDevices() {
-        return "<script>"
-            + "SELECT COUNT(1) AS cnt "
-            + "FROM c_ai_device d "
-            + DEVICE_SCOPE_JOIN + " "
-            + DEVICE_REGION_JOIN + " "
-            + "WHERE d.fg_active = '1' "
-            + scopeFilters()
-            + hisOrgMembershipExists()
-            + "</script>";
+    public String countTotalDoctors() {
+        return doctorCount(false);
     }
 
     public String countEffectiveConsultations() {
@@ -46,69 +27,75 @@ public class UserActivitySqlProvider {
             + "ORDER BY sort_order, na_region";
     }
 
-    public String countActiveUsersByRegion() {
+    public String countActiveDoctorsByRegion() {
         return "<script>"
-            + "SELECT o.id_region, COUNT(DISTINCT d.id_device) AS cnt "
-            + "FROM c_ai_device d "
-            + DEVICE_SCOPE_JOIN + " "
-            + DEVICE_REGION_JOIN + " "
-            + "WHERE d.fg_active = '1' "
-            + activeConsultationExists("")
+            + "SELECT o.id_region, COUNT(DISTINCT ucl.id_doctor) AS cnt "
+            + consultationFactFrom()
+            + "WHERE ucl.fg_active = '1' AND ucl.id_doctor IS NOT NULL "
+            + consultationFactFilters("ucl")
             + scopeFilters()
             + " GROUP BY o.id_region"
             + "</script>";
     }
 
-    public String queryUserActivityList() {
-        DatabaseDialect dialect = DatabaseDialectHolder.get();
-        String doctorSubquery = latestConsultationValue(dialect, "na_doctor", "naDoctor");
-        String hisOrgIdSubquery = latestConsultationValue(dialect, "id_his_org", "hisOrgId");
-        String hisOrgNameSubquery = latestConsultationValue(dialect, "na_org", "hisOrgName");
+    public String queryDoctorActivityList() {
+        String activityCase = activityCase("facts", null);
+        String effectiveActivityCase = activityCase("facts", "facts.status = 'completed'");
         return "<script>"
-            + "SELECT d.id_device AS idDevice, d.cd_device AS cdDevice, d.na_device AS naDevice, "
-            + "o.id_org AS idOrg, o.na_org AS naOrg, o.id_region AS idRegion, r.na_region AS naRegion, "
-            + doctorSubquery
-            + hisOrgIdSubquery
-            + hisOrgNameSubquery
-            + "(SELECT MAX(ucl.consultation_time) FROM c_ai_user_consultation_log ucl "
-            + " WHERE ucl.fg_active = '1' AND ucl.id_device = d.id_device "
-            + consultationFactFilters("ucl")
-            + ") AS lastActiveTime, "
-            + "(SELECT COUNT(1) FROM c_ai_user_consultation_log ucl2 "
-            + " WHERE ucl2.fg_active = '1' AND ucl2.id_device = d.id_device "
-            + consultationFactFilters("ucl2")
-            + ") AS consultationCount, "
-            + "(SELECT COUNT(1) FROM c_ai_user_consultation_log ucl6 "
-            + " WHERE ucl6.fg_active = '1' AND ucl6.id_device = d.id_device AND ucl6.status = 'completed' "
-            + consultationFactFilters("ucl6")
-            + ") AS effectiveConsultationCount "
-            + "FROM c_ai_device d "
-            + DEVICE_SCOPE_JOIN + " "
-            + DEVICE_REGION_JOIN + " "
-            + "WHERE d.fg_active = '1' "
+            + "SELECT facts.idDoctor AS idDoctor, "
+            + "MAX(CASE WHEN facts.latestRank = 1 THEN facts.naDoctor END) AS naDoctor, "
+            + "MAX(CASE WHEN facts.latestRank = 1 THEN facts.idOrg END) AS idOrg, "
+            + "MAX(CASE WHEN facts.latestRank = 1 THEN facts.naOrg END) AS naOrg, "
+            + "MAX(CASE WHEN facts.latestRank = 1 THEN facts.hisOrgId END) AS hisOrgId, "
+            + "MAX(CASE WHEN facts.latestRank = 1 THEN facts.hisOrgName END) AS hisOrgName, "
+            + "MAX(CASE WHEN facts.latestRank = 1 THEN facts.idRegion END) AS idRegion, "
+            + "MAX(CASE WHEN facts.latestRank = 1 THEN facts.naRegion END) AS naRegion, "
+            + "COUNT(DISTINCT facts.idDevice) AS deviceCount, "
+            + "SUM(" + activityCase + ") AS consultationCount, "
+            + "SUM(" + effectiveActivityCase + ") AS effectiveConsultationCount, "
+            + "MAX(CASE WHEN 1 = 1 " + consultationTimeFilters("facts")
+            + " THEN facts.consultation_time ELSE NULL END) AS lastActiveTime "
+            + "FROM ("
+            + "SELECT ucl.id_doctor AS idDoctor, ucl.na_doctor AS naDoctor, "
+            + "o.id_org AS idOrg, o.na_org AS naOrg, "
+            + "ucl.id_his_org AS hisOrgId, ucl.na_org AS hisOrgName, "
+            + "o.id_region AS idRegion, r.na_region AS naRegion, "
+            + "ucl.id_device AS idDevice, ucl.status AS status, "
+            + "ucl.consultation_time AS consultation_time, "
+            + "ROW_NUMBER() OVER (PARTITION BY ucl.id_doctor "
+            + "ORDER BY ucl.consultation_time DESC, ucl.id_log DESC) AS latestRank "
+            + consultationFactFrom()
+            + "WHERE ucl.fg_active = '1' AND ucl.id_doctor IS NOT NULL "
+            + hisOrgFilter("ucl")
             + scopeFilters()
-            + hisOrgMembershipExists()
+            + ") facts"
+            + " GROUP BY facts.idDoctor"
             + "<if test='query.activeStatus == \"active\"'>"
-            + activeConsultationExists("ucl3")
+            + " HAVING SUM(" + activityCase + ") &gt; 0"
             + "</if>"
             + "<if test='query.activeStatus == \"inactive\"'>"
-            + " AND NOT EXISTS (SELECT 1 FROM c_ai_user_consultation_log ucl4 "
-            + "WHERE ucl4.fg_active = '1' AND ucl4.id_device = d.id_device "
-            + consultationFactFilters("ucl4")
-            + ")"
+            + " HAVING SUM(" + activityCase + ") = 0"
             + "</if>"
             + " ORDER BY consultationCount DESC, effectiveConsultationCount DESC, "
-            + "lastActiveTime DESC NULLS LAST, idDevice ASC"
+            + "lastActiveTime DESC NULLS LAST, idDoctor ASC"
+            + "</script>";
+    }
+
+    private String doctorCount(boolean currentPeriodOnly) {
+        return "<script>"
+            + "SELECT COUNT(DISTINCT ucl.id_doctor) AS cnt "
+            + consultationFactFrom()
+            + "WHERE ucl.fg_active = '1' AND ucl.id_doctor IS NOT NULL "
+            + (currentPeriodOnly ? consultationTimeFilters("ucl") : "")
+            + hisOrgFilter("ucl")
+            + scopeFilters()
             + "</script>";
     }
 
     private String consultationCount(String extraCondition) {
         return "<script>"
             + "SELECT COUNT(1) AS cnt "
-            + "FROM c_ai_user_consultation_log ucl "
-            + "JOIN c_ai_device d ON d.id_device = ucl.id_device AND d.fg_active = '1' "
-            + DEVICE_SCOPE_JOIN + " "
-            + DEVICE_REGION_JOIN + " "
+            + consultationFactFrom()
             + "WHERE ucl.fg_active = '1' "
             + extraCondition + " "
             + consultationFactFilters("ucl")
@@ -116,27 +103,17 @@ public class UserActivitySqlProvider {
             + "</script>";
     }
 
-    private String activeConsultationExists(String alias) {
-        String actualAlias = alias == null || alias.isEmpty() ? "ucl" : alias;
-        return " AND EXISTS (SELECT 1 FROM c_ai_user_consultation_log " + actualAlias
-            + " WHERE " + actualAlias + ".fg_active = '1' AND " + actualAlias + ".id_device = d.id_device "
-            + consultationFactFilters(actualAlias)
-            + ")";
+    private String consultationFactFrom() {
+        return "FROM c_ai_user_consultation_log ucl "
+            + CONSULTATION_SCOPE_JOIN + " "
+            + CONSULTATION_REGION_JOIN + " ";
     }
 
-    private String latestConsultationValue(DatabaseDialect dialect, String column, String resultAlias) {
-        if (dialect.isPgCompatible()) {
-            return "(SELECT ucl5." + column + " FROM c_ai_user_consultation_log ucl5 "
-                + "WHERE ucl5.fg_active = '1' AND ucl5.id_device = d.id_device "
-                + hisOrgFilter("ucl5")
-                + "ORDER BY ucl5.consultation_time DESC LIMIT 1) AS " + resultAlias + ",";
-        }
-        return "(SELECT latest_value FROM ("
-            + "SELECT ucl5." + column + " AS latest_value FROM c_ai_user_consultation_log ucl5 "
-            + "WHERE ucl5.fg_active = '1' AND ucl5.id_device = d.id_device "
-            + hisOrgFilter("ucl5")
-            + "ORDER BY ucl5.consultation_time DESC"
-            + ") WHERE ROWNUM = 1) AS " + resultAlias + ",";
+    private String activityCase(String alias, String extraCondition) {
+        return "CASE WHEN 1 = 1 "
+            + (extraCondition == null ? "" : "AND " + extraCondition + " ")
+            + consultationTimeFilters(alias)
+            + " THEN 1 ELSE 0 END";
     }
 
     private String consultationFactFilters(String alias) {
@@ -151,14 +128,6 @@ public class UserActivitySqlProvider {
     private String hisOrgFilter(String alias) {
         return "<if test='query.hisOrgId != null and query.hisOrgId != \"\"'> AND "
             + alias + ".id_his_org = #{query.hisOrgId}</if>";
-    }
-
-    private String hisOrgMembershipExists() {
-        return "<if test='query.hisOrgId != null and query.hisOrgId != \"\"'>"
-            + " AND EXISTS (SELECT 1 FROM c_ai_user_consultation_log ucl_scope "
-            + "WHERE ucl_scope.fg_active = '1' AND ucl_scope.id_device = d.id_device "
-            + "AND ucl_scope.id_his_org = #{query.hisOrgId})"
-            + "</if>";
     }
 
     private String scopeFilters() {

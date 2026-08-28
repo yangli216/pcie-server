@@ -3,6 +3,7 @@ package com.regionalai.floatingball.server.modules.businessdebug.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.ai.dto.ChatRequest;
@@ -60,7 +61,8 @@ public class BusinessWorkflowDebugService {
                                                                          long size,
                                                                          String keyword,
                                                                          String status) {
-        Page<AiUserConsultationLog> page = new Page<AiUserConsultationLog>(current <= 0 ? 1 : current, size <= 0 ? 10 : size);
+        PageRequest pageRequest = PageRequest.of(current, size);
+        Page<AiUserConsultationLog> page = new Page<AiUserConsultationLog>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<AiUserConsultationLog> wrapper = new LambdaQueryWrapper<AiUserConsultationLog>()
             .eq(AiUserConsultationLog::getFgActive, "1")
             .eq(AiUserConsultationLog::getConsultationType, CONSULTATION_TYPE_VOICE)

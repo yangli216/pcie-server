@@ -1,6 +1,7 @@
 package com.regionalai.floatingball.server.modules.release.controller;
 
 import com.regionalai.floatingball.server.common.api.ApiResponse;
+import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.util.RequestIdUtils;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseBatchUploadRequest;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseHistoryView;
@@ -37,9 +38,11 @@ public class AdminReleaseController {
     }
 
     @GetMapping("/history")
-    public ApiResponse<List<ReleaseHistoryView>> history(@RequestParam(required = false) String channel,
-                                                         HttpServletRequest request) {
-        return ApiResponse.success(releaseService.history(channel), RequestIdUtils.resolve(request));
+    public ApiResponse<PageResponse<ReleaseHistoryView>> history(@RequestParam(required = false) String channel,
+                                                                 @RequestParam(defaultValue = "1") long current,
+                                                                 @RequestParam(defaultValue = "10") long size,
+                                                                 HttpServletRequest request) {
+        return ApiResponse.success(releaseService.history(channel, current, size), RequestIdUtils.resolve(request));
     }
 
     @PostMapping("/upload")

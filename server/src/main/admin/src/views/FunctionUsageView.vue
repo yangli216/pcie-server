@@ -79,14 +79,12 @@
       <div class="page-section__header">
         <span class="page-section__title">功能使用明细</span>
         <div class="page-section__meta">
-          共 {{ response.total || 0 }} 条
-          <el-pagination
-            small
-            layout="prev, pager, next"
+          <AdminPagination
+            compact
             :total="response.total || 0"
-            :page-size="pageSize"
-            :current-page.sync="pageNum"
-            @current-change="pageChange"
+            :size.sync="pageSize"
+            :current.sync="pageNum"
+            @change="search"
           />
         </div>
       </div>
@@ -140,7 +138,7 @@ export default {
       timeRange: 'month',
       timeRangeOptions: TIME_RANGES,
       pageNum: 1,
-      pageSize: 20,
+      pageSize: 10,
       query: { dateFrom: '', dateTo: '', idRegion: '', hisOrgId: '', functionModules: [] },
       response: {},
       trend: { modules: [], days: [], values: [] },
@@ -255,6 +253,8 @@ export default {
 
         const data = await http.get('/admin/api/analytics/function-usage', { params })
         this.response = data || {}
+        this.pageNum = Number((data && data.current) || this.pageNum)
+        this.pageSize = Number((data && data.size) || this.pageSize)
         this.trend = (data && data.trend) || { modules: [], days: [], values: [] }
         this.$nextTick(() => {
           this.renderRankChart()
@@ -272,10 +272,6 @@ export default {
       this.query = { dateFrom: '', dateTo: '', idRegion: '', hisOrgId, functionModules: [] }
       this.pageNum = 1
       this.initDateRange()
-      this.search()
-    },
-    pageChange(p) {
-      this.pageNum = p
       this.search()
     },
     async exportData() {

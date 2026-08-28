@@ -17,7 +17,7 @@ const ClientUsageView = () => import('../views/ClientUsageView.vue')
 const ConfigView = () => import('../views/ConfigView.vue')
 const PromptView = () => import('../views/PromptView.vue')
 const SymptomTemplateView = () => import('../views/SymptomTemplateView.vue')
-const InpatientEmrTemplateView = () => import('../views/InpatientEmrTemplateView.vue')
+const EmrTemplateView = () => import('../views/EmrTemplateView.vue')
 const LisResultEntryView = () => import('../views/LisResultEntryView.vue')
 const ReleaseView = () => import('../views/ReleaseView.vue')
 const LogView = () => import('../views/LogView.vue')
@@ -28,6 +28,7 @@ const RecommendationPreferenceView = () => import('../views/RecommendationPrefer
 const PatientMemoryView = () => import('../views/PatientMemoryView.vue')
 const AnalyticsView = () => import('../views/AnalyticsView.vue')
 const FunctionUsageView = () => import('../views/FunctionUsageView.vue')
+const XiaoshanFunctionUsageView = () => import('../views/XiaoshanFunctionUsageView.vue')
 const UserActivityView = () => import('../views/UserActivityView.vue')
 const SecurityRejectionView = () => import('../views/SecurityRejectionView.vue')
 const SecurityAnalyticsView = () => import('../views/SecurityAnalyticsView.vue')
@@ -52,7 +53,7 @@ const router = new Router({
     { path: '/configs', component: ConfigView, meta: { title: '模型配置' } },
     { path: '/prompts', component: PromptView, meta: { title: '提示词配置' } },
     { path: '/symptom-templates', component: SymptomTemplateView, meta: { title: '症状模板' } },
-    { path: '/inpatient-emr-templates', component: InpatientEmrTemplateView, meta: { title: '病历模板缓存' } },
+    { path: '/emr-templates', component: EmrTemplateView, meta: { title: '病历模板' } },
     { path: '/lis-result-entry', redirect: '/exam-result-entry' },
     { path: '/exam-result-entry', component: LisResultEntryView, meta: { title: '检验检查回写' } },
     { path: '/releases', component: ReleaseView, meta: { title: '版本发布' } },
@@ -63,7 +64,8 @@ const router = new Router({
     { path: '/recommendation-preferences', component: RecommendationPreferenceView, meta: { title: '推荐偏好' } },
     { path: '/patient-memories', component: PatientMemoryView, meta: { title: '患者记忆' } },
     { path: '/analytics', component: AnalyticsView, meta: { title: '统计分析', organizationStatistics: true } },
-    { path: '/function-usage', component: FunctionUsageView, meta: { title: '辅诊功能', organizationStatistics: true } },
+    { path: '/function-usage', component: XiaoshanFunctionUsageView, meta: { title: '辅诊功能', organizationStatistics: true } },
+    { path: '/standard-function-usage', component: FunctionUsageView, meta: { title: '辅诊功能（通用版）', organizationStatistics: true } },
     { path: '/user-activity', component: UserActivityView, meta: { title: '用户活跃度', organizationStatistics: true } },
     { path: '/security-rejections', component: SecurityRejectionView, meta: { title: '安全拦截' } },
     { path: '/security-analytics', component: SecurityAnalyticsView, meta: { title: '安全分析' } },

@@ -74,7 +74,7 @@ class ClientUsageServiceTest {
         PageResponse<ClientUsageItemVO> page = clientUsageService.list(query, Long.MAX_VALUE, 200L);
 
         assertEquals(Long.MAX_VALUE, page.getCurrent());
-        assertEquals(200L, page.getSize());
+        assertEquals(100L, page.getSize());
         assertEquals(2L, page.getTotal());
         assertEquals(Collections.emptyList(), page.getRecords());
         verify(clientUsageMapper, never()).queryClientUsage(any(ClientUsageQueryDTO.class), anyLong(), anyLong());

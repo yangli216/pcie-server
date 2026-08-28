@@ -33,7 +33,7 @@ public class AdminClientUsageController {
     @GetMapping
     public ApiResponse<PageResponse<ClientUsageItemVO>> list(ClientUsageQueryDTO query,
                                                              @RequestParam(defaultValue = "1") long current,
-                                                             @RequestParam(defaultValue = "20") long size,
+                                                             @RequestParam(defaultValue = "10") long size,
                                                              HttpServletRequest request) {
         return ApiResponse.success(
             clientUsageService.list(query, current, size),

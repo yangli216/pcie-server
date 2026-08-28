@@ -61,7 +61,7 @@ pcie-server/
         │   ├── modules/config/     # AI 配置、bootstrap
         │   ├── modules/prompt/     # Prompt 发布与 delta
         │   ├── modules/symptom/    # 症状模板管理与客户端 delta
-        │   ├── modules/emrtemplate/# 住院病历 HTML 模板解析缓存与 AI 字段提示词维护
+        │   ├── modules/emrtemplate/# 住院模板缓存，以及门诊模板原文与解析快照审计
         │   ├── modules/lisresult/  # 检验检查申请单待执行查询与手工结果回写模拟
         │   ├── modules/datapackage/# 映射数据包与 legacy template 包兼容
         │   ├── modules/release/    # 内网客户端版本发布与 Tauri latest.json
@@ -74,7 +74,7 @@ pcie-server/
         │   ├── modules/adminui/    # 管理端静态页面入口控制
         │   ├── modules/ai/         # chat / transcribe / realtime 代理
         │   ├── modules/analytics/  # 综合概况统计分析：趋势、分布、核心指标
-        │   ├── modules/useractivity/ # 用户活跃度统计：时间/区域/机构筛选、活跃指标、用户列表
+        │   ├── modules/useractivity/ # 用户活跃度统计：按医生合并多设备的活跃指标与明细
         │   ├── modules/clientusage/ # 医生客户端使用情况：当前版本首次交互、最近活跃、全字段导出
         └── main/
             ├── admin/              # 管理端 Vue 2 + Element UI 源码
@@ -102,9 +102,9 @@ pcie-server/
 7. 出站安全门按 host 做本地限流和熔断；上游失败达到阈值后短暂拒绝同 host 后续出站，防止 AI / 语音 / PMPHAI 配置异常拖垮后台线程与连接资源。
 8. 连接使用 `ZHS16GBK` 等 Oracle 非 UTF 字符集的医院库时，发布包内必须包含与 `ojdbc8` 同版本的 `orai18n` 运行时依赖；否则服务可能在启动期读取初始化数据时因 `Non supported character set` 退出，导致 8080 端口未监听。
 9. 小山现场并行部署时，正式环境使用 `xiaoshan` profile，测试环境使用 `xiaoshan-test` profile；两者配置保持一致，测试环境仅把服务端口调整为 `9090`。
-10. 小山现场统一使用 `scripts/publish-xiaoshan.sh` 发布，命令必须显式指定 `testing` 或 `production`；脚本内固定环境目录、profile 和端口，不允许通过环境变量覆盖这些映射。
+10. 小山现场统一使用 `scripts/publish-xiaoshan.sh` 发布，命令必须显式指定 `testing` 或 `production`；脚本内固定环境目录、profile 和端口，不允许通过环境变量覆盖这些映射。每次发布都必须执行 Maven `clean package`，由 Maven 在资源阶段完成管理端 `npm ci` 与 `npm run build`，不得复用 `server/target` 中来源或时效不明的旧 JAR。
 11. 测试环境固定发布到 `/data/floating-ball-server-testing`，使用 `xiaoshan-test` profile 和 `9090` 端口；正式环境固定发布到 `/data/floating-ball-server-production`，使用目录内的 `floating-ball-server.jar`、`start.sh`、`xiaoshan` profile 和 `8080` 端口。首次切换时发布脚本允许受控停止旧 `/data/floating-ball-server.jar` 正式进程，失败时恢复旧正式服务；切换成功后后续正式发布只操作 production 目录。
-12. 发布脚本先构建并校验 JAR，再上传到目标环境的临时文件；远端校验摘要、profile 配置、当前进程归属和端口归属后才停止目标服务。切换失败或健康检查失败时自动恢复该环境的上一版 JAR 和启动脚本，不得操作另一环境的 PID、JAR 或启动脚本。
+12. 发布脚本先构建并校验 JAR，再上传到目标环境的临时文件；本地校验必须确认管理端入口及入口引用的静态资源均已进入 JAR。远端校验摘要、profile 配置、当前进程归属和端口归属后才停止目标服务。切换失败或健康检查失败时自动恢复该环境的上一版 JAR 和启动脚本，不得操作另一环境的 PID、JAR 或启动脚本。
 13. 测试环境一键发布使用 `./scripts/publish-xiaoshan.sh testing`；正式环境使用 `./scripts/publish-xiaoshan.sh production --confirm-production`，必须携带显式正式发布确认参数；脚本会为单次发布复用临时 SSH 控制连接，密码认证场景正常只需输入一次远程服务器密码，已配置 SSH key 时无需输入密码。
 14. 管理端认证由 `floating-ball.admin.auth.mode` 选择 `local` 或 `bbp`。启用 `bbp` 时必须同时配置 `floating-ball.admin.auth.bbp.base-url`；可通过 `tenant-id` 固定租户，未固定时由登录者填写租户 ID。服务地址仅允许 HTTP/HTTPS，不能包含账号信息、query 或 fragment。
 
@@ -125,7 +125,7 @@ pcie-server/
 
 ### 3.1.2 BBP 机构统计权限边界
 
-1. 仅具备 `ORG_ANALYST` 的 BBP 用户只允许访问 `/admin/api/analytics/**`、`/admin/api/user-activity/**` 以及当前用户/退出登录接口；其他管理接口统一返回 HTTP 403 与 `AUTH-403`。前端菜单和路由守卫只是体验层，服务端接口白名单是最终边界。
+1. 仅具备 `ORG_ANALYST` 的 BBP 用户只允许访问 `/admin/api/analytics/**`、`/admin/api/xiaoshan-analytics/**`、`/admin/api/user-activity/**` 以及当前用户/退出登录接口；其他管理接口统一返回 HTTP 403 与 `AUTH-403`。前端菜单和路由守卫只是体验层，服务端接口白名单是最终边界。
 2. 所有统计汇总、趋势、分布、辅诊功能排行、用户活跃度明细和 Excel 导出都必须由服务端把 `hisOrgId` 强制锁定为登录令牌中的 `bbpOrgId`。请求未传机构时自动补入本机构；显式传入其他机构时拒绝，不能仅依赖前端禁用下拉框。
 3. 机构统计员页面默认显示并选中登录 BBP 机构，HIS 机构选择不可清空或修改；区域筛选不展示，避免产生可扩大范围的错觉。机构选项接口只返回本机构，不能向该角色泄露其他机构目录。
 4. `SYSTEM_ADMIN` 仍可跨机构统计；其他 BBP 非系统账号即使不是纯 `ORG_ANALYST`，统计查询也统一锁定登录机构。一个账号同时拥有 `ORG_ADMIN` 与 `ORG_ANALYST` 时保留管理菜单，但统计数据仍只能查看本机构；本地认证模式维持现有统计范围。
@@ -168,7 +168,7 @@ pcie-server/
 - 封装“机构级 > 区域级 > 全局级”的配置查找优先级
 - `modules/config` 中的 AI 配置除主模型地址/密钥外，还负责托管 `chatFast` 独立模型、`enableThinking` 开关、独立审查 AI、`check_examination` 审查开关与 PMPHAI 的服务端密钥；`bootstrap` 只下发非密钥视图
 - `modules/symptom` 负责症状模板的逐条 CRUD、内置模板导入、JSON 模板文件导入、作用域合并、客户端 `templates/delta` 聚合与症状模板修改日志，数据结构对齐 `floating-ball` 的 `SymptomManagement.vue` / disease editor
-- `modules/emrtemplate` 负责住院病历 HTML 模板解析结果缓存，客户端按 HIS 传入的 `templateId` 复用已解析字段；缓存记录保存客户端传入的模板主键、模板名称、原生 `htmlContent`、内容 hash 和完整字段列表。管理端支持查询缓存、源码/HTML 预览模板、停用/删除缓存、手动调整字段是否由 AI 生成、维护字段 AI 生成提示词，并展示字段规则生成的默认提示词；默认提示词会包含模板名称、记录类型、字段名称、所属段落和字段含义。字段提示词覆盖和 AI 生成类型会在客户端解析缓存命中或上传模板解析结果时与本次客户端字段合并后返回，供桌面端生成住院病历预览。
+- `modules/emrtemplate` 承载两条语义独立的链路。住院链路继续缓存 HTML 模板解析结果，客户端按 HIS 传入的 `templateId` 复用已解析字段。门诊链路不复用住院缓存，也不向桌面端下发模板：客户端在正式 HIS Bridge/SDK 门诊分析调用模型前，先通过签名 `POST /v1/client/outpatient-emr/templates/snapshots/resolve` 按认证机构、`templateId` 与模板对 hash 精确查询历史解析；命中时返回已保存的 `outpatient-emr-template-pair.v1` 完整字段快照且不更新数据库，未命中时客户端才执行严格解析并通过签名 `POST /v1/client/outpatient-emr/templates/snapshots` 登记 `outpatient-emr-template-pair-snapshot.v1`。该快照把同一模板的渲染 HTML、结构定义 JSON 与完整合并解析结果作为一个不可分割版本；服务端按约定公式复算模板对 hash，严格校验顶层、字段和字典项 schema，不修剪或补造字段身份，并按 `idOrg + templateId + templateHash` 保持唯一。首次出现的模板 ID 或任一原文字节变化都形成新记录，不同模板 ID 不因内容相同而共享记录；同一身份的重复/并发登记只返回已有记录，不更新原文、解析结果、设备或时间。历史查询失败或存量解析损坏必须显式失败，不允许客户端以重复解析、旧 schema 或旧实验路径兜底。未映射字段的 `recordField` 与 `projectionMode` 在落库 JSON、历史解析响应和管理端详情响应中都必须保留显式 `null`，不能受全局 Jackson 非空序列化策略影响而被省略。`c_ai_outpatient_emr_tpl_snapshot` 只保存模板身份、两份原文、完整合并解析 JSON、字段统计、首次接收设备和时间，不保存患者、就诊、病历上下文、模型返回或医生编辑结果。管理端“病历模板”页以“住院模板缓存 / 门诊解析记录”双页签呈现，门诊详情只读分栏查看渲染 HTML、结构定义 JSON、完整解析 JSON 和字段表，不执行 HTML、不提供发布、修改或反向下发；桌面端不提供本地模板实验台。旧 `sourceFormat/templateSource` 不兼容、不落库、不保留查询筛选或展示兜底。
 - `modules/lisresult` 负责面向管理端的检验检查结果手动录入与第三方回写模拟：只查询 `hi_ods_apply` 中检验/检查类、未报告/未作废的申请单；面向 PHIS 多版本表结构差异，申请单列表、报告查看和回写前校验查询必须显式选择界面展示或逻辑处理需要的最小列，避免实体映射中的扩展字段参与运行时查询；检验录入后将报告组 ID 写回 `hi_ods_apply.id_result`，并把每个检验指标写入 `hi_ods_apply_lis_report`；检查录入后将报告 ID 写回 `hi_ods_apply.id_result`，并把报告结果、临床印象、影像诊断、阴阳性等字段写入 `hi_ods_apply_pacs_report`。该功能不接管业务系统产生申请单的链路，也不新增本地 `/api/consultation/*` 能力。
 - `modules/prompt` 负责 Prompt 配置化的逐步迁移：保留桌面端 `prompts/delta` 读取链路，管理端提供 Prompt 列表、新增、编辑、发布、归档和停用；服务端内置首批语音问诊默认 Prompt，配置表存在已发布覆盖时按机构级 > 区域级 > 全局级优先级生效。普通语音渐进结果使用独立 `voiceIntentRecognitionStream` 编码和 NDJSON 分区协议，避免历史 `voiceIntentRecognition` 纯 JSON 已发布覆盖与新客户端协议混用；新编码默认同时返回核心病历、病历上下文、AI 病历候选、诊断、诊疗路由、明确医嘱和其余病历字段，并把明确医嘱的 `name` 与字符串枚举 `type` 作为独立可选分区契约，单条无法确认时应删除而不是重写病例结论，客户端仍负责协议容错、实时目录匹配、药品定稿及 PHIS 回写。
 - `modules/datapackage` 继续负责映射数据包读取；`template` 类型数据包仅作为症状模板表未初始化时的兼容回退来源，管理端不再提供数据包维护入口
@@ -203,7 +203,7 @@ pcie-server/
 
 - 管理端页面由 Spring Boot 统一托管，默认访问入口为 `/admin/`
 - 管理端构建产物输出到 `server/src/main/resources/static/admin`
-- `mvn -f server/pom.xml process-resources/test/package` 会在资源阶段自动执行管理端 `npm ci` 与 `npm run build`，确保 `/admin/index.html` 与静态资源进入后端类路径
+- `mvn -f server/pom.xml process-resources/test/package` 会在资源阶段自动执行管理端 `npm ci` 与 `npm run build`，确保 `/admin/index.html` 与静态资源进入后端类路径；`npm rebuild` 只重建已安装依赖，不编译当前管理端业务源码，不能替代 `npm run build`
 - 管理端接口继续使用 `/admin/api/*`，但页面与接口默认同源，不再依赖独立部署
 - 如需单独前端调试，仍可在 `server/src/main/admin` 内运行 Vite dev server；此时后端 CORS 仅作为本地开发补充能力
 - 管理端请求错误统一由 `server/src/main/admin/src/api/http.js` 归一化：业务校验展示服务端友好 `message`，网络不可达、超时、5xx、非 JSON 响应等场景转换为可操作提示；存在 `requestId` 时带出请求 ID，避免把 Axios、HTTP statusText 或后端底层异常原样弹给管理员
@@ -214,6 +214,7 @@ pcie-server/
 - 管理端所有自定义交互元素必须使用语义元素：动作使用 `button`，导航使用 `router-link`；图标按钮必须提供 `aria-label`，可点击卡片必须支持键盘焦点和回车/空格触发
 - 管理端全局交互态必须包含 hover、active 与 `:focus-visible` 样式；表单占位文案统一使用中文省略号 `…`，数字/时间/编码列使用等宽或 tabular number 表达，长文本必须可折行或截断
 - 管理端公共组件按 `server/src/main/admin/src/components/layout` 与 `server/src/main/admin/src/components/ui` 分层：`layout` 只承载后台壳、侧栏、顶栏、tags-view 与账号菜单，`ui` 承载筛选条、指标卡、图表面板、状态 pill、code tag、分段开关等页面无关组件
+- 管理端所有服务端列表统一复用 `AdminPagination`：组件提供 `10 / 20 / 50 / 100` 条每页选项并在每页条数变化时回到第 1 页；页面只维护查询条件和列表数据，不得再次直接拼装 `el-pagination`。服务端列表参数统一由公共分页模型归一为 `current >= 1`、`1 <= size <= 100`，响应统一返回 `current / size / total / records`，导出链路不复用列表分页上限。
 - 管理端壳层 div 分配固定为 `admin-shell -> admin-shell__sidebar + admin-shell__main -> admin-shell__topbar + admin-shell__tabs + admin-shell__content`；`AdminLayout` 只做组合编排，侧栏、顶栏、页签栏分别由 `AdminSidebar`、`AdminTopbar`、`AdminTabBar` 承载，业务页面不得重新定义外层导航/内容容器
 - 管理端壳层必须提供真实可用的侧栏折叠、窄屏侧栏抽屉与顶栏快捷动作；未实现的视觉按钮不得保留在顶栏。跨页面导航入口使用 `router-link` 或等价导航语义，避免把跳转伪装成普通动作按钮
 - 管理端内容区统一由 `admin-shell__content` 提供滚动和页面留白，业务页面只提供页面内的筛选、指标、图表、表格区块，避免每个页面重复定义顶层灰底、横向滚动条或额外外框
@@ -445,7 +446,10 @@ pcie-server/
    - 区域下拉只展示 `fg_active='1' AND sd_status='1'` 的区域；HIS 机构选项从功能事件和问诊日志的非空 `id_his_org` 汇总，不要求在 `c_ai_org` 建立同值主键。兼容调用方显式传入 `idOrg` 时，平台机构仍须启用并归属所选区域，否则查询返回空结果
    - 支持统计分析、辅诊功能和用户活跃度 Excel 数据导出
    - “辅诊功能”统计必须按产品功能维度归并，不直接展示底层 AI 操作名或审计来源模块名；服务端只基于 `c_ai_feature_event` 的实际用户功能调用事件统计，统一归类为语音问诊、智能问诊、报告单解读、聊天、AI诊断鉴别、AI推荐诊断、AI推荐用药、AI推荐检查、AI推荐检验、AI推荐处置、AI推荐治疗方案、知识库使用；主流程内部自动 AI 推荐不重复拆分为子功能次数，知识库批量检索也不按内部多个查询词重复计数
-   - 综合统计中的功能调用指标和机构分布、辅诊功能统计按 `c_ai_feature_event.id_his_org` 过滤；问诊指标按 `c_ai_user_consultation_log.id_his_org` 过滤。用户活跃度选定 HIS 机构后，只把历史上在该 HIS 机构产生过问诊的设备纳入分母，再按所选时段是否存在该机构问诊区分活跃与不活跃
+   - 萧山部署的“辅诊功能”采用隔离专版：管理端 `/function-usage` 加载 `XiaoshanFunctionUsageView`，专版后台位于 `modules/xiaoshananalytics` 并只暴露 `/admin/api/xiaoshan-analytics/*`；原 `FunctionUsageView`、`modules/analytics` 及 `/admin/api/analytics/function-*` 保留通用 12 类口径，不因萧山需求改写
+   - 萧山专版固定展示语音问诊、慢病配药、报告回诊、报告解读、医学助手 5 类。语音问诊、慢病配药、报告回诊、报告解读统一读取 `c_ai_user_consultation_log` 中激活的 `voice`、`chronic_refill`、`report_consultation`、`report_interpretation`，一条问诊日志计一次调用，并与用户日志按相同 HIS 机构、时间和场景透视后的结果一致；医学助手因没有对应问诊日志，继续读取 `c_ai_feature_event` 中成功的 `chat` 功能事件。专版查询先把问诊日志和医学助手事件归一为功能名、发生时间、医生/设备、后台机构、区域和 HIS 机构，再统一筛选、排行与按日聚合；不得读取 `c_ai_op_log`
+   - 萧山专版功能使用率的分母固定为 5；使用医生数在两类事实中都优先按医生 ID 去重，缺少医生 ID 时回退设备 ID。专版筛选、汇总、排行、趋势、分页明细与 Excel 导出必须复用同一归一化查询条件。BBP 非系统账号的所有萧山专版查询和导出都由服务端强制锁定 `hisOrgId=currentUser.bbpOrgId`、清空区域与后台机构条件并拒绝跨机构参数；管理端隐藏区域筛选并将 HIS 机构锁定为登录机构，不能只通过放行 `/admin/api/xiaoshan-analytics/**` 绕过机构范围约束
+   - 综合统计中的功能调用指标和机构分布、辅诊功能统计按 `c_ai_feature_event.id_his_org` 过滤；问诊指标按 `c_ai_user_consultation_log.id_his_org` 过滤。用户活跃度按 `c_ai_user_consultation_log.id_doctor` 识别医生，同一医生的多台设备合并为一人，缺少医生 ID 的日志不进入人数。筛选范围内历史上出现过的医生作为活跃率分母，再按所选时段是否存在问诊区分活跃与不活跃；该页的活跃医生数与统计分析的活跃医生数使用相同的时间、区域、平台机构和 HIS 机构过滤口径
 
 约束：
 
@@ -588,6 +592,7 @@ GaussDB/openGauss 初始化：
 5. 探针默认由 `floating-ball.feature-event.schema-validation.enabled=true` 启用；它不验证 `idx_c_ai_feature_event_usage`，该索引仍须由 DBA 在节点入池前确认。
 6. 功能统计只保留功能编码、动作、医生/机构/版本和时间等结构化统计列；`consultation_id/trace_id/session_id` 置空，`payload_json` 固定为空对象。升级脚本会重建全表幂等键，必须在备份、停止写入、核查外部报表依赖并由 DBA 审核后，于维护窗口执行。
 7. 功能动作、来源模块、场景和状态只接受受限字符集与列宽内的技术编码，避免通过结构化列旁路写入临床自由文本。
+8. 门诊模板历史解析表的存量库使用各数据库目录下 `update_outpatient_emr_template_snapshot.sql`，只重建唯一索引为 `id_org + template_id + template_hash`，不修改或删除业务记录；执行窗口必须暂停模板快照登记。新建 Oracle/GaussDB 库直接由 `init.sql` 获得相同约束，达梦继续使用 Oracle 兼容基线加定向脚本。
 
 ## 9. 单体部署约定
 
@@ -601,6 +606,7 @@ GaussDB/openGauss 初始化：
 6. 语音配置页必须区分“服务端实际转写地址/密钥/模型”和“桌面端感知的 provider/model”：前者用于服务端上游语音协议选择与调用，后者用于 `floating-ball` 设置页展示与策略选择。
 7. 服务端 AI / 语音上游出站请求允许通过 `floating-ball.ai.proxy.*` 配置显式走 HTTP 代理；在 macOS 开发环境下同时建议启用 Netty 的 native DNS 解析依赖，避免 Java 进程与终端 `curl` 的网络行为不一致。
 8. AI 配置页应提供“服务端到上游 LLM”的单独测试入口，用于区分“floating-ball -> server”链路故障与“server -> LLM”链路故障。
+9. 统一“病历模板”管理页使用 `/emr-templates`，同时承载住院模板缓存与门诊解析记录；早期仅住院页面名 `/inpatient-emr-templates` 不再注册，也不保留重定向。
 
 ## 10. 两慢病随访持久化
 

@@ -1,5 +1,6 @@
 package com.regionalai.floatingball.server.modules.clientusage.service;
 
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.util.ExcelColumnWidthUtils;
@@ -43,8 +44,9 @@ public class ClientUsageService {
 
     public PageResponse<ClientUsageItemVO> list(ClientUsageQueryDTO query, long current, long size) {
         ClientUsageQueryDTO normalizedQuery = normalizeQuery(query);
-        long normalizedCurrent = Math.max(1L, current);
-        long normalizedSize = Math.min(200L, Math.max(1L, size));
+        PageRequest pageRequest = PageRequest.of(current, size);
+        long normalizedCurrent = pageRequest.getCurrent();
+        long normalizedSize = pageRequest.getSize();
         long total = Math.max(0L, clientUsageMapper.countClientUsage(normalizedQuery));
         if (total == 0L || normalizedCurrent > ((total - 1L) / normalizedSize) + 1L) {
             return new PageResponse<ClientUsageItemVO>(
@@ -55,7 +57,7 @@ public class ClientUsageService {
             );
         }
 
-        long offset = (normalizedCurrent - 1L) * normalizedSize;
+        long offset = pageRequest.getOffset();
         long endRow = offset + Math.min(normalizedSize, total - offset);
         List<ClientUsageItemVO> page = loadItems(
             clientUsageMapper.queryClientUsage(normalizedQuery, offset, endRow)

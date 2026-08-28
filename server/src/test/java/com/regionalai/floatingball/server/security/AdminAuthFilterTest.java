@@ -96,7 +96,6 @@ class AdminAuthFilterTest {
         user.setRoles(Collections.singletonList("SYSTEM_ADMIN"));
 
         when(adminTokenService.parse("valid-token")).thenReturn(user);
-
         mockMvc.perform(get("/admin/api/stats/overview")
                 .header("Authorization", "Bearer valid-token"))
             .andExpect(status().isOk())
@@ -131,6 +130,11 @@ class AdminAuthFilterTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("ok"));
 
+        mockMvc.perform(get("/admin/api/xiaoshan-analytics/function-usage")
+                .header("Authorization", "Bearer analyst-token"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("ok"));
+
         mockMvc.perform(get("/admin/api/stats/overview")
                 .header("Authorization", "Bearer analyst-token")
                 .header("X-Request-Id", "RID-analyst-forbidden"))
@@ -153,6 +157,11 @@ class AdminAuthFilterTest {
 
         @GetMapping("/admin/api/analytics/summary")
         public Map<String, String> analyticsSummary() {
+            return Collections.singletonMap("status", "ok");
+        }
+
+        @GetMapping("/admin/api/xiaoshan-analytics/function-usage")
+        public Map<String, String> xiaoshanFunctionUsage() {
             return Collections.singletonMap("status", "ok");
         }
 

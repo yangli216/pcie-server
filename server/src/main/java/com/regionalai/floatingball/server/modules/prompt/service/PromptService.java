@@ -2,6 +2,7 @@ package com.regionalai.floatingball.server.modules.prompt.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.prompt.dto.PromptDeltaVO;
@@ -96,11 +97,15 @@ public class PromptService {
             all.add(toView(prompt, "configured", Boolean.FALSE));
         }
 
-        long safeCurrent = current <= 0 ? 1 : current;
-        long safeSize = size <= 0 ? 10 : size;
-        int fromIndex = (int) Math.min((safeCurrent - 1) * safeSize, all.size());
-        int toIndex = (int) Math.min(fromIndex + safeSize, all.size());
-        return new PageResponse<PromptView>(safeCurrent, safeSize, all.size(), new ArrayList<PromptView>(all.subList(fromIndex, toIndex)));
+        PageRequest pageRequest = PageRequest.of(current, size);
+        int fromIndex = pageRequest.fromIndex(all.size());
+        int toIndex = pageRequest.toIndex(all.size());
+        return new PageResponse<PromptView>(
+            pageRequest.getCurrent(),
+            pageRequest.getSize(),
+            all.size(),
+            new ArrayList<PromptView>(all.subList(fromIndex, toIndex))
+        );
     }
 
     public PromptView resolveEffectivePrompt(String cdPrompt, String orgId, String regionId) {

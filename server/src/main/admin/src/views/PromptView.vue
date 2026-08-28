@@ -64,16 +64,14 @@
         </el-table-column>
       </el-table>
 
-      <div class="page-footer">
-        <el-pagination
-          background
-          layout="total, prev, pager, next"
-          :current-page.sync="current"
-          :page-size="size"
-          :total="total"
-          @current-change="loadData"
-        />
-      </div>
+    <div class="page-footer">
+      <AdminPagination
+        :current.sync="current"
+        :size.sync="size"
+        :total="total"
+        @change="loadData"
+      />
+    </div>
     </section>
 
     <el-dialog
@@ -144,7 +142,7 @@
               v-model="form.userTemplate"
               type="textarea"
               :rows="6"
-              placeholder="输入用户提示词模板，可使用 {{transcribedText}}、{{input}} 等占位符…"
+              :placeholder="'输入用户提示词模板，可使用 {{transcribedText}}、{{input}} 等占位符…'"
             />
           </el-form-item>
         </section>

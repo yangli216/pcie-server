@@ -11,12 +11,12 @@
             clearable
             placeholder="输入症状名称或标识…"
             class="search-input"
-            @keyup.enter.native="loadData"
+            @keyup.enter.native="searchTemplates"
           />
           <el-select v-model="filters.sdStatus" clearable class="filter-select" placeholder="状态">
             <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
-          <el-button type="primary" icon="el-icon-search" @click="loadData">查询</el-button>
+          <el-button type="primary" icon="el-icon-search" @click="searchTemplates">查询</el-button>
           <el-button @click="resetFilters">重置</el-button>
           <advanced-filter-panel v-model="advancedFiltersOpen">
             <el-select v-model="filters.systemCategory" clearable class="filter-select" placeholder="系统分类">
@@ -66,7 +66,7 @@
         <div class="symptom-sidebar__header">
           <div>
             <div class="section-title">症状列表</div>
-            <div class="muted-text">共 {{ records.length }} 条，当前模式 {{ medicalModeLabel(filters.medicalMode) }}</div>
+            <div class="muted-text">共 {{ pagination.total }} 条，当前模式 {{ medicalModeLabel(filters.medicalMode) }}</div>
           </div>
         </div>
         <div class="symptom-list">
@@ -86,6 +86,15 @@
             </div>
           </button>
           <div v-if="!records.length" class="empty-state">当前筛选条件下暂无症状模板</div>
+        </div>
+        <div class="symptom-sidebar__pagination">
+          <AdminPagination
+            compact
+            :current.sync="pagination.current"
+            :size.sync="pagination.size"
+            :total="pagination.total"
+            @change="loadData"
+          />
         </div>
       </section>
 
@@ -496,13 +505,11 @@
       </el-table>
 
       <div class="page-footer">
-        <el-pagination
-          background
-          layout="total, prev, pager, next"
-          :current-page.sync="changeLogPagination.current"
-          :page-size="changeLogPagination.size"
+        <AdminPagination
+          :current.sync="changeLogPagination.current"
+          :size.sync="changeLogPagination.size"
           :total="changeLogPagination.total"
-          @current-change="loadChangeLogs"
+          @change="loadChangeLogs"
         />
       </div>
       <span slot="footer">
@@ -710,6 +717,11 @@ export default {
       filters: createFilters(),
       advancedFiltersOpen: false,
       records: [],
+      pagination: {
+        current: 1,
+        size: 10,
+        total: 0
+      },
       deletedTemplateIds: [],
       selectedId: '',
       editingRecord: null,
@@ -781,19 +793,13 @@ export default {
       this.loading = true
       try {
         const data = await http.get('/admin/api/symptom-templates', {
-          params: {
-            current: 1,
-            size: 500,
-            keyword: this.filters.keyword || undefined,
-            medicalMode: this.filters.medicalMode || undefined,
-            systemCategory: this.filters.systemCategory || undefined,
-            sdStatus: this.filters.sdStatus || undefined,
-            idRegion: this.filters.idRegion || undefined,
-            idOrg: this.filters.idOrg || undefined
-          }
+          params: this.templateListParams(this.pagination.current, this.pagination.size)
         })
         const deletedIds = this.deletedTemplateIds
         this.records = (data.records || []).filter(item => item && !deletedIds.includes(item.id))
+        this.pagination.current = Number(data.current || this.pagination.current)
+        this.pagination.size = Number(data.size || this.pagination.size)
+        this.pagination.total = Number(data.total || 0)
         if (this.selectedId) {
           const selected = this.records.find(item => item.id === this.selectedId)
           if (selected) {
@@ -815,10 +821,27 @@ export default {
         this.loading = false
       }
     },
+    templateListParams(current, size) {
+      return {
+        current,
+        size,
+        keyword: this.filters.keyword || undefined,
+        medicalMode: this.filters.medicalMode || undefined,
+        systemCategory: this.filters.systemCategory || undefined,
+        sdStatus: this.filters.sdStatus || undefined,
+        idRegion: this.filters.idRegion || undefined,
+        idOrg: this.filters.idOrg || undefined
+      }
+    },
+    searchTemplates() {
+      this.pagination.current = 1
+      this.loadData()
+    },
     handleMedicalModeChange() {
       this.selectedId = ''
       this.editingRecord = null
       this.originalRecord = null
+      this.pagination.current = 1
       this.loadData()
     },
     handleFilterRegionChange(idRegion) {
@@ -862,6 +885,7 @@ export default {
     },
     resetFilters() {
       this.filters = createFilters()
+      this.pagination.current = 1
       this.selectedId = ''
       this.editingRecord = null
       this.originalRecord = null
@@ -1316,15 +1340,33 @@ export default {
       }
       reader.readAsText(file, 'utf-8')
     },
-    exportCurrent() {
-      const content = JSON.stringify(this.records, null, 2)
-      const blob = new Blob([content], { type: 'application/json;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `symptom-templates-${this.filters.medicalMode}.json`
-      link.click()
-      URL.revokeObjectURL(url)
+    async exportCurrent() {
+      try {
+        const records = []
+        let current = 1
+        let total = 0
+        do {
+          const data = await http.get('/admin/api/symptom-templates', {
+            params: this.templateListParams(current, 100)
+          })
+          const pageRecords = data.records || []
+          records.push(...pageRecords)
+          total = Number(data.total || 0)
+          current += 1
+          if (!pageRecords.length) break
+        } while (records.length < total)
+
+        const content = JSON.stringify(records, null, 2)
+        const blob = new Blob([content], { type: 'application/json;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `symptom-templates-${this.filters.medicalMode}.json`
+        link.click()
+        URL.revokeObjectURL(url)
+      } catch (error) {
+        this.$message.error((error && error.message) || '导出症状模板失败')
+      }
     },
     openChangeLogDialog() {
       this.changeLogDialogVisible = true
@@ -1456,6 +1498,13 @@ export default {
   gap: 8px;
   overflow-y: auto;
   scrollbar-gutter: stable;
+}
+
+.symptom-sidebar__pagination {
+  flex: 0 0 auto;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #eef2f7;
 }
 
 .symptom-item {

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.db.DatabaseDialect;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.audit.entity.AiOpLog;
@@ -159,7 +160,10 @@ public class FeedbackService {
     }
 
     public PageResponse<AdminFeedbackListItem> list(FeedbackListQuery query) {
-        Page<AiFeedback> page = new Page<AiFeedback>(query.getCurrent(), query.getSize());
+        PageRequest pageRequest = PageRequest.of(query.getCurrent(), query.getSize());
+        query.setCurrent(pageRequest.getCurrent());
+        query.setSize(pageRequest.getSize());
+        Page<AiFeedback> page = new Page<AiFeedback>(pageRequest.getCurrent(), pageRequest.getSize());
         QueryWrapper<AiFeedback> wrapper = new QueryWrapper<AiFeedback>()
             .eq("fg_active", "1")
             .orderByDesc("feedback_time");

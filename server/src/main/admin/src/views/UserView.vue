@@ -47,14 +47,22 @@
           <el-option label="机构权限管理员" value="ORG_ADMIN" />
           <el-option label="机构统计员" value="ORG_ANALYST" />
         </el-select>
-        <el-input
+        <el-select
           v-if="!bbpMode"
-          v-model.trim="filters.idOrg"
+          v-model="filters.idOrg"
           clearable
-          placeholder="机构标识"
+          filterable
+          :loading="orgOptionsLoading"
+          placeholder="所属机构"
           class="filter-select"
-          @keyup.enter.native="search"
-        />
+        >
+          <el-option
+            v-for="item in orgOptions"
+            :key="item.idOrg"
+            :label="resolveOrgLabel(item)"
+            :value="item.idOrg"
+          />
+        </el-select>
         <el-button type="primary" icon="el-icon-search" @click="search">查询</el-button>
         <el-button @click="reset">重置</el-button>
       </div>
@@ -150,66 +158,34 @@
     </el-table>
 
     <div class="page-footer">
-      <el-pagination
-        background
-        layout="total, prev, pager, next"
-        :current-page.sync="current"
-        :page-size="size"
+      <AdminPagination
+        :current.sync="current"
+        :size.sync="size"
         :total="total"
-        @current-change="loadData"
+        @change="loadData"
       />
     </div>
     </section>
 
-    <el-dialog v-if="dialogVisible" :title="dialogTitle" :visible.sync="dialogVisible" width="760px" @closed="resetForm">
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
-        <div class="form-grid">
-          <el-form-item label="登录账号" prop="cdUser">
-            <el-input v-model.trim="form.cdUser" maxlength="64" />
-          </el-form-item>
-          <el-form-item label="用户姓名" prop="naUser">
-            <el-input v-model.trim="form.naUser" maxlength="64" />
-          </el-form-item>
-          <el-form-item label="登录密码" prop="password">
-            <el-input
-              v-model="form.password"
-              type="password"
-              show-password
-              maxlength="128"
-              placeholder="请输入密码…"
-            />
-          </el-form-item>
-          <el-form-item label="所属机构标识" prop="idOrg">
-            <el-input v-model.trim="form.idOrg" maxlength="64" placeholder="例如 ORG001" />
-          </el-form-item>
-          <el-form-item label="角色" prop="roleIds" class="form-span-2">
-            <el-select v-model="form.roleIds" multiple clearable filterable placeholder="请选择角色…">
-              <el-option
-                v-for="item in roleOptions"
-                :key="resolveRoleValue(item)"
-                :label="resolveRoleLabel(item)"
-                :value="resolveRoleValue(item)"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="状态" prop="sdStatus">
-            <segmented-switch v-model="form.sdStatus" :options="statusOptions" />
-          </el-form-item>
-        </div>
-      </el-form>
-      <span slot="footer">
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitForm">保存</el-button>
-      </span>
-    </el-dialog>
-
+    <user-editor-dialog
+      :visible.sync="dialogVisible"
+      :mode="dialogMode"
+      :value="form"
+      :org-options="orgOptions"
+      :role-options="roleOptions"
+      :org-loading="orgOptionsLoading"
+      :saving="saving"
+      @submit="submitForm"
+    />
   </div>
 </template>
 
 <script>
 import http from '../api/http'
+import { fetchOrgs } from '../api/reference'
+import UserEditorDialog from '../components/user/UserEditorDialog.vue'
 import { configStatusOptions, findStatusMeta, formatDateTime, statusTone } from '../utils/admin'
-import { CodeTag, SegmentedSwitch, StatusPill, TableAction } from '../components/ui'
+import { CodeTag, StatusPill, TableAction } from '../components/ui'
 import { getAdminUser } from '../utils/auth'
 
 const statusOptions = [
@@ -273,9 +249,9 @@ function extractRoleIds(value) {
 export default {
   components: {
     CodeTag,
-    SegmentedSwitch,
     StatusPill,
-    TableAction
+    TableAction,
+    UserEditorDialog
   },
   data() {
     return {
@@ -300,13 +276,9 @@ export default {
       filters: createDefaultFilters(),
       roleOptions: [],
       roleMap: {},
-      form: createDefaultForm(),
-      rules: {
-        cdUser: [{ required: true, message: '请输入登录账号', trigger: 'blur' }],
-        naUser: [{ required: true, message: '请输入用户姓名', trigger: 'blur' }],
-        idOrg: [{ required: true, message: '请输入所属机构标识', trigger: 'blur' }],
-        roleIds: [{ type: 'array', required: true, message: '请选择至少一个角色', trigger: 'change' }]
-      }
+      orgOptions: [],
+      orgOptionsLoading: false,
+      form: createDefaultForm()
     }
   },
   computed: {
@@ -342,7 +314,7 @@ export default {
     if (this.bbpMode) {
       await this.loadBbpOrganizations()
     } else {
-      await this.loadRoleOptions()
+      await Promise.all([this.loadRoleOptions(), this.loadOrgOptions()])
     }
     await this.loadData()
   },
@@ -396,6 +368,14 @@ export default {
       }
       return role.idRole || role.cdRole || ''
     },
+    resolveOrgLabel(org) {
+      const name = String((org && org.naOrg) || '').trim()
+      const id = String((org && org.idOrg) || '').trim()
+      if (name && id) {
+        return `${name}（${id}）`
+      }
+      return name || id || '--'
+    },
     resolveUserTime(row) {
       return row.updateTime || row.lastLoginTime || row.dtUpdate || row.dtLastLogin || ''
     },
@@ -442,7 +422,7 @@ export default {
         const data = await http.get('/admin/api/roles', {
           params: {
             current: 1,
-            size: 200
+            size: 100
           }
         })
         const records = data.records || []
@@ -456,6 +436,17 @@ export default {
         }, {})
       } catch (error) {
         this.$message.error((error && error.message) || '加载角色选项失败')
+      }
+    },
+    async loadOrgOptions() {
+      this.orgOptionsLoading = true
+      try {
+        this.orgOptions = await fetchOrgs({ sdStatus: '1' })
+      } catch (error) {
+        this.orgOptions = []
+        this.$message.error((error && error.message) || '加载机构选项失败')
+      } finally {
+        this.orgOptionsLoading = false
       }
     },
     async loadData() {
@@ -569,6 +560,9 @@ export default {
     openCreate() {
       this.dialogMode = 'create'
       this.form = createDefaultForm()
+      if (!this.orgOptions.length && !this.orgOptionsLoading) {
+        this.loadOrgOptions()
+      }
       this.dialogVisible = true
     },
     openEdit(row) {
@@ -584,49 +578,32 @@ export default {
       }
       this.dialogVisible = true
     },
-    resetForm() {
-      this.form = createDefaultForm()
-      if (this.$refs.formRef) {
-        this.$refs.formRef.resetFields()
+    async submitForm(formValue) {
+      this.saving = true
+      try {
+        const payload = {
+          cdUser: formValue.cdUser,
+          naUser: formValue.naUser,
+          password: formValue.password || '',
+          idOrg: formValue.idOrg,
+          roleIds: formValue.roleIds,
+          sdStatus: formValue.sdStatus
+        }
+
+        if (this.dialogMode === 'create') {
+          await http.post('/admin/api/users', payload)
+        } else {
+          await http.put(`/admin/api/users/${formValue.idUser}`, payload)
+        }
+
+        this.$message.success('保存成功')
+        this.dialogVisible = false
+        this.loadData()
+      } catch (error) {
+        this.$message.error((error && error.message) || '保存失败')
+      } finally {
+        this.saving = false
       }
-    },
-    submitForm() {
-      this.$refs.formRef.validate(async valid => {
-        if (!valid) {
-          return
-        }
-
-        if (this.dialogMode === 'create' && !this.form.password) {
-          this.$message.error('请输入登录密码')
-          return
-        }
-
-        this.saving = true
-        try {
-          const payload = {
-            cdUser: this.form.cdUser,
-            naUser: this.form.naUser,
-            password: this.form.password || '',
-            idOrg: this.form.idOrg,
-            roleIds: this.form.roleIds,
-            sdStatus: this.form.sdStatus
-          }
-
-          if (this.dialogMode === 'create') {
-            await http.post('/admin/api/users', payload)
-          } else {
-            await http.put(`/admin/api/users/${this.form.idUser}`, payload)
-          }
-
-          this.$message.success('保存成功')
-          this.dialogVisible = false
-          this.loadData()
-        } catch (error) {
-          this.$message.error((error && error.message) || '保存失败')
-        } finally {
-          this.saving = false
-        }
-      })
     },
     toggleStatus(row) {
       const enable = !this.isEnabled(row)

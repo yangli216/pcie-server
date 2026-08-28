@@ -1,16 +1,20 @@
 package com.regionalai.floatingball.server.modules.useractivity.mapper;
 
-import com.regionalai.floatingball.server.common.db.DatabaseDialect;
-import com.regionalai.floatingball.server.common.db.DatabaseDialectHolder;
 import com.regionalai.floatingball.server.modules.useractivity.dto.UserActivityQueryDTO;
+import org.apache.ibatis.mapping.BoundSql;
+import org.apache.ibatis.mapping.SqlSource;
+import org.apache.ibatis.session.Configuration;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.SelectProvider;
-import org.junit.jupiter.api.AfterEach;
+import org.apache.ibatis.scripting.xmltags.XMLLanguageDriver;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -18,74 +22,90 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class UserActivityMapperTest {
 
-    @AfterEach
-    void tearDown() {
-        DatabaseDialectHolder.set(new DatabaseDialect(DatabaseDialect.Kind.ORACLE));
-    }
-
     @Test
     void mapperShouldKeepMyBatisProviderAnnotations() throws Exception {
         assertTrue(UserActivityMapper.class.isAnnotationPresent(Mapper.class));
 
-        Method countActiveUsers = UserActivityMapper.class.getMethod("countActiveUsers", UserActivityQueryDTO.class);
-        assertHasQueryParam(countActiveUsers);
-        assertProvider(countActiveUsers, "countActiveUsers");
+        Method countActiveDoctors = UserActivityMapper.class.getMethod("countActiveDoctors", UserActivityQueryDTO.class);
+        assertHasQueryParam(countActiveDoctors);
+        assertProvider(countActiveDoctors, "countActiveDoctors");
 
-        Method queryUserActivityList = UserActivityMapper.class.getMethod("queryUserActivityList", UserActivityQueryDTO.class);
-        assertHasQueryParam(queryUserActivityList);
-        assertProvider(queryUserActivityList, "queryUserActivityList");
+        Method queryDoctorActivityList = UserActivityMapper.class.getMethod("queryDoctorActivityList", UserActivityQueryDTO.class);
+        assertHasQueryParam(queryDoctorActivityList);
+        assertProvider(queryDoctorActivityList, "queryDoctorActivityList");
     }
 
     @Test
-    void oracleProviderShouldUseOracleTopOneSyntax() {
-        DatabaseDialectHolder.set(new DatabaseDialect(DatabaseDialect.Kind.ORACLE));
-        String sql = new UserActivitySqlProvider().queryUserActivityList();
+    void activeAndTotalCountsShouldUseDistinctDoctorIdentity() {
+        UserActivitySqlProvider provider = new UserActivitySqlProvider();
+        String activeSql = provider.countActiveDoctors();
+        String totalSql = provider.countTotalDoctors();
 
-        assertEnabledScopeJoin(sql);
-        assertTrue(sql.contains("o.id_region AS idRegion"));
-        assertTrue(sql.contains("r.na_region AS naRegion"));
-        assertTrue(sql.contains("ROWNUM = 1"));
-        assertFalse(sql.contains("LIMIT 1"));
+        assertEnabledConsultationScope(activeSql);
+        assertTrue(activeSql.contains("COUNT(DISTINCT ucl.id_doctor)"));
+        assertTrue(activeSql.contains("ucl.id_doctor IS NOT NULL"));
+        assertTrue(activeSql.contains("query.dateFromTime"));
+        assertTrue(activeSql.contains("query.dateToExclusiveTime"));
+        assertTrue(activeSql.contains("ucl.id_his_org = #{query.hisOrgId}"));
+        assertFalse(activeSql.contains("c_ai_device"));
+
+        assertEnabledConsultationScope(totalSql);
+        assertTrue(totalSql.contains("COUNT(DISTINCT ucl.id_doctor)"));
+        assertFalse(totalSql.contains("query.dateFromTime"));
+        assertFalse(totalSql.contains("query.dateToExclusiveTime"));
     }
 
     @Test
-    void gaussdbProviderShouldUseLimitSyntaxAndBoundTimes() {
-        DatabaseDialectHolder.set(new DatabaseDialect(DatabaseDialect.Kind.OPENGAUSS));
-        String sql = new UserActivitySqlProvider().queryUserActivityList();
+    void doctorActivityListShouldMergeDevicesAndApplyPeriodToActivityFacts() {
+        String sql = new UserActivitySqlProvider().queryDoctorActivityList();
 
-        assertEnabledScopeJoin(sql);
-        assertTrue(sql.contains("LIMIT 1"));
+        assertEnabledConsultationScope(sql);
+        assertTrue(sql.contains("ucl.id_doctor AS idDoctor"));
+        assertTrue(sql.contains("ROW_NUMBER() OVER (PARTITION BY ucl.id_doctor"));
+        assertTrue(sql.contains("COUNT(DISTINCT facts.idDevice) AS deviceCount"));
+        assertTrue(sql.contains("GROUP BY facts.idDoctor"));
+        assertTrue(sql.contains("HAVING SUM("));
+        assertTrue(sql.contains("query.activeStatus == \"active\""));
+        assertTrue(sql.contains("query.activeStatus == \"inactive\""));
         assertTrue(sql.contains("query.dateFromTime"));
         assertTrue(sql.contains("query.dateToExclusiveTime"));
-        assertFalse(sql.contains("ROWNUM"));
-        assertFalse(sql.contains("TO_DATE"));
-    }
-
-    @Test
-    void hisOrganizationFilterShouldScopeFactsAndDeviceDenominator() {
-        DatabaseDialectHolder.set(new DatabaseDialect(DatabaseDialect.Kind.ORACLE));
-        UserActivitySqlProvider provider = new UserActivitySqlProvider();
-
-        assertTrue(provider.countActiveUsers().contains("ucl.id_his_org = #{query.hisOrgId}"));
-        assertTrue(provider.countConsultations().contains("ucl.id_his_org = #{query.hisOrgId}"));
-        assertTrue(provider.countTotalDevices().contains("ucl_scope.id_his_org = #{query.hisOrgId}"));
-
-        String list = provider.queryUserActivityList();
-        assertTrue(list.contains("id_his_org"));
-        assertTrue(list.contains("AS hisOrgId"));
-        assertTrue(list.contains("AS hisOrgName"));
-    }
-
-    @Test
-    void userActivityListShouldOrderMostActiveDevicesFirst() {
-        DatabaseDialectHolder.set(new DatabaseDialect(DatabaseDialect.Kind.ORACLE));
-
-        String sql = new UserActivitySqlProvider().queryUserActivityList();
-
         assertTrue(sql.contains(
             "ORDER BY consultationCount DESC, effectiveConsultationCount DESC, "
-                + "lastActiveTime DESC NULLS LAST, idDevice ASC"
+                + "lastActiveTime DESC NULLS LAST, idDoctor ASC"
         ));
+        assertFalse(sql.contains("GROUP BY ucl.id_device"));
+    }
+
+    @Test
+    void regionCountShouldCountDistinctDoctors() {
+        String sql = new UserActivitySqlProvider().countActiveDoctorsByRegion();
+
+        assertEnabledConsultationScope(sql);
+        assertTrue(sql.contains("COUNT(DISTINCT ucl.id_doctor)"));
+        assertTrue(sql.contains("GROUP BY o.id_region"));
+    }
+
+    @Test
+    void doctorActivityListShouldRenderValidDynamicSqlForStatusFilter() {
+        UserActivityQueryDTO query = new UserActivityQueryDTO();
+        query.setDateFromTime(LocalDateTime.of(2026, 8, 1, 0, 0));
+        query.setDateToExclusiveTime(LocalDateTime.of(2026, 9, 1, 0, 0));
+        query.setHisOrgId("HIS-ORG-001");
+        query.setActiveStatus("active");
+
+        String sql = renderSql(new UserActivitySqlProvider().queryDoctorActivityList(), query);
+
+        assertTrue(sql.contains("GROUP BY facts.idDoctor HAVING SUM"));
+        assertTrue(sql.contains("facts.consultation_time >= ?"));
+        assertTrue(sql.contains("facts.consultation_time < ?"));
+        assertTrue(sql.contains("ucl.id_his_org = ?"));
+        assertTrue(sql.contains("> 0 ORDER BY"));
+        assertFalse(sql.contains("= 0 ORDER BY"));
+
+        query.setActiveStatus("inactive");
+        String inactiveSql = renderSql(new UserActivitySqlProvider().queryDoctorActivityList(), query);
+        assertTrue(inactiveSql.contains("= 0 ORDER BY"));
+        assertFalse(inactiveSql.contains("> 0 ORDER BY"));
     }
 
     private void assertHasQueryParam(Method method) {
@@ -100,11 +120,21 @@ class UserActivityMapperTest {
         assertEquals(providerMethod, provider.method());
     }
 
-    private void assertEnabledScopeJoin(String sql) {
+    private void assertEnabledConsultationScope(String sql) {
+        assertTrue(sql.contains("FROM c_ai_user_consultation_log ucl"));
         assertTrue(sql.contains("JOIN c_ai_org"));
         assertTrue(sql.contains("JOIN c_ai_region"));
         assertTrue(sql.contains("o.sd_status = '1'"));
         assertTrue(sql.contains("r.sd_status = '1'"));
         assertTrue(sql.contains("o.id_region = #{query.idRegion}"));
+    }
+
+    private String renderSql(String script, UserActivityQueryDTO query) {
+        Configuration configuration = new Configuration();
+        SqlSource source = new XMLLanguageDriver().createSqlSource(configuration, script, Map.class);
+        Map<String, Object> parameters = new HashMap<String, Object>();
+        parameters.put("query", query);
+        BoundSql boundSql = source.getBoundSql(parameters);
+        return boundSql.getSql().replaceAll("\\s+", " ").trim();
     }
 }

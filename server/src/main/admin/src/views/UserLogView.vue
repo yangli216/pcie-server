@@ -110,13 +110,11 @@
     </el-table>
 
     <div class="page-footer">
-      <el-pagination
-        background
-        layout="total, prev, pager, next"
-        :current-page.sync="current"
-        :page-size="size"
+      <AdminPagination
+        :current.sync="current"
+        :size.sync="size"
         :total="total"
-        @current-change="loadData"
+        @change="loadData"
       />
     </div>
     </section>

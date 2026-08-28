@@ -53,20 +53,19 @@ class UserServiceTest {
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(aiUserMapper, aiUserRoleMapper, aiRoleMapper, aiOrgMapper, new DatabaseDialect(DatabaseDialect.Kind.ORACLE));
+        userService = new UserService(
+            aiUserMapper,
+            aiUserRoleMapper,
+            aiRoleMapper,
+            aiOrgMapper,
+            new DatabaseDialect(DatabaseDialect.Kind.ORACLE)
+        );
     }
 
     @Test
-    void saveShouldHashPasswordAndInsertRoleMappings() {
-        AiOrg org = new AiOrg();
-        org.setIdOrg("ORG001");
-        org.setFgActive("1");
-
-        AiRole role = new AiRole();
-        role.setIdRole("ROLE001");
-        role.setNaRole("系统管理员");
-        role.setSdStatus("1");
-        role.setFgActive("1");
+    void saveShouldHashPasswordPersistOrgAndInsertRoleMappings() {
+        AiOrg org = activeOrg("ORG001", "默认机构");
+        AiRole role = activeRole("ROLE001", "系统管理员");
 
         when(aiOrgMapper.selectOne(any())).thenReturn(org);
         when(aiUserMapper.selectOne(any())).thenReturn(null);
@@ -88,19 +87,12 @@ class UserServiceTest {
             return user;
         });
 
-        AdminUserSaveRequest request = new AdminUserSaveRequest();
-        request.setCdUser("zhangsan");
-        request.setNaUser("张三");
-        request.setPassword("123456");
-        request.setIdOrg("ORG001");
-        request.setRoleIds(Collections.singletonList("ROLE001"));
-        request.setSdStatus("1");
-
-        AdminUserView result = userService.save(request);
+        AdminUserView result = userService.save(saveRequest());
 
         ArgumentCaptor<AiUser> userCaptor = ArgumentCaptor.forClass(AiUser.class);
         verify(aiUserMapper).insert(userCaptor.capture());
         assertEquals(PasswordUtils.sha256("123456"), userCaptor.getValue().getPasswordHash());
+        assertEquals("ORG001", userCaptor.getValue().getIdOrg());
         assertEquals("USER001", result.getIdUser());
 
         ArgumentCaptor<AiUserRole> mappingCaptor = ArgumentCaptor.forClass(AiUserRole.class);
@@ -111,43 +103,26 @@ class UserServiceTest {
 
     @Test
     void saveShouldRejectMissingRoles() {
-        AdminUserSaveRequest request = new AdminUserSaveRequest();
-        request.setCdUser("zhangsan");
-        request.setNaUser("张三");
-        request.setPassword("123456");
-        request.setIdOrg("ORG001");
+        AdminUserSaveRequest request = saveRequest();
         request.setRoleIds(Collections.<String>emptyList());
 
         BusinessException ex = assertThrows(BusinessException.class, () -> userService.save(request));
 
         assertEquals("至少选择一个角色", ex.getMessage());
         verify(aiUserMapper, never()).insert(any(AiUser.class));
+        verify(aiOrgMapper, never()).selectOne(any());
     }
 
     @Test
     void saveShouldTranslateDatabaseUniqueConflictToBusinessError() {
-        AiOrg org = new AiOrg();
-        org.setIdOrg("ORG001");
-        org.setFgActive("1");
-
-        AiRole role = new AiRole();
-        role.setIdRole("ROLE001");
-        role.setSdStatus("1");
-        role.setFgActive("1");
-
-        when(aiOrgMapper.selectOne(any())).thenReturn(org);
+        when(aiOrgMapper.selectOne(any())).thenReturn(activeOrg("ORG001", "默认机构"));
         when(aiUserMapper.selectOne(any())).thenReturn(null);
-        when(aiRoleMapper.selectBatchIds(any())).thenReturn(Collections.singletonList(role));
-        when(aiUserMapper.insert(any(AiUser.class))).thenThrow(new DuplicateKeyException("uk_c_ai_user_code_active"));
+        when(aiRoleMapper.selectBatchIds(any()))
+            .thenReturn(Collections.singletonList(activeRole("ROLE001", "系统管理员")));
+        when(aiUserMapper.insert(any(AiUser.class)))
+            .thenThrow(new DuplicateKeyException("uk_c_ai_user_code_active"));
 
-        AdminUserSaveRequest request = new AdminUserSaveRequest();
-        request.setCdUser("zhangsan");
-        request.setNaUser("张三");
-        request.setPassword("123456");
-        request.setIdOrg("ORG001");
-        request.setRoleIds(Collections.singletonList("ROLE001"));
-
-        BusinessException ex = assertThrows(BusinessException.class, () -> userService.save(request));
+        BusinessException ex = assertThrows(BusinessException.class, () -> userService.save(saveRequest()));
 
         assertEquals("登录账号已存在", ex.getMessage());
         verify(aiUserRoleMapper, never()).insert(any(AiUserRole.class));
@@ -171,38 +146,37 @@ class UserServiceTest {
         userRole.setIdRole("ROLE001");
         userRole.setFgActive("1");
 
-        AiRole role = new AiRole();
-        role.setIdRole("ROLE001");
-        role.setNaRole("系统管理员");
-        role.setSdStatus("1");
-        role.setFgActive("1");
-
-        AiOrg org = new AiOrg();
-        org.setIdOrg("ORG001");
-        org.setNaOrg("默认机构");
-
         when(aiUserMapper.selectPage(any(Page.class), any())).thenReturn(mapperPage);
-        when(aiOrgMapper.selectBatchIds(any())).thenReturn(Collections.singletonList(org));
+        when(aiOrgMapper.selectBatchIds(any()))
+            .thenReturn(Collections.singletonList(activeOrg("ORG001", "默认机构")));
         when(aiUserRoleMapper.selectList(any())).thenReturn(Collections.singletonList(userRole));
-        when(aiRoleMapper.selectBatchIds(any())).thenReturn(Collections.singletonList(role));
+        when(aiRoleMapper.selectBatchIds(any()))
+            .thenReturn(Collections.singletonList(activeRole("ROLE001", "系统管理员")));
 
         PageResponse<AdminUserView> response = userService.list(1, 10, "张三", "1", "ORG001", null);
 
         assertEquals(1L, response.getTotal());
+        assertEquals("ORG001", response.getRecords().get(0).getIdOrg());
         assertEquals("默认机构", response.getRecords().get(0).getNaOrg());
         assertEquals(Arrays.asList("系统管理员"), response.getRecords().get(0).getRoleNames());
     }
 
     @Test
-    void disableShouldOnlyUpdateUserStatus() {
-        AiUser user = new AiUser();
-        user.setIdUser("USER001");
-        user.setCdUser("zhangsan");
-        user.setNaUser("张三");
-        user.setIdOrg("ORG001");
-        user.setSdStatus("1");
-        user.setFgActive("1");
+    void saveShouldRejectUnknownOrg() {
+        when(aiOrgMapper.selectOne(any())).thenReturn(null);
+        AdminUserSaveRequest request = saveRequest();
+        request.setIdOrg("ORG404");
 
+        BusinessException ex = assertThrows(BusinessException.class, () -> userService.save(request));
+
+        assertEquals("所属机构不存在", ex.getMessage());
+        verify(aiUserMapper, never()).insert(any(AiUser.class));
+        verify(aiRoleMapper, never()).selectBatchIds(any());
+    }
+
+    @Test
+    void disableShouldOnlyUpdateUserStatus() {
+        AiUser user = activeUser("USER001", "1");
         when(aiUserMapper.selectById("USER001")).thenReturn(user);
         when(aiUserRoleMapper.selectList(any())).thenReturn(Collections.<AiUserRole>emptyList());
 
@@ -219,14 +193,7 @@ class UserServiceTest {
 
     @Test
     void enableShouldOnlyUpdateUserStatus() {
-        AiUser user = new AiUser();
-        user.setIdUser("USER001");
-        user.setCdUser("zhangsan");
-        user.setNaUser("张三");
-        user.setIdOrg("ORG001");
-        user.setSdStatus("0");
-        user.setFgActive("1");
-
+        AiUser user = activeUser("USER001", "0");
         when(aiUserMapper.selectById("USER001")).thenReturn(user);
         when(aiUserRoleMapper.selectList(any())).thenReturn(Collections.<AiUserRole>emptyList());
 
@@ -239,5 +206,45 @@ class UserServiceTest {
         verify(aiOrgMapper, never()).selectOne(any());
         verify(aiRoleMapper, never()).selectBatchIds(any());
         verify(aiUserRoleMapper, never()).insert(any(AiUserRole.class));
+    }
+
+    private AdminUserSaveRequest saveRequest() {
+        AdminUserSaveRequest request = new AdminUserSaveRequest();
+        request.setCdUser("zhangsan");
+        request.setNaUser("张三");
+        request.setPassword("123456");
+        request.setIdOrg("ORG001");
+        request.setRoleIds(Collections.singletonList("ROLE001"));
+        request.setSdStatus("1");
+        return request;
+    }
+
+    private AiOrg activeOrg(String id, String name) {
+        AiOrg org = new AiOrg();
+        org.setIdOrg(id);
+        org.setNaOrg(name);
+        org.setFgActive("1");
+        org.setSdStatus("1");
+        return org;
+    }
+
+    private AiRole activeRole(String id, String name) {
+        AiRole role = new AiRole();
+        role.setIdRole(id);
+        role.setNaRole(name);
+        role.setSdStatus("1");
+        role.setFgActive("1");
+        return role;
+    }
+
+    private AiUser activeUser(String id, String status) {
+        AiUser user = new AiUser();
+        user.setIdUser(id);
+        user.setCdUser("zhangsan");
+        user.setNaUser("张三");
+        user.setIdOrg("ORG001");
+        user.setSdStatus(status);
+        user.setFgActive("1");
+        return user;
     }
 }

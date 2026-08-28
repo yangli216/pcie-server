@@ -80,7 +80,7 @@ class SymptomTemplateServiceTest {
     @Test
     void listShouldOnlyQueryActiveTemplates() {
         AiSymptomTemplate active = buildTemplate("T1", "fever", "发热", "western", null, null, 1, LocalDateTime.now());
-        Page<AiSymptomTemplate> mapperResult = new Page<AiSymptomTemplate>(1, 500, 1);
+        Page<AiSymptomTemplate> mapperResult = new Page<AiSymptomTemplate>(1, 100, 1);
         mapperResult.setRecords(Collections.singletonList(active));
         when(aiSymptomTemplateMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(mapperResult);
 

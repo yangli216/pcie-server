@@ -15,6 +15,6 @@ public class FunctionUsageQueryDTO {
     private String idOrg;
     private String hisOrgId;
     private List<String> functionModules;
-    private Integer current;
-    private Integer size;
+    private Integer current = 1;
+    private Integer size = 10;
 }

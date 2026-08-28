@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
 import com.regionalai.floatingball.server.modules.symptom.dto.SymptomTemplateChangeLogVO;
@@ -111,7 +112,8 @@ public class SymptomTemplateChangeLogService {
                                                          String operatorKeyword,
                                                          String dateFrom,
                                                          String dateTo) {
-        Page<AiSymptomTemplateChangeLog> page = new Page<AiSymptomTemplateChangeLog>(current, size);
+        PageRequest pageRequest = PageRequest.of(current, size);
+        Page<AiSymptomTemplateChangeLog> page = new Page<AiSymptomTemplateChangeLog>(pageRequest.getCurrent(), pageRequest.getSize());
         LocalDateTime startTime = parseDateTime(dateFrom, false);
         LocalDateTime endTime = parseDateTime(dateTo, true);
         LambdaQueryWrapper<AiSymptomTemplateChangeLog> wrapper = new LambdaQueryWrapper<AiSymptomTemplateChangeLog>()

@@ -89,7 +89,6 @@ class AdminAuthServiceTest {
         when(aiUserMapper.selectOne(any())).thenReturn(user);
         when(aiUserRoleMapper.selectList(any())).thenReturn(Collections.singletonList(userRole));
         when(aiRoleMapper.selectBatchIds(any())).thenReturn(Collections.singletonList(role));
-
         AdminLoginRequest request = new AdminLoginRequest();
         request.setUsername("admin");
         request.setPassword("admin123");

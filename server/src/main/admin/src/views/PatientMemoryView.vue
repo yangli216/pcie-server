@@ -37,14 +37,12 @@
       <div class="page-section__header">
         <span class="page-section__title">患者记忆</span>
         <div class="page-section__meta">
-          共 {{ page.total || 0 }} 位患者
-          <el-pagination
-            small
-            layout="prev, pager, next"
+          <AdminPagination
+            compact
             :total="page.total || 0"
-            :page-size="page.size"
-            :current-page.sync="page.current"
-            @current-change="loadList"
+            :size.sync="page.size"
+            :current.sync="page.current"
+            @change="loadList"
           />
         </div>
       </div>
@@ -297,7 +295,7 @@ export default {
       loading: false,
       detailLoading: false,
       records: [],
-      page: { current: 1, size: 15, total: 0 },
+      page: { current: 1, size: 10, total: 0 },
       query: { keyword: '', idOrg: '', qualityStatus: '' },
       orgOptions: [],
       detailVisible: false,

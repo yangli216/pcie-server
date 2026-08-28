@@ -1,6 +1,7 @@
 package com.regionalai.floatingball.server.modules.feedback.controller;
 
 import com.regionalai.floatingball.server.common.api.ApiResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.util.RequestIdUtils;
 import com.regionalai.floatingball.server.modules.feedback.dto.AdminFeedbackDetailResponse;
@@ -27,12 +28,9 @@ public class AdminFeedbackController {
     @GetMapping
     public ApiResponse<PageResponse<AdminFeedbackListItem>> list(FeedbackListQuery query,
                                                                  HttpServletRequest request) {
-        if (query.getCurrent() <= 0) {
-            query.setCurrent(1);
-        }
-        if (query.getSize() <= 0) {
-            query.setSize(10);
-        }
+        PageRequest pageRequest = PageRequest.of(query.getCurrent(), query.getSize());
+        query.setCurrent(pageRequest.getCurrent());
+        query.setSize(pageRequest.getSize());
         return ApiResponse.success(
             feedbackService.list(query),
             RequestIdUtils.resolve(request)

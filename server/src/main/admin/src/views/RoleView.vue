@@ -45,13 +45,11 @@
     </el-table>
 
     <div class="page-footer">
-      <el-pagination
-        background
-        layout="total, prev, pager, next"
-        :current-page.sync="current"
-        :page-size="size"
+      <AdminPagination
+        :current.sync="current"
+        :size.sync="size"
         :total="total"
-        @current-change="loadData"
+        @change="loadData"
       />
     </div>
     </section>
@@ -226,11 +224,7 @@ export default {
         type: 'warning'
       }).then(async () => {
         try {
-          if (enable) {
-            await this.updateRoleStatus(row, '1')
-          } else {
-            await http.delete(`/admin/api/roles/${row.idRole}`)
-          }
+          await this.updateRoleStatus(row, enable ? '1' : '0')
           this.$message.success(`${actionText}成功`)
           this.loadData()
         } catch (error) {

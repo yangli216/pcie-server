@@ -2,6 +2,8 @@ import Vue from 'vue'
 import Alert from 'element-ui/lib/alert'
 import Aside from 'element-ui/lib/aside'
 import Button from 'element-ui/lib/button'
+import Checkbox from 'element-ui/lib/checkbox'
+import CheckboxGroup from 'element-ui/lib/checkbox-group'
 import Container from 'element-ui/lib/container'
 import DatePicker from 'element-ui/lib/date-picker'
 import Dialog from 'element-ui/lib/dialog'
@@ -34,6 +36,8 @@ const components = [
   Alert,
   Aside,
   Button,
+  Checkbox,
+  CheckboxGroup,
   Container,
   DatePicker,
   Dialog,

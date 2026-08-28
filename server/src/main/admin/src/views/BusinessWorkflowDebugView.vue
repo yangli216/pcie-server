@@ -42,13 +42,12 @@
           </el-table-column>
         </el-table>
         <div class="page-footer">
-          <el-pagination
-            small
-            layout="prev, pager, next"
-            :current-page.sync="current"
-            :page-size="size"
+          <AdminPagination
+            compact
+            :current.sync="current"
+            :size.sync="size"
             :total="total"
-            @current-change="loadConsultations"
+            @change="loadConsultations"
           />
         </div>
       </aside>
@@ -153,7 +152,12 @@
                     <el-input v-model="form.systemPrompt" type="textarea" :rows="8" placeholder="从节点默认 Prompt 载入，可直接调优…" />
                   </el-form-item>
                   <el-form-item label="User Prompt">
-                    <el-input v-model="form.userPrompt" type="textarea" :rows="8" placeholder="可使用 {{input}}、{{upstreamOutput}}、{{speechText}} 等变量…" />
+                    <el-input
+                      v-model="form.userPrompt"
+                      type="textarea"
+                      :rows="8"
+                      :placeholder="'可使用 {{input}}、{{upstreamOutput}}、{{speechText}} 等变量…'"
+                    />
                   </el-form-item>
                 </el-form>
               </div>
@@ -232,7 +236,7 @@ export default {
       keyword: '',
       status: '',
       current: 1,
-      size: 8,
+      size: 10,
       total: 0,
       consultations: [],
       selectedRun: null,

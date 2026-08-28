@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.db.DatabaseDialect;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.util.ExcelColumnWidthUtils;
@@ -169,7 +170,8 @@ public class UserConsultationLogService {
                                                           Integer maxChanges,
                                                           String dateFrom,
                                                           String dateTo) {
-        Page<AiUserConsultationLog> page = new Page<AiUserConsultationLog>(current, size);
+        PageRequest pageRequest = PageRequest.of(current, size);
+        Page<AiUserConsultationLog> page = new Page<AiUserConsultationLog>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<AiUserConsultationLog> wrapper = buildListWrapper(keyword, consultationType, status, minChanges, maxChanges, dateFrom, dateTo);
         Page<AiUserConsultationLog> result = userConsultationLogMapper.selectPage(page, wrapper);
         return new PageResponse<UserConsultationLogListItem>(

@@ -32,6 +32,22 @@
 
 `timestamp` 始终表示服务端生成响应时的 epoch 毫秒时间，可作为桌面端校准签名时钟偏移的参考；客户端不得把本地时区换算结果写入签名，只能使用 epoch 毫秒。
 
+管理端列表接口统一使用以下分页契约：
+
+- 请求参数固定为 `current` 与 `size`；`current <= 0` 归一为 `1`，`size <= 0` 归一为 `10`，`size > 100` 归一为 `100`。
+- 响应 `data` 固定包含 `current`、`size`、`total`、`records`；`current` 与 `size` 返回服务端实际采用的归一化值，空页返回空数组而不是 `null`。
+- 管理端分页控件统一提供 `10 / 20 / 50 / 100` 条每页选项；筛选条件、重置条件或每页条数变化后从第 1 页重新查询。
+- Excel 等导出接口忽略列表分页参数，继续遵守各导出接口单独声明的数量上限。
+
+```json
+{
+  "current": 1,
+  "size": 10,
+  "total": 39,
+  "records": []
+}
+```
+
 ## 2. 认证与签名
 
 ### 2.1 客户端接口
@@ -397,15 +413,19 @@ BODY_SHA256
 
 ### 3.5 管理端查询历史版本
 
-`GET /admin/api/releases/history?channel=production`
+`GET /admin/api/releases/history?channel=production&current=1&size=10`
 
-用途：返回指定通道的历史发布快照；`channel` 为空时返回所有通道。历史快照由服务端在上传与回滚时自动维护，不依赖数据库表。
+用途：分页返回指定通道的历史发布快照；`channel` 为空时返回所有通道。历史快照由服务端在上传与回滚时自动维护，不依赖数据库表。分页参数和返回外层遵守管理端统一分页契约。
 
 响应 `data`：
 
 ```json
-[
-  {
+{
+  "current": 1,
+  "size": 10,
+  "total": 1,
+  "records": [
+    {
     "channel": "production",
     "version": "1.2.13",
     "active": false,
@@ -416,8 +436,9 @@ BODY_SHA256
     "notes": "修复内网升级流程",
     "pubDate": "2026-04-24T10:00:00Z",
     "updatedAt": 1777250000000
-  }
-]
+    }
+  ]
+}
 ```
 
 ### 3.6 管理端回滚到历史版本
@@ -754,6 +775,118 @@ Content-Type: application/json
 3. 响应给桌面端时，若请求携带了字段列表，服务端以本次字段列表为基线合并已缓存字段的 AI 生成类型、提示词和生成规则，避免丢失页眉、姓名、床号等 HIS/系统字段；若请求未携带字段列表，则返回缓存中的完整字段。
 4. 管理端维护的字段提示词覆盖会写入 `fields[*].rule.prompt`，桌面端生成住院病历时优先使用该提示词；未维护自定义提示词时，服务端返回的默认提示词会包含模板名称、记录类型、字段名称、所属段落和字段含义。管理端手动调整的 AI 生成类型会写入 `fields[*].aiSuitable` 与 `fields[*].rule.source`。
 4. 本接口是桌面端模板缓存的唯一远程契约；后端不可用或未返回字段时，桌面端仅做确定性模板解析兜底，未知字段分类仍走服务端 LLM，不恢复第三方直连。
+
+### 3.5.2 POST `/v1/client/outpatient-emr/templates/snapshots/resolve`
+
+用途：门诊分析在解析模板前，按当前认证机构、模板 ID 与模板对 hash 查询是否已有可直接复用的确定性字段解析。该接口只读取历史快照，不更新最近接收设备/时间，也不接收模板原文、患者、就诊或模型数据。
+
+请求必须经过设备令牌与 ECDSA P-256 签名，只接受：
+
+```json
+{
+  "schemaVersion": "outpatient-emr-template-pair-resolve.v1",
+  "templateId": "outpatient-template-001",
+  "templateHash": "64位小写SHA-256"
+}
+```
+
+命中响应 `data`：
+
+```json
+{
+  "schemaVersion": "outpatient-emr-template-pair-resolution.v1",
+  "cacheHit": true,
+  "id": "snapshot-uuid",
+  "templateId": "outpatient-template-001",
+  "templateHash": "64位小写SHA-256",
+  "parseResult": {
+    "schemaVersion": "outpatient-emr-template-pair.v1",
+    "fields": []
+  },
+  "receivedAt": 1787800000000
+}
+```
+
+未命中仍返回成功响应，且三个可空字段必须显式为 `null`：
+
+```json
+{
+  "schemaVersion": "outpatient-emr-template-pair-resolution.v1",
+  "cacheHit": false,
+  "id": null,
+  "templateId": "outpatient-template-001",
+  "templateHash": "64位小写SHA-256",
+  "parseResult": null,
+  "receivedAt": null
+}
+```
+
+约束：
+
+1. `templateId` 与 `templateHash` 均按原值严格校验；hash 只能是 64 位小写 SHA-256。查询键固定为认证设备的 `idOrg + templateId + templateHash`。
+2. `cacheHit=true` 时，`id / parseResult / receivedAt` 必须全部存在，`parseResult` 使用下节登记接口的完整严格 schema；服务端发现存量 JSON 损坏时直接失败，不返回伪命中。
+3. `cacheHit=false` 时，桌面端才允许执行模板定义解码、HTML/JSON 严格配对和字段映射，并随后调用登记接口；命中时禁止重新解析或重复登记。
+4. 查询失败或响应 schema/身份/hash 不一致时，桌面端必须在模型调用前停止，不得回退到本地重复解析、旧 schema 或早期实验协议。
+
+### 3.5.3 POST `/v1/client/outpatient-emr/templates/snapshots`
+
+用途：历史解析查询明确未命中后、调用模型前，把本次实际传入的渲染 HTML、结构定义 JSON 和新完成的完整解析快照登记到后台，供“病历模板 → 门诊解析记录”核验。该接口不参与模板下发或最终 HIS 回写。
+
+请求必须经过设备令牌与 ECDSA P-256 签名，只接受当前严格版本：
+
+```json
+{
+  "schemaVersion": "outpatient-emr-template-pair-snapshot.v1",
+  "templateId": "outpatient-template-001",
+  "templateName": "门诊初诊病历",
+  "templateHash": "64位小写SHA-256",
+  "templateHtml": "<section data-id=\"article-chief\" data-article=\"主诉\" data-name=\"主诉\"><div data-id=\"chiefText\" data-type=\"text\" data-name=\"主诉内容\" data-article=\"主诉\" data-readonly=\"false\">咳嗽3天</div></section>",
+  "templateDefinition": "[{\"ID\":\"article-chief\",\"NAME\":\"主诉\",\"ARTICLE\":\"主诉\",\"eles\":[{\"ID\":\"chiefText\",\"NAME\":\"主诉内容\",\"TYPE\":\"text\",\"READONLY\":false,\"VALUE\":\"\",\"TEXT\":\"咳嗽3天\"}]}]",
+  "parseResult": {
+    "schemaVersion": "outpatient-emr-template-pair.v1",
+    "fields": [
+      {
+        "id": "chiefText",
+        "name": "主诉内容",
+        "type": "text",
+        "articleTemplateId": "article-chief",
+        "articleId": "主诉",
+        "articleName": "主诉",
+        "articleDefinitionName": "主诉",
+        "readonly": false,
+        "aiSuitable": true,
+        "baselineValue": "咳嗽3天",
+        "baselineDictionaryValue": "",
+        "dictionaryItems": [],
+        "recordField": "chiefComplaint",
+        "mappingSource": "deterministic-article",
+        "projectionMode": "section-compose"
+      }
+    ]
+  }
+}
+```
+
+字段约束：
+
+1. `templateHtml` 与 `templateDefinition` 均必填、各自最大 1 MiB；不接受旧 `sourceFormat / templateSource`。服务端不会重新解析模板，但会把两份原文和客户端完整合并解析快照一并保存供审计。
+2. 服务端按 UTF-8 重算 `htmlHash` 和 `definitionHash`，再计算 `sha256("outpatient-emr-template-pair.v1:" + htmlHash + ":" + definitionHash)`，结果必须与 `templateHash` 完全一致。
+3. 顶层、`parseResult`、字段和字典项只接受示例中的当前 schema，未知字段直接拒绝；字段最多 2000 个，字段 ID 唯一。每个字段必须显式包含定义章节 ID、业务章节 ID、渲染章节名和定义章节名，服务端不修剪或补造。未映射字段必须显式提交 `recordField: null`、`mappingSource: "unmapped"`、`projectionMode: null`；这两个 `null` 在落库解析 JSON 与详情响应中也必须原样保留，缺失属性不属于当前协议。
+4. `parseResult.fields` 与每个 `dictionaryItems` 必须显式提供。字典项文字非空，编码可为空；任一编码或文字在同一字典中重复时拒绝。客户端已经排除 `value/text` 同时为空的不可选占位，后台不得再次收到。
+5. 严禁携带 `visitId / requestId / patient / recordContext / fieldValues / dictionarySelections / outpatientRecord`、模型输出或医生编辑结果。
+6. 服务端按 `idOrg + templateId + templateHash` 保持唯一；正常业务只在历史查询未命中时登记。首次出现的模板 ID、同一模板任一原文字节变化都形成新记录；不同模板 ID 即使原文相同也不能共享一条记录。并发首次解析可能同时登记，由唯一键收敛到同一记录并返回 `deduplicated=true`；重复登记是只读幂等响应，不更新已有原文、解析结果、设备或接收时间。
+7. 登记是未命中分支的模型调用前置门禁：登记失败时桌面端不得调用模型，确保后台记录与模型实际消费前的模板对及解析版本一致。
+
+响应 `data`：
+
+```json
+{
+  "id": "snapshot-uuid",
+  "templateHash": "64位小写SHA-256",
+  "deduplicated": false,
+  "receivedAt": 1787800000000
+}
+```
 
 ### 3.6 GET `/v1/client/mappings/delta`
 
@@ -1573,9 +1706,10 @@ BBP 已停用、未明确返回 `active=true`、已移出当前机构目录但�
 - `/admin/api/auth/me`
 - `/admin/api/auth/logout`
 - `/admin/api/analytics/**`
+- `/admin/api/xiaoshan-analytics/**`
 - `/admin/api/user-activity/**`
 
-访问其他 `/admin/api/**` 返回 HTTP 403、错误码 `AUTH-403`。统计接口的汇总、趋势、分布、辅诊功能、用户活跃度和导出请求均由服务端锁定 `hisOrgId=currentUser.bbpOrgId`；缺少 `hisOrgId` 时自动补入，传入其他机构时拒绝。`GET /admin/api/analytics/his-org-options` 对机构统计员只返回本机构。
+访问其他 `/admin/api/**` 返回 HTTP 403、错误码 `AUTH-403`。通用统计与萧山专版统计接口的汇总、趋势、分布、辅诊功能、用户活跃度和导出请求均由服务端锁定 `hisOrgId=currentUser.bbpOrgId`；缺少 `hisOrgId` 时自动补入，传入其他机构时拒绝，并清空客户端传入的区域和后台机构筛选。`GET /admin/api/analytics/his-org-options` 对机构统计员只返回本机构。
 
 ### 5.3.6 GET `/admin/api/ai-user-permissions`
 
@@ -1933,6 +2067,55 @@ BBP 已停用、未明确返回 `active=true`、已移出当前机构目录但�
 响应头：
 
 - `Content-Disposition: attachment; filename*=UTF-8''function-usage-*.xlsx`
+
+### 5.9.2 GET `/admin/api/xiaoshan-analytics/function-modules`
+
+用途：返回萧山专版“辅诊功能”页面唯一允许查询和展示的功能列表。该接口与 5.8 的通用 12 类功能接口相互独立。
+
+无请求参数。
+
+响应 `data`：
+
+```json
+["语音问诊", "慢病配药", "报告回诊", "报告解读", "医学助手"]
+```
+
+### 5.9.3 GET `/admin/api/xiaoshan-analytics/function-usage`
+
+用途：返回萧山专版辅诊功能汇总、排行、趋势和分页明细。响应结构与 5.9 相同，请求参数也与 5.9 相同，但 `functionModules` 只接受 5.9.2 返回的 5 个展示名称；未传时默认查询全部 5 类，传入其他名称时忽略非法值，若没有任何合法值则返回空统计结果。
+
+统计口径：
+
+| 展示功能 | 事实表 | 匹配条件 | 一次调用 |
+| --- | --- | --- | --- |
+| 语音问诊 | `c_ai_user_consultation_log` | `fg_active='1' AND consultation_type='voice'` | 一条问诊日志 |
+| 慢病配药 | `c_ai_user_consultation_log` | `fg_active='1' AND consultation_type='chronic_refill'` | 一条问诊日志 |
+| 报告回诊 | `c_ai_user_consultation_log` | `fg_active='1' AND consultation_type='report_consultation'` | 一条问诊日志 |
+| 报告解读 | `c_ai_user_consultation_log` | `fg_active='1' AND consultation_type='report_interpretation'` | 一条问诊日志 |
+| 医学助手 | `c_ai_feature_event` | `event_status='success' AND feature_code='chat'` | 一条幂等功能事件 |
+
+约束：
+
+1. 问诊日志与医学助手功能事件统一归一为 `moduleName / usageTime / doctorIdentity / idOrg / idRegion / hisOrgId` 后，再应用日期、区域、后台机构、HIS 机构和功能筛选。语音问诊、慢病配药、报告回诊、报告解读必须与用户日志按相同 HIS 机构、时间和场景透视后的行数一致；医学助手因没有对应问诊日志，保留成功 `chat` 功能事件口径。
+2. `totalCallCount` 为 5 类调用次数之和；`avgDailyCalls` 为总调用次数除以查询自然日数；`usageRate` 为有调用的功能数除以 5。
+3. `doctorCount` 优先按医生 ID 去重，医生 ID 为空时回退设备 ID；`avgPerDoctor` 为调用次数除以使用医生数。
+4. `ranking` 与 `records` 只返回实际有调用的功能，按调用次数倒序；增长率与上一等长周期比较；趋势最多包含排行前 5 类。
+5. 不读取 `c_ai_op_log`，也不改变 5.8、5.9 和 5.9.1 的通用统计结果。
+6. BBP 机构统计员及其他非系统 BBP 账号只能查询登录机构：服务端强制使用 `hisOrgId=currentUser.bbpOrgId`，拒绝其他 HIS 机构 ID，并忽略客户端传入的区域和后台机构；管理端同时隐藏区域筛选并锁定 HIS 机构。该约束同样适用于 Excel 导出，不能仅依赖页面控件。
+
+### 5.9.4 GET `/admin/api/xiaoshan-analytics/function-usage/export`
+
+用途：按萧山专版当前筛选条件导出 Excel，包含汇总指标、5 类功能排行明细和趋势数据。
+
+鉴权：`Authorization: Bearer {adminToken}`
+
+请求参数：同 5.9.3；导出忽略分页参数。
+
+响应：`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+
+响应头：
+
+- `Content-Disposition: attachment; filename*=UTF-8''xiaoshan-function-usage-*.xlsx`
 
 ### 5.10 GET `/admin/api/users`
 
@@ -2408,6 +2591,22 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 ### 5.39.6 DELETE `/admin/api/inpatient-emr/templates/{idCache}`
 用途：逻辑删除模板缓存。
+
+### 5.39.7 GET `/admin/api/outpatient-emr/templates`
+
+用途：分页查询门诊模板对原文与解析快照。
+
+请求参数：
+
+- `current`
+- `size`
+- `keyword`：匹配模板主键、模板名称或模板 hash
+
+列表返回模板身份、字段总数、可写字段数、字典字段数、已映射字段数、最近接收设备与时间；这些字段均为正式必填响应，服务端与管理端不得将缺失值默认成空列表或 0。不在列表返回两份大字段原文和解析 JSON，也不再提供“源格式”筛选或展示。
+
+### 5.39.8 GET `/admin/api/outpatient-emr/templates/{idSnapshot}`
+
+用途：只读查看单个门诊模板对快照。响应同时包含 `templateHtml`、`templateDefinition` 与结构化 `parseResult`；管理端分别以“渲染 HTML”“结构定义 JSON”“完整解析 JSON”源码文本展示，不执行模板脚本，也不把 HTML 当作可信内容渲染。未映射字段固定返回 `recordField: null`、`mappingSource: "unmapped"`、`projectionMode: null`，不得把显式 `null` 省略成缺失属性。该接口不返回患者、就诊、病历上下文、模型结果或医生编辑值，因为快照表从未接收或保存这些数据。
 
 ### 5.40 GET `/admin/api/data-packages`
 用途：分页查询数据包列表。
@@ -3180,7 +3379,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 | hisOrgId | string | 否 | HIS 机构 ID，为空时统计全部 |
 | timeRange | string | 否 | 时间范围：today / week / month / quarter / year / custom |
 
-说明：接口参数中的区域、平台机构（`idOrg`）和 HIS 机构（`hisOrgId`）筛选遵循 5.5 的双机构维度约束；当前管理端页面不展示平台机构筛选。传入 `hisOrgId` 时，总设备数只统计历史上曾在该 HIS 机构产生问诊记录的设备；所选时段存在该机构问诊的计为活跃，否则计为不活跃。
+说明：接口参数中的区域、平台机构（`idOrg`）和 HIS 机构（`hisOrgId`）筛选遵循 5.5 的双机构维度约束；当前管理端页面不展示平台机构筛选。人数按问诊日志中非空 `id_doctor` 去重，同一医生的多台设备只计 1 人。筛选范围内历史上出现过的医生构成总医生集合；所选时段有问诊的计为活跃，否则计为不活跃。
 
 响应 `data`：
 
@@ -3199,16 +3398,16 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 字段说明：
 
-- `activeUsers`：所选时段内有问诊记录的设备数
-- `inactiveUsers`：所选时段内无问诊记录的设备数
-- `activityRate`：活跃率百分比，活跃用户数 / 总设备数 × 100
+- `activeUsers`：所选时段内有问诊记录的医生数
+- `inactiveUsers`：筛选范围内历史上出现过、但所选时段内无问诊记录的医生数
+- `activityRate`：活跃率百分比，活跃医生数 / 历史医生总数 × 100
 - `effectiveConsultationRate`：有效问诊率百分比，有效问诊数 / 总问诊数 × 100，其中 `status='completed'`（一键回写）计为有效问诊
-- `activeUsersGrowth` / `inactiveUsersGrowth`：较上期设备数差值，用于前端展示“增长/减少 N 人”
+- `activeUsersGrowth` / `inactiveUsersGrowth`：较上期医生数差值，用于前端展示“增长/减少 N 人”
 - `activityRateGrowth` / `effectiveConsultationRateGrowth`：较上期百分点差值
 
 ### 5.59 GET `/admin/api/user-activity/region-tree`
 
-用途：返回区域层级树，每个节点包含该区域下的活跃用户数。该接口保留用于兼容旧版区域树视图，当前管理端用户活跃度页面默认使用顶部区域/HIS 机构查询条件。
+用途：返回区域层级树，每个节点包含该区域下的活跃医生数；响应字段 `userCount` 为兼容名称。该接口保留用于兼容旧版区域树视图，当前管理端用户活跃度页面默认使用顶部区域/HIS 机构查询条件。
 
 鉴权：`Authorization: Bearer {adminToken}`
 
@@ -3264,7 +3463,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 | current | long | 否 | 页码，默认 1 |
 | size | long | 否 | 每页条数，默认 10 |
 
-说明：接口参数中的区域、平台机构（`idOrg`）和 HIS 机构（`hisOrgId`）筛选遵循 5.5 的双机构维度约束；当前管理端页面不展示平台机构筛选。响应中的 `idOrg` / `naOrg` 为兼容字段，当前管理端用户活跃度列表不展示平台机构列。列表默认按所选时段内的问诊次数降序返回，问诊次数相同时依次按有效问诊数、最后活跃时间降序排列，最后按设备 ID 升序保证分页顺序稳定。
+说明：接口参数中的区域、平台机构（`idOrg`）和 HIS 机构（`hisOrgId`）筛选遵循 5.5 的双机构维度约束；当前管理端页面不展示平台机构筛选。明细每行按 `id_doctor` 合并多台设备，`deviceCount` 表示该医生在当前机构/区域筛选范围的历史关联设备数。列表默认按所选时段内的问诊次数降序返回，问诊次数相同时依次按有效问诊数、最后活跃时间降序排列，最后按医生 ID 升序保证分页顺序稳定。
 
 响应 `data`：
 
@@ -3275,9 +3474,9 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
   "total": 144,
   "records": [
     {
-      "idDevice": "uuid",
-      "cdDevice": "9C:4E:36:AA:BB:CC",
-      "naDevice": "PCIE-win32",
+      "idDoctor": "DOCTOR001",
+      "naDoctor": "范医生",
+      "deviceCount": 2,
       "idOrg": "ORG001",
       "naOrg": "区域中心医院",
       "hisOrgId": "HIS-ORG-001",
@@ -3295,11 +3494,11 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 ### 5.60.1 GET `/admin/api/user-activity/export`
 
-用途：按当前用户活跃度筛选条件导出 Excel 文件，包含活跃度汇总指标和用户活跃明细。明细沿用 5.60 的默认活跃度排序；其中“有效问诊数”按 `status='completed'`（一键回写）统计，汇总中的“有效问诊率”按有效问诊数 / 总问诊数计算。
+用途：按当前用户活跃度筛选条件导出 Excel 文件，包含医生活跃度汇总指标和按医生合并多设备的活跃明细。明细沿用 5.60 的默认活跃度排序；其中“有效问诊数”按 `status='completed'`（一键回写）统计，汇总中的“有效问诊率”按有效问诊数 / 总问诊数计算。
 
 鉴权：`Authorization: Bearer {adminToken}`
 
-请求参数：同 5.60；导出忽略分页参数，默认最多导出 10000 条用户明细。
+请求参数：同 5.60；导出忽略分页参数，默认最多导出 10000 条医生明细。
 
 响应：`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
 

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.audit.dto.AuditBatchRequest;
 import com.regionalai.floatingball.server.modules.audit.entity.AiOpLog;
@@ -255,7 +256,8 @@ public class AuditService {
                                       String result,
                                       String dateFrom,
                                       String dateTo) {
-        Page<AiOpLog> page = new Page<AiOpLog>(current, size);
+        PageRequest pageRequest = PageRequest.of(current, size);
+        Page<AiOpLog> page = new Page<AiOpLog>(pageRequest.getCurrent(), pageRequest.getSize());
         LocalDateTime startTime = parseDateTime(dateFrom, false);
         LocalDateTime endTime = parseDateTime(dateTo, true);
         LambdaQueryWrapper<AiOpLog> wrapper = new LambdaQueryWrapper<AiOpLog>()

@@ -2,6 +2,8 @@
 
 当前仓库不维护达梦全量初始化基线；现场 DM8 仍以 Oracle 兼容模式运行，定向升级脚本需使用应用 schema 账号执行。
 
+已存在门诊模板快照表的库执行 `@update_outpatient_emr_template_snapshot.sql`，把唯一键调整为 `id_org + template_id + template_hash`。脚本只重建索引，不插入、更新或删除业务记录；执行期间须停止模板快照写入并核验退出码。
+
 HIS 机构统计与客户端使用情况字段升级必须使用 DIsql 执行，并检查非零退出码：
 
 ```sql

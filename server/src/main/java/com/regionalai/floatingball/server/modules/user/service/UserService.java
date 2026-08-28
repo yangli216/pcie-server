@@ -3,6 +3,7 @@ package com.regionalai.floatingball.server.modules.user.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.db.DatabaseDialect;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.util.PasswordUtils;
@@ -55,12 +56,18 @@ public class UserService {
                                             String sdStatus,
                                             String idOrg,
                                             String idRole) {
+        PageRequest pageRequest = PageRequest.of(current, size);
         List<String> roleFilteredUserIds = resolveRoleFilteredUserIds(idRole);
         if (StringUtils.hasText(idRole) && roleFilteredUserIds.isEmpty()) {
-            return new PageResponse<AdminUserView>(current, size, 0, Collections.<AdminUserView>emptyList());
+            return new PageResponse<AdminUserView>(
+                pageRequest.getCurrent(),
+                pageRequest.getSize(),
+                0,
+                Collections.<AdminUserView>emptyList()
+            );
         }
 
-        Page<AiUser> page = new Page<AiUser>(current, size);
+        Page<AiUser> page = new Page<AiUser>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<AiUser> wrapper = new LambdaQueryWrapper<AiUser>()
             .eq(AiUser::getFgActive, "1")
             .orderByDesc(AiUser::getUpdateTime);
@@ -71,7 +78,7 @@ public class UserService {
             wrapper.eq(AiUser::getSdStatus, sdStatus);
         }
         if (StringUtils.hasText(idOrg)) {
-            wrapper.eq(AiUser::getIdOrg, idOrg);
+            wrapper.eq(AiUser::getIdOrg, idOrg.trim());
         }
         if (!roleFilteredUserIds.isEmpty()) {
             wrapper.in(AiUser::getIdUser, roleFilteredUserIds);

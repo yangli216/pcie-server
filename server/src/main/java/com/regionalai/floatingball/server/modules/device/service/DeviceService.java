@@ -3,6 +3,7 @@ package com.regionalai.floatingball.server.modules.device.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.db.DatabaseDialect;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.exception.UpdateRequiredException;
@@ -183,7 +184,8 @@ public class DeviceService {
     }
 
     public PageResponse<AiDeviceView> list(long current, long size, String keyword) {
-        Page<AiDevice> page = new Page<AiDevice>(current, size);
+        PageRequest pageRequest = PageRequest.of(current, size);
+        Page<AiDevice> page = new Page<AiDevice>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<AiDevice> wrapper = new LambdaQueryWrapper<AiDevice>()
             .eq(AiDevice::getFgActive, "1")
             .orderByDesc(AiDevice::getUpdateTime);

@@ -33,7 +33,8 @@ class OracleSchemaScriptTest {
         Set<String> expectedSqlFiles = new HashSet<String>(Arrays.asList(
             "bootstrap.sql", "init.sql", "update_his_org_statistics.sql",
             "update_chronic_disease_followup.sql",
-            "update_chronic_disease_artifact.sql"
+            "update_chronic_disease_artifact.sql",
+            "update_outpatient_emr_template_snapshot.sql"
         ));
         assertTrue(actualSqlFiles.equals(expectedSqlFiles),
             "oracle delivery should include the explicit HIS organization update script");
@@ -71,6 +72,7 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE TABLE c_ai_rec_pref_agg");
         assertContains(initSql, "CREATE TABLE c_security_rejection_log");
         assertContains(initSql, "CREATE TABLE c_ai_inpatient_emr_tpl_cache");
+        assertContains(initSql, "CREATE TABLE c_ai_outpatient_emr_tpl_snapshot");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_obs");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_fact");
@@ -110,6 +112,13 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "template_id          VARCHAR2(128) NOT NULL");
         assertContains(initSql, "template_hash        VARCHAR2(128) NOT NULL");
         assertContains(initSql, "COMMENT ON COLUMN c_ai_inpatient_emr_tpl_cache.template_id");
+        assertContains(initSql, "template_html           CLOB NOT NULL");
+        assertContains(initSql, "template_definition     CLOB NOT NULL");
+        assertContains(initSql, "COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.parse_result_json");
+        assertContains(initSql, "c_ai_outpatient_emr_tpl_snapshot (id_org, template_id, template_hash)");
+        assertNotContains(initSql, "source_scene");
+        assertNotContains(initSql, "template_source");
+        assertNotContains(initSql, "source_format");
 
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_org_code_active");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_device_code_org_active");
@@ -151,6 +160,8 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE INDEX idx_c_ai_inemr_tpl_id");
         assertContains(initSql, "CREATE INDEX idx_c_ai_inemr_tpl_hash");
         assertContains(initSql, "CREATE INDEX idx_c_ai_inemr_tpl_status");
+        assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_outemr_tpl_snap");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_outemr_tpl_time");
     }
 
     @Test
@@ -165,7 +176,8 @@ class OracleSchemaScriptTest {
         Set<String> expectedSqlFiles = new HashSet<String>(Arrays.asList(
             "init.sql", "update_his_org_statistics.sql",
             "update_chronic_disease_followup.sql",
-            "update_chronic_disease_artifact.sql"
+            "update_chronic_disease_artifact.sql",
+            "update_outpatient_emr_template_snapshot.sql"
         ));
         assertTrue(actualSqlFiles.equals(expectedSqlFiles),
             "gaussdb delivery should include the explicit HIS organization update script");
@@ -199,6 +211,15 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "feature_event_minimization_v1");
         assertContains(initSql, "total_changes        NUMERIC(5)");
         assertContains(initSql, "CREATE TABLE c_ai_inpatient_emr_tpl_cache");
+        assertContains(initSql, "CREATE TABLE c_ai_outpatient_emr_tpl_snapshot");
+        assertContains(initSql, "template_html           TEXT NOT NULL");
+        assertContains(initSql, "template_definition     TEXT NOT NULL");
+        assertContains(initSql, "parse_result_json       TEXT NOT NULL");
+        assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_outemr_tpl_snap");
+        assertContains(initSql, "c_ai_outpatient_emr_tpl_snapshot (id_org, template_id, template_hash)");
+        assertNotContains(initSql, "source_scene");
+        assertNotContains(initSql, "template_source");
+        assertNotContains(initSql, "source_format");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_obs");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_fact");
@@ -364,6 +385,22 @@ class OracleSchemaScriptTest {
         assertContains(gaussdbSql, "CREATE TABLE IF NOT EXISTS c_ai_chronic_artifact");
         assertNotContains(gaussdbSql, "VARCHAR2");
         assertNotContains(gaussdbSql, "NUMBER(");
+    }
+
+    @Test
+    void outpatientTemplateUpdateScriptsShouldUseTemplateScopedVersionIdentity() throws IOException {
+        for (Path script : Arrays.asList(
+            ORACLE_SQL_DIR.resolve("update_outpatient_emr_template_snapshot.sql"),
+            GAUSSDB_SQL_DIR.resolve("update_outpatient_emr_template_snapshot.sql"),
+            DAMENG_SQL_DIR.resolve("update_outpatient_emr_template_snapshot.sql")
+        )) {
+            String sql = readSql(script);
+            assertContains(sql, "uk_c_ai_outemr_tpl_snap");
+            assertContains(sql, "c_ai_outpatient_emr_tpl_snapshot (id_org, template_id, template_hash)");
+            assertNotContains(sql, "DELETE FROM c_ai_outpatient_emr_tpl_snapshot");
+            assertNotContains(sql, "UPDATE c_ai_outpatient_emr_tpl_snapshot");
+            assertNotContains(sql, "INSERT INTO c_ai_outpatient_emr_tpl_snapshot");
+        }
     }
 
     private String readSql(Path path) throws IOException {

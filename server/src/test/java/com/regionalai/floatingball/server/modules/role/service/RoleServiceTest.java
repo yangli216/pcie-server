@@ -36,7 +36,11 @@ class RoleServiceTest {
 
     @BeforeEach
     void setUp() {
-        roleService = new RoleService(aiRoleMapper, aiUserRoleMapper, new DatabaseDialect(DatabaseDialect.Kind.ORACLE));
+        roleService = new RoleService(
+            aiRoleMapper,
+            aiUserRoleMapper,
+            new DatabaseDialect(DatabaseDialect.Kind.ORACLE)
+        );
     }
 
     @Test
@@ -79,7 +83,6 @@ class RoleServiceTest {
 
         when(aiRoleMapper.selectById("ROLE001")).thenReturn(role);
         when(aiUserRoleMapper.selectList(any())).thenReturn(Collections.singletonList(mapping));
-
         roleService.invalidate("ROLE001");
 
         assertEquals("0", role.getFgActive());

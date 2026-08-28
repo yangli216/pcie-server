@@ -11,11 +11,11 @@ import java.util.Map;
 @Mapper
 public interface UserActivityMapper {
 
-    @SelectProvider(type = UserActivitySqlProvider.class, method = "countActiveUsers")
-    long countActiveUsers(@Param("query") UserActivityQueryDTO query);
+    @SelectProvider(type = UserActivitySqlProvider.class, method = "countActiveDoctors")
+    long countActiveDoctors(@Param("query") UserActivityQueryDTO query);
 
-    @SelectProvider(type = UserActivitySqlProvider.class, method = "countTotalDevices")
-    long countTotalDevices(@Param("query") UserActivityQueryDTO query);
+    @SelectProvider(type = UserActivitySqlProvider.class, method = "countTotalDoctors")
+    long countTotalDoctors(@Param("query") UserActivityQueryDTO query);
 
     @SelectProvider(type = UserActivitySqlProvider.class, method = "countEffectiveConsultations")
     long countEffectiveConsultations(@Param("query") UserActivityQueryDTO query);
@@ -26,9 +26,9 @@ public interface UserActivityMapper {
     @SelectProvider(type = UserActivitySqlProvider.class, method = "queryAllRegions")
     List<Map<String, Object>> queryAllRegions();
 
-    @SelectProvider(type = UserActivitySqlProvider.class, method = "countActiveUsersByRegion")
-    List<Map<String, Object>> countActiveUsersByRegion(@Param("query") UserActivityQueryDTO query);
+    @SelectProvider(type = UserActivitySqlProvider.class, method = "countActiveDoctorsByRegion")
+    List<Map<String, Object>> countActiveDoctorsByRegion(@Param("query") UserActivityQueryDTO query);
 
-    @SelectProvider(type = UserActivitySqlProvider.class, method = "queryUserActivityList")
-    List<Map<String, Object>> queryUserActivityList(@Param("query") UserActivityQueryDTO query);
+    @SelectProvider(type = UserActivitySqlProvider.class, method = "queryDoctorActivityList")
+    List<Map<String, Object>> queryDoctorActivityList(@Param("query") UserActivityQueryDTO query);
 }

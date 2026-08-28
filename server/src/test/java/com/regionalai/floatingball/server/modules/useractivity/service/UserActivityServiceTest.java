@@ -40,8 +40,8 @@ class UserActivityServiceTest {
 
     @Test
     void getSummaryShouldKeepOrgFilterForCurrentAndPreviousPeriod() {
-        when(userActivityMapper.countActiveUsers(any(UserActivityQueryDTO.class))).thenReturn(2L, 1L);
-        when(userActivityMapper.countTotalDevices(any(UserActivityQueryDTO.class))).thenReturn(4L, 4L);
+        when(userActivityMapper.countActiveDoctors(any(UserActivityQueryDTO.class))).thenReturn(2L, 1L);
+        when(userActivityMapper.countTotalDoctors(any(UserActivityQueryDTO.class))).thenReturn(4L, 4L);
         when(userActivityMapper.countConsultations(any(UserActivityQueryDTO.class))).thenReturn(10L, 8L);
         when(userActivityMapper.countEffectiveConsultations(any(UserActivityQueryDTO.class))).thenReturn(6L, 4L);
 
@@ -64,7 +64,7 @@ class UserActivityServiceTest {
         assertEquals("10", summary.getEffectiveConsultationRateGrowth());
 
         ArgumentCaptor<UserActivityQueryDTO> activeQueryCaptor = ArgumentCaptor.forClass(UserActivityQueryDTO.class);
-        verify(userActivityMapper, times(2)).countActiveUsers(activeQueryCaptor.capture());
+        verify(userActivityMapper, times(2)).countActiveDoctors(activeQueryCaptor.capture());
         List<UserActivityQueryDTO> activeQueries = activeQueryCaptor.getAllValues();
 
         assertEquals("ORG001", activeQueries.get(0).getIdOrg());
@@ -84,7 +84,7 @@ class UserActivityServiceTest {
 
     @Test
     void getUserListShouldNormalizeWeekRangeLikeAnalyticsPages() {
-        when(userActivityMapper.queryUserActivityList(any(UserActivityQueryDTO.class)))
+        when(userActivityMapper.queryDoctorActivityList(any(UserActivityQueryDTO.class)))
             .thenReturn(Collections.emptyList());
 
         UserActivityQueryDTO query = new UserActivityQueryDTO();
@@ -93,7 +93,7 @@ class UserActivityServiceTest {
         userActivityService.getUserList(query, 1, 10);
 
         ArgumentCaptor<UserActivityQueryDTO> queryCaptor = ArgumentCaptor.forClass(UserActivityQueryDTO.class);
-        verify(userActivityMapper).queryUserActivityList(queryCaptor.capture());
+        verify(userActivityMapper).queryDoctorActivityList(queryCaptor.capture());
 
         LocalDate now = LocalDate.now();
         DateTimeFormatter fmt = DateTimeFormatter.ISO_LOCAL_DATE;
@@ -103,14 +103,14 @@ class UserActivityServiceTest {
 
     @Test
     void exportExcelShouldIncludeSummaryAndUserSheets() throws Exception {
-        when(userActivityMapper.countActiveUsers(any(UserActivityQueryDTO.class))).thenReturn(1L, 0L);
-        when(userActivityMapper.countTotalDevices(any(UserActivityQueryDTO.class))).thenReturn(2L, 2L);
+        when(userActivityMapper.countActiveDoctors(any(UserActivityQueryDTO.class))).thenReturn(1L, 0L);
+        when(userActivityMapper.countTotalDoctors(any(UserActivityQueryDTO.class))).thenReturn(2L, 2L);
         when(userActivityMapper.countConsultations(any(UserActivityQueryDTO.class))).thenReturn(4L, 0L);
         when(userActivityMapper.countEffectiveConsultations(any(UserActivityQueryDTO.class))).thenReturn(2L, 0L);
 
         Map<String, Object> row = new LinkedHashMap<String, Object>();
-        row.put("IDDEVICE", "DEV001");
-        row.put("CDDEVICE", "FB-001");
+        row.put("IDDOCTOR", "DOCTOR001");
+        row.put("DEVICECOUNT", 2L);
         row.put("NAORG", "默认机构");
         row.put("HISORGID", "HIS-ORG-001");
         row.put("HISORGNAME", "市第一医院");
@@ -119,7 +119,7 @@ class UserActivityServiceTest {
         row.put("CONSULTATIONCOUNT", 2L);
         row.put("EFFECTIVECONSULTATIONCOUNT", 1L);
         row.put("LASTACTIVETIME", "2026-05-21 10:00:00");
-        when(userActivityMapper.queryUserActivityList(any(UserActivityQueryDTO.class)))
+        when(userActivityMapper.queryDoctorActivityList(any(UserActivityQueryDTO.class)))
             .thenReturn(Collections.singletonList(row));
 
         UserActivityQueryDTO query = new UserActivityQueryDTO();
@@ -128,14 +128,16 @@ class UserActivityServiceTest {
 
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(userActivityService.exportExcel(query)))) {
             assertEquals("活跃度汇总", workbook.getSheetAt(0).getSheetName());
-            assertEquals("用户明细", workbook.getSheetAt(1).getSheetName());
-            assertEquals("活跃用户数", workbook.getSheetAt(0).getRow(1).getCell(0).getStringCellValue());
+            assertEquals("医生明细", workbook.getSheetAt(1).getSheetName());
+            assertEquals("活跃医生数", workbook.getSheetAt(0).getRow(1).getCell(0).getStringCellValue());
             assertEquals("1", workbook.getSheetAt(0).getRow(1).getCell(2).getStringCellValue());
             assertEquals("有效问诊率", workbook.getSheetAt(0).getRow(4).getCell(0).getStringCellValue());
-            assertEquals("范医生", workbook.getSheetAt(1).getRow(1).getCell(0).getStringCellValue());
-            assertEquals("HIS机构", workbook.getSheetAt(1).getRow(0).getCell(3).getStringCellValue());
-            assertEquals("市第一医院", workbook.getSheetAt(1).getRow(1).getCell(3).getStringCellValue());
-            assertEquals("有效问诊数", workbook.getSheetAt(1).getRow(0).getCell(7).getStringCellValue());
+            assertEquals("DOCTOR001", workbook.getSheetAt(1).getRow(1).getCell(0).getStringCellValue());
+            assertEquals("范医生", workbook.getSheetAt(1).getRow(1).getCell(1).getStringCellValue());
+            assertEquals(2D, workbook.getSheetAt(1).getRow(1).getCell(2).getNumericCellValue());
+            assertEquals("HIS机构", workbook.getSheetAt(1).getRow(0).getCell(4).getStringCellValue());
+            assertEquals("市第一医院", workbook.getSheetAt(1).getRow(1).getCell(4).getStringCellValue());
+            assertEquals("有效问诊数", workbook.getSheetAt(1).getRow(0).getCell(8).getStringCellValue());
         }
     }
 }

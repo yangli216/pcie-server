@@ -1,6 +1,7 @@
 package com.regionalai.floatingball.server.common.api;
 
 import java.util.List;
+import java.util.Collections;
 
 public class PageResponse<T> {
 
@@ -16,7 +17,7 @@ public class PageResponse<T> {
         this.current = current;
         this.size = size;
         this.total = total;
-        this.records = records;
+        this.records = records == null ? Collections.<T>emptyList() : records;
     }
 
     public long getCurrent() {
@@ -48,6 +49,6 @@ public class PageResponse<T> {
     }
 
     public void setRecords(List<T> records) {
-        this.records = records;
+        this.records = records == null ? Collections.<T>emptyList() : records;
     }
 }

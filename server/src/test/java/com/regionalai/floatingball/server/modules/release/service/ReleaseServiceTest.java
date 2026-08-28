@@ -1,6 +1,7 @@
 package com.regionalai.floatingball.server.modules.release.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseBatchUploadRequest;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseDownloadItem;
@@ -65,6 +66,19 @@ class ReleaseServiceTest {
         assertFalse(latestAfterRollback.getPlatforms().containsKey("windows-x86_64"));
         assertFalse(Boolean.TRUE.equals(policyAfterRollback.getForceUpdate()));
         assertEquals("1.2.15", policyAfterRollback.getLatestVersion());
+    }
+
+    @Test
+    void historyShouldUseUnifiedPagination() {
+        upload("1.2.15", "darwin-aarch64", "PCIE_1.2.15_aarch64.app.tar.gz", false);
+        upload("1.2.16", "windows-x86_64", "PCIE_1.2.16_x64-setup.nsis.zip", true);
+
+        PageResponse<ReleaseHistoryView> page = releaseService.history("production", 0, 500);
+
+        assertEquals(1L, page.getCurrent());
+        assertEquals(100L, page.getSize());
+        assertTrue(page.getTotal() >= 2L);
+        assertTrue(page.getRecords().stream().anyMatch(item -> "1.2.16".equals(item.getVersion())));
     }
 
     @Test

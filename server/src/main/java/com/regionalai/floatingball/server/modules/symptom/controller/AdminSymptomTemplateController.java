@@ -37,7 +37,7 @@ public class AdminSymptomTemplateController {
 
     @GetMapping("/change-logs")
     public ApiResponse<PageResponse<SymptomTemplateChangeLogVO>> listChangeLogs(@RequestParam(defaultValue = "1") long current,
-                                                                                @RequestParam(defaultValue = "20") long size,
+                                                                                @RequestParam(defaultValue = "10") long size,
                                                                                 @RequestParam(required = false) String idTemplate,
                                                                                 @RequestParam(required = false) String keyword,
                                                                                 @RequestParam(required = false) String medicalMode,
@@ -54,7 +54,7 @@ public class AdminSymptomTemplateController {
 
     @GetMapping
     public ApiResponse<PageResponse<SymptomTemplateVO>> list(@RequestParam(defaultValue = "1") long current,
-                                                             @RequestParam(defaultValue = "500") long size,
+                                                             @RequestParam(defaultValue = "10") long size,
                                                              @RequestParam(required = false) String keyword,
                                                              @RequestParam(required = false) String medicalMode,
                                                              @RequestParam(required = false) String systemCategory,

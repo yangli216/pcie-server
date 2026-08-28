@@ -6,7 +6,6 @@ SERVER_DIR="${PROJECT_ROOT}/server"
 
 TARGET_HOST="${TARGET_HOST:-192.168.204.122}"
 TARGET_USER="${TARGET_USER:-root}"
-SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_TESTS="${SKIP_TESTS:-0}"
 HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-90}"
 
@@ -26,7 +25,7 @@ Options:
   -h, --help            Show this help.
 
 Optional environment variables:
-  TARGET_HOST, TARGET_USER, SSH_PASS, SKIP_BUILD=1, SKIP_TESTS=1,
+  TARGET_HOST, TARGET_USER, SSH_PASS, SKIP_TESTS=1,
   HEALTH_TIMEOUT_SECONDS=90
 
 The script reuses a per-run SSH control connection. If password authentication
@@ -146,6 +145,47 @@ sha256_file() {
   else
     shasum -a 256 "$1" | awk '{print $1}'
   fi
+}
+
+verify_admin_ui_resources() {
+  local jar_file="$1"
+  local jar_entries="$2"
+  local admin_index_entry="BOOT-INF/classes/static/admin/index.html"
+  local verification_dir admin_index_file asset_path asset_entry
+  local -a admin_asset_paths=()
+
+  if ! grep -Fqx "${admin_index_entry}" <<< "${jar_entries}"; then
+    echo "Packaged jar is missing the admin entry: ${admin_index_entry}" >&2
+    return 1
+  fi
+
+  verification_dir="$(mktemp -d "${TMPDIR:-/tmp}/pcie-admin-verify.XXXXXX")"
+  if ! (cd "${verification_dir}" && jar xf "${jar_file}" "${admin_index_entry}"); then
+    rm -rf "${verification_dir}"
+    echo "Failed to extract the admin entry from packaged jar." >&2
+    return 1
+  fi
+
+  admin_index_file="${verification_dir}/${admin_index_entry}"
+  while IFS= read -r asset_path; do
+    admin_asset_paths+=("${asset_path}")
+  done < <(LC_ALL=C grep -Eo '/admin/assets/[^"'"'"'?#[:space:]<>]+' "${admin_index_file}" | sort -u)
+  rm -rf "${verification_dir}"
+
+  if [[ "${#admin_asset_paths[@]}" -eq 0 ]]; then
+    echo "Packaged admin index does not reference any /admin/assets/* resources." >&2
+    return 1
+  fi
+
+  for asset_path in "${admin_asset_paths[@]}"; do
+    asset_entry="BOOT-INF/classes/static${asset_path}"
+    if ! grep -Fqx "${asset_entry}" <<< "${jar_entries}"; then
+      echo "Packaged jar is missing an admin resource referenced by index.html: ${asset_entry}" >&2
+      return 1
+    fi
+  done
+
+  echo "Verified packaged admin UI: ${admin_index_entry} and ${#admin_asset_paths[@]} referenced assets."
 }
 
 TMP_START_SCRIPT=""
@@ -644,16 +684,12 @@ need_cmd scp
 need_cmd jar
 need_cmd curl
 
-if [[ "${SKIP_BUILD}" != "1" ]]; then
-  MAVEN_ARGS=(clean package)
-  if [[ "${SKIP_TESTS}" == "1" ]]; then
-    MAVEN_ARGS+=(-DskipTests)
-  fi
-  echo "Building server: mvn -f ${SERVER_DIR}/pom.xml ${MAVEN_ARGS[*]}"
-  mvn -f "${SERVER_DIR}/pom.xml" "${MAVEN_ARGS[@]}"
-else
-  echo "Skipping local build because SKIP_BUILD=1."
+MAVEN_ARGS=(clean package)
+if [[ "${SKIP_TESTS}" == "1" ]]; then
+  MAVEN_ARGS+=(-DskipTests)
 fi
+echo "Building server and current admin UI: mvn -f ${SERVER_DIR}/pom.xml ${MAVEN_ARGS[*]}"
+mvn -f "${SERVER_DIR}/pom.xml" "${MAVEN_ARGS[@]}"
 
 JAR_FILES=()
 while IFS= read -r packaged_jar; do
@@ -669,14 +705,15 @@ LOCAL_JAR="${JAR_FILES[0]}"
 LOCAL_JAR_ENTRIES="$(jar tf "${LOCAL_JAR}")"
 grep -Fqx "BOOT-INF/classes/application-${SPRING_PROFILE}.yml" <<< "${LOCAL_JAR_ENTRIES}"
 grep -Fqx 'BOOT-INF/classes/logback-spring.xml' <<< "${LOCAL_JAR_ENTRIES}"
+verify_admin_ui_resources "${LOCAL_JAR}" "${LOCAL_JAR_ENTRIES}"
 LOCAL_SHA256="$(sha256_file "${LOCAL_JAR}")"
 RELEASE_ID="$(date +%Y%m%d%H%M%S)-$$"
 REMOTE_UPLOAD_JAR="${JAR_FILE}.upload-${RELEASE_ID}"
 REMOTE_UPLOAD_START="${START_SCRIPT}.upload-${RELEASE_ID}"
 REMOTE_DEPLOYER="${DEPLOY_DIR}/.publish-xiaoshan-${ENVIRONMENT}-${RELEASE_ID}.sh"
 
-TMP_START_SCRIPT="$(mktemp)"
-TMP_REMOTE_DEPLOYER="$(mktemp)"
+TMP_START_SCRIPT="$(mktemp "${TMPDIR:-/tmp}/pcie-publish-start.XXXXXX")"
+TMP_REMOTE_DEPLOYER="$(mktemp "${TMPDIR:-/tmp}/pcie-publish-deployer.XXXXXX")"
 
 build_start_script "${TMP_START_SCRIPT}"
 build_remote_deployer "${TMP_REMOTE_DEPLOYER}" "${RELEASE_ID}" "${LOCAL_SHA256}" "${REMOTE_UPLOAD_JAR}" "${REMOTE_UPLOAD_START}"

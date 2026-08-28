@@ -75,14 +75,12 @@
           <div class="page-section__header recommendation-preference-table-header">
             <span class="page-section__title">聚合偏好</span>
             <div class="page-section__meta">
-              共 {{ aggregatePage.total || 0 }} 条
-              <el-pagination
-                small
-                layout="prev, pager, next"
+              <AdminPagination
+                compact
                 :total="aggregatePage.total || 0"
-                :page-size="aggregatePage.size"
-                :current-page.sync="aggregatePage.current"
-                @current-change="loadAggregates"
+                :size.sync="aggregatePage.size"
+                :current.sync="aggregatePage.current"
+                @change="loadAggregates"
               />
             </div>
           </div>
@@ -128,14 +126,12 @@
           <div class="page-section__header recommendation-preference-table-header">
             <span class="page-section__title">原始事件</span>
             <div class="page-section__meta">
-              共 {{ eventPage.total || 0 }} 条
-              <el-pagination
-                small
-                layout="prev, pager, next"
+              <AdminPagination
+                compact
                 :total="eventPage.total || 0"
-                :page-size="eventPage.size"
-                :current-page.sync="eventPage.current"
-                @current-change="loadEvents"
+                :size.sync="eventPage.size"
+                :current.sync="eventPage.current"
+                @change="loadEvents"
               />
             </div>
           </div>

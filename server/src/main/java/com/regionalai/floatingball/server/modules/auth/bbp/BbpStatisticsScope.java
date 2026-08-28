@@ -42,6 +42,7 @@ public class BbpStatisticsScope {
         return "/admin/api/auth/me".equals(uri)
             || "/admin/api/auth/logout".equals(uri)
             || uri.startsWith("/admin/api/analytics/")
+            || uri.startsWith("/admin/api/xiaoshan-analytics/")
             || uri.startsWith("/admin/api/user-activity/");
     }
 

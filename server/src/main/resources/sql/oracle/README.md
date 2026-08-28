@@ -62,7 +62,7 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 
 1. `c_ai_config` 的语音独立密钥、PMPHAI / Reviewer 服务端托管字段、思考模式、fast model 和检查项目独立审查开关
 2. `c_ai_device.device_public_key` 请求签名公钥字段，以及 `register_ip` / `last_seen_ip` 注册与最近访问来源字段
-3. 症状模板、住院病历模板字段缓存、模板变更日志、辅诊功能事件、安全拒绝日志等业务表；功能事件的 `cd_doctor` 与 `client_version` 固化医生真实工号和事件发生时客户端版本，用于医生客户端使用情况统计
+3. 症状模板、住院病历模板字段缓存、门诊模板对原文与解析快照、模板变更日志、辅诊功能事件、安全拒绝日志等业务表；门诊快照只接收正式 HIS Bridge/SDK 分析链路中同一模板的渲染 HTML 与结构定义 JSON，按机构与模板对 hash 去重，只保存两份原文与确定性合并解析结果，不保存患者、病历上下文或生成值；功能事件的 `cd_doctor` 与 `client_version` 固化医生真实工号和事件发生时客户端版本，用于医生客户端使用情况统计
 4. 操作日志、问诊日志、反馈日志、推荐偏好事件和推荐偏好聚合的结构化查询列、语音复盘字段、变更摘要字段和并发唯一索引；其中问诊日志唯一索引只约束尚未结束的 `generated` 记录，同一就诊回写或放弃后再次问诊会保留为新的日志轮次
 5. 第三方 ODS 检验检查申请单 `hi_ods_apply`、检验常规报告 `hi_ods_apply_lis_report` 与检查报告 `hi_ods_apply_pacs_report`，用于管理端手工模拟第三方结果回写；不包含未提供结构的 `hi_ods_lis_result` 主表
 6. 默认区域 `REGION001`
@@ -78,13 +78,14 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 
 1. 默认 AI 配置仅用于打通 `register -> bootstrap -> audit` 的启动联调链路
 2. 真正的上游 AI 地址、密钥、模型请在删库重建后再通过管理端修改；HTTP 批量转写地址与 `speech_realtime_url` 实时 WebSocket 地址必须分开配置
-3. 新建库仍采用“目标 schema 初始化/重建 + 重跑 `init.sql`”；定向保留 `update_his_org_statistics.sql`、`update_chronic_disease_followup.sql` 与 `update_chronic_disease_artifact.sql`，分别用于补齐 HIS 统计契约、两慢病随访表和打印留痕快照表，不作为通用升级脚本目录
+3. 新建库仍采用“目标 schema 初始化/重建 + 重跑 `init.sql`”；定向保留 `update_his_org_statistics.sql`、`update_chronic_disease_followup.sql`、`update_chronic_disease_artifact.sql` 与 `update_outpatient_emr_template_snapshot.sql`，分别用于补齐 HIS 统计契约、两慢病随访表、打印留痕快照表和门诊模板版本唯一键，不作为通用升级脚本目录
 4. 执行 `init.sql` 前请确认当前登录 schema 就是 `RBMH_AI`；脚本本身不再依赖 SQL*Plus 变量做前置校验
 5. 区域与机构的 `sd_status` 是启用/停用状态；`fg_active` 只表示逻辑删除/无效记录。管理端统计筛选只统计 `fg_active='1' AND sd_status='1'` 的区域和机构。
-
 ## 存量库处理
 
 当前仓库不保留通用 `upgrade_*.sql` 补丁链。各历史补丁仍折叠进 `init.sql`；定向升级文件 `update_his_org_statistics.sql` 还会为功能事件补齐 `cd_doctor`、`client_version` 和使用情况索引。存量功能事件缺失的工号或版本保持 `NULL`，不得用医生内部主键、后台账号或设备当前版本猜测回填。
+
+门诊模板历史解析已存在的库执行 `@update_outpatient_emr_template_snapshot.sql`，把唯一键统一为 `id_org + template_id + template_hash`。脚本只重建索引，不插入、更新或删除任何业务记录；执行期间仍需停止模板快照写入并由 DBA 核验退出码。
 
 该脚本同时清空历史功能事件的 `consultation_id/trace_id/session_id/payload_json`，并按 `feature_code:minimized:v1:event:规范化 id_event` 重建幂等键。执行前必须备份、停止所有服务节点写入、统计候选行数、确认仓库外 SQL/BI 不依赖功能事件 payload，并由 DBA 在维护窗口审核执行。
 

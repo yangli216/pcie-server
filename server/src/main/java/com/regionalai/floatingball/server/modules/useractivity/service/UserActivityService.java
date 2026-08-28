@@ -1,5 +1,6 @@
 package com.regionalai.floatingball.server.modules.useractivity.service;
 
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.util.ExcelColumnWidthUtils;
@@ -50,14 +51,14 @@ public class UserActivityService {
 
         UserActivitySummaryVO vo = new UserActivitySummaryVO();
 
-        long activeUsers = userActivityMapper.countActiveUsers(query);
-        long totalDevices = userActivityMapper.countTotalDevices(query);
-        long inactiveUsers = totalDevices - activeUsers;
+        long activeUsers = userActivityMapper.countActiveDoctors(query);
+        long totalDoctors = userActivityMapper.countTotalDoctors(query);
+        long inactiveUsers = totalDoctors - activeUsers;
         long totalConsultations = userActivityMapper.countConsultations(query);
         long effectiveConsultations = userActivityMapper.countEffectiveConsultations(query);
 
-        String activityRate = totalDevices > 0
-            ? formatPercent((double) activeUsers / totalDevices * 100) : "0";
+        String activityRate = totalDoctors > 0
+            ? formatPercent((double) activeUsers / totalDoctors * 100) : "0";
         String effectiveConsultationRate = totalConsultations > 0
             ? formatPercent((double) effectiveConsultations / totalConsultations * 100) : "0";
 
@@ -67,8 +68,8 @@ public class UserActivityService {
         vo.setEffectiveConsultationRate(effectiveConsultationRate);
 
         UserActivityQueryDTO prevQuery = buildPreviousPeriodQuery(query);
-        long prevActive = userActivityMapper.countActiveUsers(prevQuery);
-        long prevTotal = userActivityMapper.countTotalDevices(prevQuery);
+        long prevActive = userActivityMapper.countActiveDoctors(prevQuery);
+        long prevTotal = userActivityMapper.countTotalDoctors(prevQuery);
         long prevInactive = prevTotal - prevActive;
         long prevTotalConsultations = userActivityMapper.countConsultations(prevQuery);
         long prevEffectiveConsultations = userActivityMapper.countEffectiveConsultations(prevQuery);
@@ -77,7 +78,7 @@ public class UserActivityService {
         vo.setInactiveUsersGrowth(formatAbsoluteGrowth(inactiveUsers, prevInactive));
 
         double prevRate = prevTotal > 0 ? (double) prevActive / prevTotal * 100 : 0;
-        double curRate = totalDevices > 0 ? (double) activeUsers / totalDevices * 100 : 0;
+        double curRate = totalDoctors > 0 ? (double) activeUsers / totalDoctors * 100 : 0;
         vo.setActivityRateGrowth(formatPercentDiffGrowth(curRate, prevRate));
 
         double prevEffectiveRate = prevTotalConsultations > 0 ? (double) prevEffectiveConsultations / prevTotalConsultations * 100 : 0;
@@ -92,7 +93,7 @@ public class UserActivityService {
         fillDateBounds(query);
 
         List<Map<String, Object>> allRegions = userActivityMapper.queryAllRegions();
-        List<Map<String, Object>> regionCounts = userActivityMapper.countActiveUsersByRegion(query);
+        List<Map<String, Object>> regionCounts = userActivityMapper.countActiveDoctorsByRegion(query);
 
         Map<String, Long> countMap = new HashMap<>();
         for (Map<String, Object> row : regionCounts) {
@@ -138,22 +139,36 @@ public class UserActivityService {
     public PageResponse<UserActivityItemVO> getUserList(UserActivityQueryDTO query, long current, long size) {
         normalizeDateRange(query);
         fillDateBounds(query);
+        PageRequest pageRequest = PageRequest.of(current, size);
+        List<UserActivityItemVO> items = queryUserActivityItems(query);
 
-        List<Map<String, Object>> rows = userActivityMapper.queryUserActivityList(query);
+        int from = pageRequest.fromIndex(items.size());
+        int to = pageRequest.toIndex(items.size());
+        List<UserActivityItemVO> page = items.subList(from, to);
+
+        return new PageResponse<UserActivityItemVO>(
+            pageRequest.getCurrent(),
+            pageRequest.getSize(),
+            items.size(),
+            page
+        );
+    }
+
+    private List<UserActivityItemVO> queryUserActivityItems(UserActivityQueryDTO query) {
+        List<Map<String, Object>> rows = userActivityMapper.queryDoctorActivityList(query);
 
         List<UserActivityItemVO> items = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             UserActivityItemVO item = new UserActivityItemVO();
-            item.setIdDevice(stringVal(mapValue(row, "IDDEVICE", "iddevice")));
-            item.setCdDevice(stringVal(mapValue(row, "CDDEVICE", "cddevice")));
-            item.setNaDevice(stringVal(mapValue(row, "NADEVICE", "nadevice")));
+            item.setIdDoctor(stringVal(mapValue(row, "IDDOCTOR", "iddoctor")));
+            item.setNaDoctor(stringVal(mapValue(row, "NADOCTOR", "nadoctor")));
+            item.setDeviceCount(longVal(mapValue(row, "DEVICECOUNT", "devicecount")));
             item.setIdOrg(stringVal(mapValue(row, "IDORG", "idorg")));
             item.setNaOrg(stringVal(mapValue(row, "NAORG", "naorg")));
             item.setHisOrgId(stringVal(mapValue(row, "HISORGID", "hisorgid")));
             item.setHisOrgName(stringVal(mapValue(row, "HISORGNAME", "hisorgname")));
             item.setIdRegion(stringVal(mapValue(row, "IDREGION", "idregion")));
             item.setNaRegion(stringVal(mapValue(row, "NAREGION", "naregion")));
-            item.setNaDoctor(stringVal(mapValue(row, "NADOCTOR", "nadoctor")));
             item.setConsultationCount(longVal(mapValue(row, "CONSULTATIONCOUNT", "consultationcount")));
             item.setEffectiveConsultationCount(longVal(mapValue(row, "EFFECTIVECONSULTATIONCOUNT", "effectiveconsultationcount")));
             Object lastActiveTime = mapValue(row, "LASTACTIVETIME", "lastactivetime");
@@ -161,40 +176,36 @@ public class UserActivityService {
             item.setActiveStatus(item.getConsultationCount() > 0 ? "active" : "inactive");
             items.add(item);
         }
-
-        long total = items.size();
-        int from = (int) Math.min((current - 1) * size, items.size());
-        int to = (int) Math.min(from + size, items.size());
-        List<UserActivityItemVO> page = items.subList(from, to);
-
-        return new PageResponse<>(current, size, total, page);
+        return items;
     }
 
     public byte[] exportExcel(UserActivityQueryDTO query) {
         UserActivitySummaryVO summary = getSummary(query);
-        PageResponse<UserActivityItemVO> page = getUserList(query, 1, EXPORT_MAX_ROWS);
-        List<UserActivityItemVO> users = page.getRecords();
+        List<UserActivityItemVO> allUsers = queryUserActivityItems(query);
+        int exportSize = (int) Math.min(EXPORT_MAX_ROWS, allUsers.size());
+        List<UserActivityItemVO> users = allUsers.subList(0, exportSize);
 
         try (XSSFWorkbook workbook = new XSSFWorkbook()) {
             CellStyle headerStyle = createHeaderStyle(workbook);
 
             XSSFSheet summarySheet = workbook.createSheet("活跃度汇总");
             writeHeader(summarySheet, headerStyle, "指标", "数值", "对比变化");
-            writeRow(summarySheet, 1, "活跃用户数", summary.getActiveUsers(), summary.getActiveUsersGrowth());
-            writeRow(summarySheet, 2, "不活跃用户数", summary.getInactiveUsers(), summary.getInactiveUsersGrowth());
+            writeRow(summarySheet, 1, "活跃医生数", summary.getActiveUsers(), summary.getActiveUsersGrowth());
+            writeRow(summarySheet, 2, "不活跃医生数", summary.getInactiveUsers(), summary.getInactiveUsersGrowth());
             writeRow(summarySheet, 3, "活跃率", summary.getActivityRate() + "%", summary.getActivityRateGrowth() + "%");
             writeRow(summarySheet, 4, "有效问诊率", summary.getEffectiveConsultationRate() + "%", summary.getEffectiveConsultationRateGrowth() + "%");
             autoSize(summarySheet, 3);
 
-            XSSFSheet userSheet = workbook.createSheet("用户明细");
-            writeHeader(userSheet, headerStyle, "医生姓名", "设备编码", "平台机构", "HIS机构", "所属区域", "活跃状态", "问诊次数", "有效问诊数", "最后活跃时间");
+            XSSFSheet userSheet = workbook.createSheet("医生明细");
+            writeHeader(userSheet, headerStyle, "医生ID", "医生姓名", "关联设备数", "平台机构", "HIS机构", "所属区域", "活跃状态", "问诊次数", "有效问诊数", "最后活跃时间");
             for (int i = 0; i < users.size(); i++) {
                 UserActivityItemVO item = users.get(i);
                 writeRow(
                     userSheet,
                     i + 1,
+                    item.getIdDoctor(),
                     item.getNaDoctor(),
-                    item.getCdDevice(),
+                    item.getDeviceCount(),
                     item.getNaOrg(),
                     firstNonBlank(item.getHisOrgName(), item.getHisOrgId()),
                     item.getNaRegion(),
@@ -204,7 +215,7 @@ public class UserActivityService {
                     item.getLastActiveTime()
                 );
             }
-            autoSize(userSheet, 9);
+            autoSize(userSheet, 10);
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             workbook.write(out);

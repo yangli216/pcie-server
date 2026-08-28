@@ -59,15 +59,11 @@
       </el-table>
 
       <div class="page-footer">
-        <el-pagination
-          background
-          layout="total, sizes, prev, pager, next"
-          :current-page="current"
-          :page-size="size"
-          :page-sizes="[10, 20, 50, 100]"
+        <AdminPagination
+          :current.sync="current"
+          :size.sync="size"
           :total="total"
-          @current-change="onPageChange"
-          @size-change="onSizeChange"
+          @change="loadData"
         />
       </div>
     </section>
@@ -91,7 +87,7 @@ export default {
       exporting: false,
       keyword: '',
       current: 1,
-      size: 20,
+      size: 10,
       total: 0,
       records: []
     }
@@ -101,15 +97,6 @@ export default {
   },
   methods: {
     formatDateTime,
-    onPageChange(page) {
-      this.current = page
-      this.loadData()
-    },
-    onSizeChange(size) {
-      this.size = size
-      this.current = 1
-      this.loadData()
-    },
     search() {
       this.current = 1
       this.loadData()

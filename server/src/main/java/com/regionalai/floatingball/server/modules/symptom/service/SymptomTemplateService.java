@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.db.DatabaseDialect;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.datapackage.dto.TemplateDeltaVO;
@@ -95,7 +96,8 @@ public class SymptomTemplateService {
                                                 String sdStatus,
                                                 String idRegion,
                                                 String idOrg) {
-        Page<AiSymptomTemplate> page = new Page<AiSymptomTemplate>(current, size);
+        PageRequest pageRequest = PageRequest.of(current, size);
+        Page<AiSymptomTemplate> page = new Page<AiSymptomTemplate>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<AiSymptomTemplate> wrapper = new LambdaQueryWrapper<AiSymptomTemplate>()
             .eq(AiSymptomTemplate::getFgActive, ACTIVE_ENABLED)
             .orderByAsc(AiSymptomTemplate::getSortOrder)

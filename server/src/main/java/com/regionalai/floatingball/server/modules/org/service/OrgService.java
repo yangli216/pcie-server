@@ -3,6 +3,7 @@ package com.regionalai.floatingball.server.modules.org.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.db.DatabaseDialect;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.org.entity.AiOrg;
@@ -25,7 +26,8 @@ public class OrgService {
     }
 
     public PageResponse<AiOrg> list(long current, long size, String keyword, String idRegion, String sdStatus) {
-        Page<AiOrg> page = new Page<AiOrg>(current, size);
+        PageRequest pageRequest = PageRequest.of(current, size);
+        Page<AiOrg> page = new Page<AiOrg>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<AiOrg> wrapper = new LambdaQueryWrapper<AiOrg>()
             .eq(AiOrg::getFgActive, "1")
             .orderByAsc(AiOrg::getSortOrder)

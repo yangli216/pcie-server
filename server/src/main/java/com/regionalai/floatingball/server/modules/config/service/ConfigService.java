@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.util.AesUtils;
 import com.regionalai.floatingball.server.common.util.MaskingUtils;
@@ -113,7 +114,8 @@ public class ConfigService {
     }
 
     public PageResponse<AiConfigView> list(long current, long size, String keyword) {
-        Page<AiConfig> page = new Page<AiConfig>(current, size);
+        PageRequest pageRequest = PageRequest.of(current, size);
+        Page<AiConfig> page = new Page<AiConfig>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<AiConfig> wrapper = new LambdaQueryWrapper<AiConfig>()
             .eq(AiConfig::getFgActive, "1")
             .orderByDesc(AiConfig::getUpdateTime);

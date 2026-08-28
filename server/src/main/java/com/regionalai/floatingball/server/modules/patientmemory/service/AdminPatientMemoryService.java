@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.util.ObjectIdUtils;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
@@ -66,8 +67,10 @@ public class AdminPatientMemoryService {
     }
 
     public PageResponse<AdminPatientMemoryListItem> list(AdminCurrentUser user, AdminPatientMemoryQuery query) {
-        long current = query == null || query.getCurrent() <= 0 ? 1 : query.getCurrent();
-        long size = query == null || query.getSize() <= 0 ? 20 : Math.min(query.getSize(), 100);
+        PageRequest pageRequest = PageRequest.of(
+            query == null ? null : Long.valueOf(query.getCurrent()),
+            query == null ? null : Long.valueOf(query.getSize())
+        );
         QueryWrapper<AiPatientMemory> wrapper = new QueryWrapper<AiPatientMemory>()
             .eq("fg_active", "1")
             .orderByDesc("last_sync_time");
@@ -83,7 +86,10 @@ public class AdminPatientMemoryService {
             wrapper.eq("quality_status", query.getQualityStatus().trim());
         }
 
-        Page<AiPatientMemory> result = memoryMapper.selectPage(new Page<AiPatientMemory>(current, size), wrapper);
+        Page<AiPatientMemory> result = memoryMapper.selectPage(
+            new Page<AiPatientMemory>(pageRequest.getCurrent(), pageRequest.getSize()),
+            wrapper
+        );
         List<AdminPatientMemoryListItem> records = result.getRecords().stream()
             .map(this::toListItem)
             .collect(Collectors.toList());

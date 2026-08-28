@@ -355,6 +355,54 @@ CREATE INDEX idx_c_ai_inemr_tpl_hash ON c_ai_inpatient_emr_tpl_cache (template_h
 CREATE INDEX idx_c_ai_inemr_tpl_status ON c_ai_inpatient_emr_tpl_cache (fg_active, sd_status, update_time);
 
 
+CREATE TABLE c_ai_outpatient_emr_tpl_snapshot (
+    id_snapshot             VARCHAR(32) PRIMARY KEY,
+    id_org                  VARCHAR(32) NOT NULL,
+    id_region               VARCHAR(32),
+    id_device               VARCHAR(32) NOT NULL,
+    cd_device               VARCHAR(128),
+    template_id             VARCHAR(128) NOT NULL,
+    template_name           VARCHAR(200) NOT NULL,
+    template_hash           VARCHAR(64) NOT NULL,
+    template_html           TEXT NOT NULL,
+    template_definition     TEXT NOT NULL,
+    parse_result_json       TEXT NOT NULL,
+    field_count             NUMERIC(10) NOT NULL,
+    writable_field_count    NUMERIC(10) NOT NULL,
+    dictionary_field_count  NUMERIC(10) NOT NULL,
+    mapped_field_count      NUMERIC(10) NOT NULL,
+    dt_last_received        TIMESTAMP NOT NULL,
+    fg_active               CHAR(1) NOT NULL,
+    insert_time             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_time             TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE c_ai_outpatient_emr_tpl_snapshot IS '门诊病历模板对原文与确定性合并解析快照表';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.id_snapshot IS '门诊模板快照主键ID';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.id_org IS '接收模板的机构ID';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.id_region IS '接收模板的区域ID';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.id_device IS '最近接收设备ID';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.cd_device IS '最近接收设备编码';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.template_id IS '客户端传入的模板主键';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.template_name IS '客户端传入的模板名称';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.template_hash IS '渲染HTML与结构定义JSON模板对SHA-256';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.template_html IS '客户端实际传入的渲染HTML原文';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.template_definition IS '客户端实际传入的结构定义JSON原文';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.parse_result_json IS '桌面端确定性合并解析字段快照JSON';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.field_count IS '解析字段总数';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.writable_field_count IS '可写字段数';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.dictionary_field_count IS '含字典定义字段数';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.mapped_field_count IS '已映射标准病历字段数';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.dt_last_received IS '最近一次接收时间';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.fg_active IS '逻辑有效标记';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.insert_time IS '创建时间';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.update_time IS '更新时间';
+
+CREATE UNIQUE INDEX uk_c_ai_outemr_tpl_snap ON c_ai_outpatient_emr_tpl_snapshot (id_org, template_id, template_hash);
+CREATE INDEX idx_c_ai_outemr_tpl_id ON c_ai_outpatient_emr_tpl_snapshot (template_id, id_org);
+CREATE INDEX idx_c_ai_outemr_tpl_time ON c_ai_outpatient_emr_tpl_snapshot (fg_active, dt_last_received);
+
+
 CREATE TABLE c_ai_symptom_template_change_log (
     id_log                  VARCHAR(32) PRIMARY KEY,
     id_template             VARCHAR(32),

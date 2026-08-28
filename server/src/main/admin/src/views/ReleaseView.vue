@@ -3,7 +3,7 @@
     <admin-filter-bar class="release-toolbar">
       <div class="release-toolbar__content">
         <div class="page-toolbar__filters">
-          <el-select v-model="filters.channel" placeholder="发布通道" class="filter-select" @change="loadData">
+          <el-select v-model="filters.channel" placeholder="发布通道" class="filter-select" @change="handleChannelChange">
             <el-option v-for="item in channelOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
           <el-button @click="loadData">刷新</el-button>
@@ -80,7 +80,7 @@
           </div>
         </article>
       </div>
-      <el-empty v-else description="暂无发布版本" :image-size="80" />
+      <div v-else class="release-empty-row">暂无发布版本</div>
     </section>
 
     <div class="history-header">
@@ -140,6 +140,14 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="page-footer">
+        <AdminPagination
+          :current.sync="historyPage.current"
+          :size.sync="historyPage.size"
+          :total="historyPage.total"
+          @change="loadData"
+        />
+      </div>
     </section>
 
     <el-dialog v-if="dialogVisible" title="批量上传客户端版本" :visible.sync="dialogVisible" width="760px" @closed="resetForm">
@@ -247,6 +255,11 @@ export default {
       dialogVisible: false,
       records: [],
       historyRecords: [],
+      historyPage: {
+        current: 1,
+        size: 10,
+        total: 0
+      },
       filters: {
         channel: ''
       },
@@ -271,16 +284,29 @@ export default {
         }
         const [data, history] = await Promise.all([
           http.get('/admin/api/releases', { params }),
-          http.get('/admin/api/releases/history', { params })
+          http.get('/admin/api/releases/history', {
+            params: {
+              ...params,
+              current: this.historyPage.current,
+              size: this.historyPage.size
+            }
+          })
         ])
         this.records = Array.isArray(data) ? data : []
-        this.historyRecords = Array.isArray(history) ? history : []
+        this.historyRecords = history.records || []
+        this.historyPage.current = Number(history.current || this.historyPage.current)
+        this.historyPage.size = Number(history.size || this.historyPage.size)
+        this.historyPage.total = Number(history.total || 0)
       } catch (error) {
         this.$message.error(error.message || '加载版本发布状态失败')
       } finally {
         this.loading = false
         this.historyLoading = false
       }
+    },
+    handleChannelChange() {
+      this.historyPage.current = 1
+      this.loadData()
     },
     historyKey(row) {
       return `${row.channel || 'unknown'}:${row.version || 'unknown'}`

@@ -3,6 +3,7 @@ package com.regionalai.floatingball.server.modules.lisresult.service;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.db.DatabaseDialect;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
@@ -67,9 +68,9 @@ public class LisResultEntryService {
                                                 String idOrg,
                                                 String dateFrom,
                                                 String dateTo) {
-        long pageSize = Math.max(1, Math.min(size, 100));
+        PageRequest pageRequest = PageRequest.of(current, size);
         TimeRange timeRange = resolveApplyTimeRange(dateFrom, dateTo);
-        Page<HiOdsApply> page = new Page<HiOdsApply>(Math.max(1, current), pageSize);
+        Page<HiOdsApply> page = new Page<HiOdsApply>(pageRequest.getCurrent(), pageRequest.getSize());
         QueryWrapper<HiOdsApply> wrapper = new QueryWrapper<HiOdsApply>()
             .select(
                 "id_apply",

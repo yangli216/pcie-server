@@ -3,6 +3,7 @@ package com.regionalai.floatingball.server.modules.region.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.region.entity.AiRegion;
 import com.regionalai.floatingball.server.modules.region.mapper.AiRegionMapper;
@@ -19,7 +20,8 @@ public class RegionService {
     }
 
     public PageResponse<AiRegion> list(long current, long size, String keyword, String sdStatus) {
-        Page<AiRegion> page = new Page<AiRegion>(current, size);
+        PageRequest pageRequest = PageRequest.of(current, size);
+        Page<AiRegion> page = new Page<AiRegion>(pageRequest.getCurrent(), pageRequest.getSize());
         LambdaQueryWrapper<AiRegion> wrapper = new LambdaQueryWrapper<AiRegion>()
             .eq(AiRegion::getFgActive, "1")
             .orderByAsc(AiRegion::getSortOrder)

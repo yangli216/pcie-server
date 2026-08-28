@@ -50,6 +50,13 @@ class BbpStatisticsScopeTest {
         assertFalse(scope.isStatisticsOnly(mixed));
     }
 
+    @Test
+    void organizationAnalystShouldReachXiaoshanStatisticsApis() {
+        assertTrue(scope.isAllowedStatisticsApi("/admin/api/xiaoshan-analytics/function-modules"));
+        assertTrue(scope.isAllowedStatisticsApi("/admin/api/xiaoshan-analytics/function-usage"));
+        assertTrue(scope.isAllowedStatisticsApi("/admin/api/xiaoshan-analytics/function-usage/export"));
+    }
+
     private AdminCurrentUser user(String role) {
         AdminCurrentUser user = new AdminCurrentUser();
         user.setAuthProvider("BBP");

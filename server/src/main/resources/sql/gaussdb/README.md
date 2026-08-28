@@ -67,10 +67,11 @@ FB_DB_PASSWORD=Rbmh_ai@123
 ## 注意事项
 
 1. GaussDB 脚本不提供 Oracle 风格的 `bootstrap.sql`；数据库、schema、用户和表空间通常由 DBA 按现场规范预先创建。
-2. 激活记录唯一性使用表达式唯一索引实现，语义与 Oracle 基线一致；问诊日志只对激活且尚未结束的 `generated` 轮次做唯一约束。
+2. 激活记录唯一性使用表达式唯一索引实现，语义与 Oracle 基线一致；问诊日志只对激活且尚未结束的 `generated` 轮次做唯一约束。门诊模板快照只接收正式 HIS Bridge/SDK 分析链路中同一模板的渲染 HTML 与结构定义 JSON，按机构、模板 ID 与模板对 hash 标识版本，只保存两份原文和确定性合并解析结果，不保存患者、病历上下文或生成值。
 3. 现场旧库不能重建时，由 DBA 基于当前 `init.sql` 与现场结构生成一次性迁移脚本；客户端使用情况上线前需确认 `c_ai_feature_event.cd_doctor`、`client_version` 与 `idx_c_ai_feature_event_usage` 已补齐。历史空值不得猜测回填。
 4. 若需要普通 PostgreSQL 运行，优先复用本目录结构作为 PG 兼容基线，再结合现场版本验证 JSON、表达式索引和时间函数兼容性。
 5. 存量库使用当前应用账号执行 `gsql -v ON_ERROR_STOP=1 -f update_his_org_statistics.sql`。该脚本补齐客户端使用情况字段和索引，清空历史功能事件的临床关联与 payload，并按稳定 UUID 重建幂等键；执行前必须备份、停止写入、核查外部报表依赖并由 DBA 在维护窗口审核。后续慢病脚本职责保持不变。
 6. `init.sql` 默认 AI 配置 `CFG001` 使用 DashScope `qwen-audio-3.0-asr-flash-streaming` 作为实时模型；存量库需在管理端修改对应配置，不通过常驻升级脚本覆盖现场模型选择。
 7. 服务启动与 Actuator `featureEventSchema` readiness 会只读验证功能事件完整列和 `feature_event_minimization_v1` 标记；缺表、缺列、缺标记或权限不足时拒绝启动。使用情况索引仍须由 DBA 单独确认。
 8. `init.sql` 默认角色包含 `SYSTEM_ADMIN`、仅管理所属 BBP 机构 AI 使用权限的 `ORG_ADMIN`，以及只读查看本机构统计的 `ORG_ANALYST`；新增 BBP 用户授权通过 `c_ai_bbp_admin_grant` 维护，既有本地 PCIE 用户角色映射继续作为兼容路径。
+9. 已存在门诊模板快照表的库执行 `gsql -v ON_ERROR_STOP=1 -f update_outpatient_emr_template_snapshot.sql`，把唯一键调整为 `id_org + template_id + template_hash`；脚本仅重建索引，不改变任何业务记录，执行期间须停止模板快照写入。

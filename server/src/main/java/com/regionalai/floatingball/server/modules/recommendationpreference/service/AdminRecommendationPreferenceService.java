@@ -3,6 +3,7 @@ package com.regionalai.floatingball.server.modules.recommendationpreference.serv
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.regionalai.floatingball.server.common.api.PageResponse;
+import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.recommendationpreference.dto.AdminRecommendationPreferenceAggregateVO;
 import com.regionalai.floatingball.server.modules.recommendationpreference.dto.AdminRecommendationPreferenceEventVO;
@@ -275,15 +276,9 @@ public class AdminRecommendationPreferenceService {
 
     private AdminRecommendationPreferenceQuery normalizeQuery(AdminRecommendationPreferenceQuery query) {
         AdminRecommendationPreferenceQuery normalized = query == null ? new AdminRecommendationPreferenceQuery() : query;
-        if (normalized.getCurrent() <= 0) {
-            normalized.setCurrent(1);
-        }
-        if (normalized.getSize() <= 0) {
-            normalized.setSize(10);
-        }
-        if (normalized.getSize() > 100) {
-            normalized.setSize(100);
-        }
+        PageRequest pageRequest = PageRequest.of(normalized.getCurrent(), normalized.getSize());
+        normalized.setCurrent(pageRequest.getCurrent());
+        normalized.setSize(pageRequest.getSize());
         normalized.setRecommendationType(trimToNull(normalized.getRecommendationType()));
         normalized.setScope(trimToNull(normalized.getScope()));
         normalized.setIdRegion(trimToNull(normalized.getIdRegion()));
