@@ -12,21 +12,24 @@
         <el-button type="primary" icon="el-icon-search" @click="search">查询</el-button>
         <el-button @click="reset">重置</el-button>
       </div>
-      <el-button type="primary" icon="el-icon-plus" @click="openCreate">新增机构</el-button>
+      <div class="table-actions">
+        <el-tag v-if="bbpMode" size="small" type="info">BBP 同步 · 只读</el-tag>
+        <el-button v-if="!bbpMode" type="primary" icon="el-icon-plus" @click="openCreate">新增机构</el-button>
+      </div>
     </section>
 
     <section class="page-section page-section--table">
       <el-table :data="records" v-loading="loading">
       <el-table-column label="机构编码" min-width="140"><template slot-scope="{ row }"><code-tag :value="row.cdOrg" /></template></el-table-column>
       <el-table-column prop="naOrg" label="机构名称" min-width="160" />
-      <el-table-column label="所属区域" min-width="160">
+      <el-table-column v-if="!bbpMode" label="所属区域" min-width="160">
         <template slot-scope="{ row }">
           {{ resolveRegionName(row.idRegion) }}
         </template>
       </el-table-column>
       <el-table-column label="上级机构" min-width="160">
         <template slot-scope="{ row }">
-          {{ resolveParentName(row.idParent) }}
+          {{ row.parentName || resolveParentName(row.idParent) }}
         </template>
       </el-table-column>
       <el-table-column prop="sdOrgType" label="机构类型" min-width="120" />
@@ -35,8 +38,8 @@
           <status-pill :tone="statusTone(statusMeta(row.sdStatus).type)" :label="statusMeta(row.sdStatus).label" />
         </template>
       </el-table-column>
-      <el-table-column prop="sortOrder" label="排序" width="90" />
-      <el-table-column label="更新时间" width="170">
+      <el-table-column v-if="!bbpMode" prop="sortOrder" label="排序" width="90" />
+      <el-table-column v-if="!bbpMode" label="更新时间" width="170">
         <template slot-scope="{ row }">
           {{ formatDateTime(row.updateTime) }}
         </template>
@@ -46,7 +49,7 @@
           {{ row.desOrg || '--' }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="180" fixed="right">
+      <el-table-column v-if="!bbpMode" label="操作" width="180" fixed="right">
         <template slot-scope="{ row }">
           <div class="table-actions">
             <table-action @click="openEdit(row)">编辑</table-action>
@@ -112,6 +115,7 @@
         <el-button type="primary" :loading="saving" @click="submitForm">保存</el-button>
       </span>
     </el-dialog>
+
   </div>
 </template>
 
@@ -120,6 +124,7 @@ import { fetchOrgs, fetchRegions } from '../api/reference'
 import http from '../api/http'
 import { buildLabelMap, configStatusOptions, findStatusMeta, formatDateTime, statusTone } from '../utils/admin'
 import { CodeTag, SegmentedSwitch, StatusPill, TableAction } from '../components/ui'
+import { getAdminUser } from '../utils/auth'
 
 function createDefaultForm() {
   return {
@@ -148,6 +153,8 @@ export default {
       saving: false,
       dialogVisible: false,
       dialogMode: 'create',
+      bbpMode: false,
+      bbpRecords: [],
       keyword: '',
       current: 1,
       size: 10,
@@ -185,8 +192,12 @@ export default {
     }
   },
   async mounted() {
-    await this.loadReferences()
-    this.loadData()
+    const currentUser = getAdminUser()
+    this.bbpMode = Boolean(currentUser && currentUser.authProvider === 'BBP')
+    if (!this.bbpMode) {
+      await this.loadReferences()
+    }
+    await this.loadData()
   },
   methods: {
     formatDateTime,
@@ -241,6 +252,25 @@ export default {
     async loadData() {
       this.loading = true
       try {
+        if (this.bbpMode) {
+          const data = await http.get('/admin/api/bbp/organizations')
+          this.bbpRecords = (Array.isArray(data) ? data : []).map(item => ({
+            idOrg: item.id,
+            cdOrg: item.code || item.id,
+            naOrg: item.name || item.fullName || item.id,
+            idRegion: '',
+            idParent: item.parentId || '',
+            parentName: item.parentName || '',
+            sdOrgType: item.orgTypeText || item.orgType || '',
+            sdStatus: item.active === false ? '0' : '1',
+            sortOrder: '',
+            updateTime: '',
+            desOrg: item.fullName || '',
+            source: 'BBP'
+          }))
+          this.applyBbpPage()
+          return
+        }
         const data = await http.get('/admin/api/orgs', {
           params: {
             current: this.current,
@@ -255,6 +285,19 @@ export default {
       } finally {
         this.loading = false
       }
+    },
+    applyBbpPage() {
+      const keyword = String(this.keyword || '').trim().toLowerCase()
+      const matched = this.bbpRecords.filter(item => {
+        if (!keyword) {
+          return true
+        }
+        return [item.cdOrg, item.naOrg, item.desOrg]
+          .some(value => String(value || '').toLowerCase().includes(keyword))
+      })
+      this.total = matched.length
+      const start = (this.current - 1) * this.size
+      this.records = matched.slice(start, start + this.size)
     },
     search() {
       this.current = 1

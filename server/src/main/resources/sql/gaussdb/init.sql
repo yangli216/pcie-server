@@ -1248,6 +1248,97 @@ CREATE UNIQUE INDEX uk_c_ai_user_role_active ON c_ai_user_role (
 );
 
 
+CREATE TABLE c_ai_bbp_admin_grant (
+    id_grant             VARCHAR(32) PRIMARY KEY,
+    tenant_id            VARCHAR(64) NOT NULL,
+    org_id               VARCHAR(64) NOT NULL,
+    org_name             VARCHAR(128),
+    bbp_user_id          VARCHAR(64) NOT NULL,
+    person_id            VARCHAR(64),
+    login_name           VARCHAR(128),
+    person_name          VARCHAR(128),
+    role_code            VARCHAR(64) NOT NULL,
+    sd_status            VARCHAR(2) DEFAULT '1' NOT NULL,
+    operator_user_id     VARCHAR(64),
+    operator_user_name   VARCHAR(128),
+    fg_active            CHAR(1) DEFAULT '1' NOT NULL,
+    insert_time          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_time          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE c_ai_bbp_admin_grant IS 'BBP人员PCIE后台访问授权表';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.id_grant IS '授权主键ID';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.tenant_id IS 'BBP租户ID';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.org_id IS 'BBP机构ID';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.org_name IS '机构名称快照';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.bbp_user_id IS 'BBP稳定用户ID';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.person_id IS 'BBP人员ID快照';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.login_name IS 'BBP登录名快照';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.person_name IS '人员姓名快照';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.role_code IS 'PCIE后台角色编码';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.sd_status IS '授权状态';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.operator_user_id IS '最近操作人ID';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.operator_user_name IS '最近操作人名称';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.fg_active IS '逻辑删除标记';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.insert_time IS '创建时间';
+COMMENT ON COLUMN c_ai_bbp_admin_grant.update_time IS '更新时间';
+
+CREATE INDEX idx_c_ai_bbp_admin_org ON c_ai_bbp_admin_grant (tenant_id, org_id, sd_status, fg_active);
+CREATE INDEX idx_c_ai_bbp_admin_user ON c_ai_bbp_admin_grant (tenant_id, bbp_user_id, fg_active);
+CREATE UNIQUE INDEX uk_c_ai_bbp_admin_active ON c_ai_bbp_admin_grant (
+    (CASE WHEN fg_active = '1' THEN tenant_id END),
+    (CASE WHEN fg_active = '1' THEN org_id END),
+    (CASE WHEN fg_active = '1' THEN bbp_user_id END),
+    (CASE WHEN fg_active = '1' THEN role_code END)
+);
+
+
+CREATE TABLE c_ai_user_ai_permission (
+    id_permission       VARCHAR(32) PRIMARY KEY,
+    tenant_id           VARCHAR(64) NOT NULL,
+    org_id              VARCHAR(64) NOT NULL,
+    org_name            VARCHAR(128),
+    person_id           VARCHAR(64),
+    user_id             VARCHAR(64),
+    person_cd           VARCHAR(64),
+    person_name         VARCHAR(128),
+    dept_id             VARCHAR(64),
+    dept_name           VARCHAR(128),
+    subject_key         VARCHAR(128) NOT NULL,
+    sd_status           VARCHAR(2) DEFAULT '1' NOT NULL,
+    operator_user_id    VARCHAR(64),
+    operator_user_name  VARCHAR(128),
+    fg_active           CHAR(1) DEFAULT '1' NOT NULL,
+    insert_time         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_time         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE c_ai_user_ai_permission IS 'PCIE人员AI使用权限表';
+COMMENT ON COLUMN c_ai_user_ai_permission.tenant_id IS 'BBP/PHIS租户ID';
+COMMENT ON COLUMN c_ai_user_ai_permission.org_id IS 'BBP/PHIS机构ID，判权必填作用域';
+COMMENT ON COLUMN c_ai_user_ai_permission.org_name IS '授权时机构名称快照';
+COMMENT ON COLUMN c_ai_user_ai_permission.person_id IS 'BBP人员ID';
+COMMENT ON COLUMN c_ai_user_ai_permission.user_id IS 'BBP人员对应用户ID';
+COMMENT ON COLUMN c_ai_user_ai_permission.person_cd IS '人员真实编码/工号';
+COMMENT ON COLUMN c_ai_user_ai_permission.person_name IS '人员姓名快照';
+COMMENT ON COLUMN c_ai_user_ai_permission.dept_id IS '部门ID快照';
+COMMENT ON COLUMN c_ai_user_ai_permission.dept_name IS '部门名称快照';
+COMMENT ON COLUMN c_ai_user_ai_permission.subject_key IS '人员稳定唯一键，优先personId、其次userId、最后工号';
+COMMENT ON COLUMN c_ai_user_ai_permission.sd_status IS 'AI使用权限状态：1允许 0撤销';
+COMMENT ON COLUMN c_ai_user_ai_permission.operator_user_id IS '最近操作PCIE管理员ID';
+COMMENT ON COLUMN c_ai_user_ai_permission.operator_user_name IS '最近操作PCIE管理员名称';
+COMMENT ON COLUMN c_ai_user_ai_permission.fg_active IS '逻辑删除标记';
+
+CREATE UNIQUE INDEX uk_c_ai_user_ai_perm_active ON c_ai_user_ai_permission (
+    (CASE WHEN fg_active = '1' THEN tenant_id END),
+    (CASE WHEN fg_active = '1' THEN org_id END),
+    (CASE WHEN fg_active = '1' THEN subject_key END)
+);
+CREATE INDEX idx_c_ai_user_ai_perm_person ON c_ai_user_ai_permission (tenant_id, org_id, person_id, fg_active, sd_status);
+CREATE INDEX idx_c_ai_user_ai_perm_user ON c_ai_user_ai_permission (tenant_id, org_id, user_id, fg_active, sd_status);
+CREATE INDEX idx_c_ai_user_ai_perm_cd ON c_ai_user_ai_permission (tenant_id, org_id, person_cd, fg_active, sd_status);
+
+
 CREATE TABLE hi_ods_apply (
     id_apply            VARCHAR(32) PRIMARY KEY,
     na_apply            VARCHAR(256),
@@ -1504,6 +1595,12 @@ INSERT INTO c_ai_config (
 
 INSERT INTO c_ai_role (id_role, cd_role, na_role, des_role, sd_status, fg_active)
 VALUES ('ROLE001', 'SYSTEM_ADMIN', '系统管理员', '拥有全部后台权限', '1', '1');
+
+INSERT INTO c_ai_role (id_role, cd_role, na_role, des_role, sd_status, fg_active)
+VALUES ('ROLE002', 'ORG_ADMIN', '机构管理员', '管理所属 BBP 机构的 AI 使用权限', '1', '1');
+
+INSERT INTO c_ai_role (id_role, cd_role, na_role, des_role, sd_status, fg_active)
+VALUES ('ROLE003', 'ORG_ANALYST', '机构统计员', '只读查看所属 BBP 机构的统计分析、辅诊功能和用户活跃度', '1', '1');
 
 INSERT INTO c_ai_user (id_user, cd_user, na_user, password_hash, id_org, sd_status, fg_active)
 VALUES ('USER001', 'admin', '系统管理员', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', 'ORG001', '1', '1');

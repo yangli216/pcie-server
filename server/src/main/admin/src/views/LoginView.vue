@@ -24,7 +24,14 @@
           label-position="top"
           @submit.native.prevent="submitForm"
         >
-          <h2 class="form-title">管理员登录</h2>
+          <h2 class="form-title">{{ bbpMode ? 'BBP统一账号登录' : '管理员登录' }}</h2>
+          <el-form-item v-if="bbpMode && tenantRequired" label="租户 ID" prop="tenantId">
+            <el-input
+              v-model.trim="form.tenantId"
+              spellcheck="false"
+              placeholder="输入 BBP 租户 ID…"
+            />
+          </el-form-item>
           <el-form-item label="账号" prop="username">
             <el-input
               v-model.trim="form.username"
@@ -67,17 +74,57 @@ export default {
   data() {
     return {
       submitting: false,
+      capabilities: { mode: 'local', bbpEnabled: false, tenantRequired: false, tenantId: '' },
       form: {
         username: '',
-        password: ''
+        password: '',
+        tenantId: ''
       },
       rules: {
         username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
-        password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
+        password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+        tenantId: [{ required: true, message: '请输入租户 ID', trigger: 'blur' }]
       }
     }
   },
+  computed: {
+    bbpMode() {
+      return this.capabilities.mode === 'bbp'
+    },
+    tenantRequired() {
+      return Boolean(this.capabilities.tenantRequired)
+    }
+  },
+  async mounted() {
+    try {
+      const data = await http.get('/admin/api/auth/capabilities')
+      this.capabilities = data || this.capabilities
+      this.form.tenantId = this.capabilities.tenantId || ''
+    } catch (error) {
+      this.$message.error((error && error.message) || '读取登录配置失败')
+    }
+  },
   methods: {
+    async completeLogin(data) {
+      if (!data || !data.token) {
+        throw new Error('登录响应缺少 token')
+      }
+      setAdminAuth({
+        token: data.token,
+        expiresAt: data.expiresAt,
+        user: data.user || null
+      })
+      this.$message.success('登录成功')
+      await this.$router.replace(resolveRedirectPath(this.$route.query.redirect))
+    },
+    async submitBbpLogin() {
+      const data = await http.post('/admin/api/auth/bbp/login', {
+        username: this.form.username,
+        password: this.form.password,
+        tenantId: this.form.tenantId || undefined
+      })
+      await this.completeLogin(data)
+    },
     submitForm() {
       this.$refs.formRef.validate(async valid => {
         if (!valid) {
@@ -86,23 +133,16 @@ export default {
 
         this.submitting = true
         try {
+          if (this.bbpMode) {
+            await this.submitBbpLogin()
+            return
+          }
           const data = await http.post('/admin/api/auth/login', {
             username: this.form.username,
             password: this.form.password
           })
 
-          if (!data || !data.token) {
-            throw new Error('登录响应缺少 token')
-          }
-
-          setAdminAuth({
-            token: data.token,
-            expiresAt: data.expiresAt,
-            user: data.user || null
-          })
-
-          this.$message.success('登录成功')
-          this.$router.replace(resolveRedirectPath(this.$route.query.redirect))
+          await this.completeLogin(data)
         } catch (error) {
           this.$message.error((error && error.message) || '登录失败，请检查账号或密码')
         } finally {

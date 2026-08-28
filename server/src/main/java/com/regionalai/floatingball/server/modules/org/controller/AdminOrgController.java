@@ -5,6 +5,7 @@ import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.util.RequestIdUtils;
 import com.regionalai.floatingball.server.modules.org.entity.AiOrg;
 import com.regionalai.floatingball.server.modules.org.service.OrgService;
+import com.regionalai.floatingball.server.modules.auth.config.AdminAuthMode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,9 +23,11 @@ import javax.servlet.http.HttpServletRequest;
 public class AdminOrgController {
 
     private final OrgService orgService;
+    private final AdminAuthMode adminAuthMode;
 
-    public AdminOrgController(OrgService orgService) {
+    public AdminOrgController(OrgService orgService, AdminAuthMode adminAuthMode) {
         this.orgService = orgService;
+        this.adminAuthMode = adminAuthMode;
     }
 
     @GetMapping
@@ -39,6 +42,7 @@ public class AdminOrgController {
 
     @PostMapping
     public ApiResponse<AiOrg> save(@RequestBody AiOrg org, HttpServletRequest request) {
+        adminAuthMode.requireDirectoryWritable();
         return ApiResponse.success(orgService.save(org), RequestIdUtils.resolve(request));
     }
 
@@ -46,17 +50,20 @@ public class AdminOrgController {
     public ApiResponse<AiOrg> update(@PathVariable String idOrg,
                                      @RequestBody AiOrg org,
                                      HttpServletRequest request) {
+        adminAuthMode.requireDirectoryWritable();
         return ApiResponse.success(orgService.update(idOrg, org), RequestIdUtils.resolve(request));
     }
 
     @DeleteMapping("/{idOrg}")
     public ApiResponse<Void> invalidate(@PathVariable String idOrg, HttpServletRequest request) {
+        adminAuthMode.requireDirectoryWritable();
         orgService.invalidate(idOrg);
         return ApiResponse.success(null, RequestIdUtils.resolve(request));
     }
 
     @PostMapping("/{idOrg}/enable")
     public ApiResponse<Void> enable(@PathVariable String idOrg, HttpServletRequest request) {
+        adminAuthMode.requireDirectoryWritable();
         orgService.enable(idOrg);
         return ApiResponse.success(null, RequestIdUtils.resolve(request));
     }

@@ -11,6 +11,10 @@ import com.regionalai.floatingball.server.modules.analytics.dto.FunctionUsageTre
 import com.regionalai.floatingball.server.modules.analytics.dto.HisOrgOptionVO;
 import com.regionalai.floatingball.server.modules.analytics.dto.TrendDataVO;
 import com.regionalai.floatingball.server.modules.analytics.service.AnalyticsService;
+import com.regionalai.floatingball.server.modules.auth.bbp.BbpStatisticsScope;
+import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
+import com.regionalai.floatingball.server.security.AdminContextHolder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,9 +46,15 @@ class AdminAnalyticsControllerTest {
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new AdminAnalyticsController(analyticsService))
+        mockMvc = MockMvcBuilders.standaloneSetup(
+                new AdminAnalyticsController(analyticsService, new BbpStatisticsScope()))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
+    }
+
+    @AfterEach
+    void tearDown() {
+        AdminContextHolder.clear();
     }
 
     @Test
@@ -174,5 +184,44 @@ class AdminAnalyticsControllerTest {
             .andExpect(jsonPath("$.requestId").value("RID-his-org-options"))
             .andExpect(jsonPath("$.data[0].hisOrgId").value("HIS-ORG-001"))
             .andExpect(jsonPath("$.data[0].hisOrgName").value("市第一医院"));
+    }
+
+    @Test
+    void bbpOrganizationUserShouldBeLockedToOwnOrganization() throws Exception {
+        AdminCurrentUser user = bbpOrganizationUser();
+        AdminContextHolder.set(user);
+        when(analyticsService.getSummary(any(AnalyticsQueryDTO.class))).thenReturn(new AnalyticsSummaryVO());
+
+        mockMvc.perform(get("/admin/api/analytics/summary")
+                .param("idRegion", "REG-OTHER")
+                .param("idOrg", "PCIE-OTHER"))
+            .andExpect(status().isOk());
+
+        ArgumentCaptor<AnalyticsQueryDTO> captor = ArgumentCaptor.forClass(AnalyticsQueryDTO.class);
+        verify(analyticsService).getSummary(captor.capture());
+        assertEquals("ORG-A", captor.getValue().getHisOrgId());
+        assertEquals(null, captor.getValue().getIdRegion());
+        assertEquals(null, captor.getValue().getIdOrg());
+    }
+
+    @Test
+    void bbpOrganizationUserShouldBeForbiddenFromOtherOrganization() throws Exception {
+        AdminContextHolder.set(bbpOrganizationUser());
+
+        mockMvc.perform(get("/admin/api/analytics/summary")
+                .param("hisOrgId", "ORG-B")
+                .header("X-Request-Id", "RID-cross-org"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.code").value("AUTH-403"))
+            .andExpect(jsonPath("$.requestId").value("RID-cross-org"));
+    }
+
+    private AdminCurrentUser bbpOrganizationUser() {
+        AdminCurrentUser user = new AdminCurrentUser();
+        user.setAuthProvider("BBP");
+        user.setBbpOrgId("ORG-A");
+        user.setBbpOrgName("第一医院");
+        user.setRoles(Collections.singletonList("ORG_ANALYST"));
+        return user;
     }
 }

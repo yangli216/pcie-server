@@ -2,6 +2,7 @@ package com.regionalai.floatingball.server.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
+import com.regionalai.floatingball.server.modules.auth.bbp.BbpStatisticsScope;
 import com.regionalai.floatingball.server.modules.auth.service.AdminTokenService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,7 +40,7 @@ class AdminAuthFilterTest {
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders.standaloneSetup(new ProtectedAdminController())
-            .addFilters(new AdminAuthFilter(adminTokenService, new ObjectMapper()))
+            .addFilters(new AdminAuthFilter(adminTokenService, new ObjectMapper(), new BbpStatisticsScope()))
             .build();
     }
 
@@ -62,6 +63,15 @@ class AdminAuthFilterTest {
     @Test
     void loginRouteShouldBypassFilter() throws Exception {
         mockMvc.perform(post("/admin/api/auth/login"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("ok"));
+
+        verifyNoInteractions(adminTokenService);
+    }
+
+    @Test
+    void bbpLoginRouteShouldBypassFilter() throws Exception {
+        mockMvc.perform(post("/admin/api/auth/bbp/login"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("ok"));
 
@@ -107,6 +117,28 @@ class AdminAuthFilterTest {
             .andExpect(jsonPath("$.message").value("管理员令牌无效或已过期"));
     }
 
+    @Test
+    void organizationAnalystShouldOnlyReachStatisticsApis() throws Exception {
+        AdminCurrentUser user = new AdminCurrentUser();
+        user.setAuthProvider("BBP");
+        user.setBbpUserId("USER-ANALYST");
+        user.setBbpOrgId("ORG-A");
+        user.setRoles(Collections.singletonList("ORG_ANALYST"));
+        when(adminTokenService.parse("analyst-token")).thenReturn(user);
+
+        mockMvc.perform(get("/admin/api/analytics/summary")
+                .header("Authorization", "Bearer analyst-token"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("ok"));
+
+        mockMvc.perform(get("/admin/api/stats/overview")
+                .header("Authorization", "Bearer analyst-token")
+                .header("X-Request-Id", "RID-analyst-forbidden"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.code").value("AUTH-403"))
+            .andExpect(jsonPath("$.requestId").value("RID-analyst-forbidden"));
+    }
+
     @RestController
     static class ProtectedAdminController {
 
@@ -119,8 +151,18 @@ class AdminAuthFilterTest {
             return result;
         }
 
+        @GetMapping("/admin/api/analytics/summary")
+        public Map<String, String> analyticsSummary() {
+            return Collections.singletonMap("status", "ok");
+        }
+
         @PostMapping("/admin/api/auth/login")
         public Map<String, String> login() {
+            return Collections.singletonMap("status", "ok");
+        }
+
+        @PostMapping("/admin/api/auth/bbp/login")
+        public Map<String, String> bbpLogin() {
             return Collections.singletonMap("status", "ok");
         }
 

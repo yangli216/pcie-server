@@ -17,11 +17,17 @@ spring:
     password: ${FB_DB_PASSWORD:RBMH_AI}
 
 floating-ball:
+  aes-key: ${FB_AES_KEY:FloatingBallKey!}
   admin:
-    bootstrap-reset:
-      enabled: true
-      username: admin
-      password: admin123
+     auth:
+      mode: bbp
+      bbp:
+        base-url: http://192.168.201.140:5680/rbmh-phis
+        tenant-id: xswjj
+        system-login-name: system
+        system-local-username: admin
+        connect-timeout-ms: 10000
+        read-timeout-ms: 30000
   cors:
     allowed-origins:
       - http://localhost:5174

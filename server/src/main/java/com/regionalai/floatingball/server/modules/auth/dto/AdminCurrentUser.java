@@ -12,4 +12,12 @@ public class AdminCurrentUser {
     private String naUser;
     private String idOrg;
     private List<String> roles;
+    private String authProvider;
+    private String authSessionId;
+    private String bbpTenantId;
+    private String bbpUserId;
+    private String bbpRoleId;
+    private String bbpOrgId;
+    private String bbpOrgCode;
+    private String bbpOrgName;
 }

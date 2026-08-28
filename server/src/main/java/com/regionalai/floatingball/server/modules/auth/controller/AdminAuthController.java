@@ -6,6 +6,10 @@ import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminLoginRequest;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminLoginResponse;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminPasswordChangeRequest;
+import com.regionalai.floatingball.server.modules.auth.dto.AdminAuthCapabilities;
+import com.regionalai.floatingball.server.modules.auth.dto.BbpLoginRequest;
+import com.regionalai.floatingball.server.modules.auth.bbp.BbpAuthService;
+import com.regionalai.floatingball.server.modules.auth.bbp.BbpDirectoryService;
 import com.regionalai.floatingball.server.modules.auth.service.AdminAuthService;
 import com.regionalai.floatingball.server.security.AdminContextHolder;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -25,15 +29,32 @@ import java.util.Map;
 public class AdminAuthController {
 
     private final AdminAuthService adminAuthService;
+    private final BbpAuthService bbpAuthService;
+    private final BbpDirectoryService bbpDirectoryService;
 
-    public AdminAuthController(AdminAuthService adminAuthService) {
+    public AdminAuthController(AdminAuthService adminAuthService,
+                               BbpAuthService bbpAuthService,
+                               BbpDirectoryService bbpDirectoryService) {
         this.adminAuthService = adminAuthService;
+        this.bbpAuthService = bbpAuthService;
+        this.bbpDirectoryService = bbpDirectoryService;
+    }
+
+    @GetMapping("/capabilities")
+    public ApiResponse<AdminAuthCapabilities> capabilities(HttpServletRequest request) {
+        return ApiResponse.success(bbpAuthService.capabilities(), RequestIdUtils.resolve(request));
     }
 
     @PostMapping("/login")
     public ApiResponse<AdminLoginResponse> login(@Valid @RequestBody AdminLoginRequest request,
                                                  HttpServletRequest httpServletRequest) {
         return ApiResponse.success(adminAuthService.login(request), RequestIdUtils.resolve(httpServletRequest));
+    }
+
+    @PostMapping("/bbp/login")
+    public ApiResponse<AdminLoginResponse> bbpLogin(@Valid @RequestBody BbpLoginRequest request,
+                                                    HttpServletRequest httpServletRequest) {
+        return ApiResponse.success(bbpAuthService.login(request), RequestIdUtils.resolve(httpServletRequest));
     }
 
     @GetMapping("/me")
@@ -43,6 +64,7 @@ public class AdminAuthController {
 
     @PostMapping("/logout")
     public ApiResponse<Map<String, String>> logout(HttpServletRequest request) {
+        bbpDirectoryService.logout(AdminContextHolder.get());
         return ApiResponse.success(Collections.singletonMap("status", "ok"), RequestIdUtils.resolve(request));
     }
 

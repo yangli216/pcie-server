@@ -1,4 +1,5 @@
 import Vue from 'vue'
+import Alert from 'element-ui/lib/alert'
 import Aside from 'element-ui/lib/aside'
 import Button from 'element-ui/lib/button'
 import Container from 'element-ui/lib/container'
@@ -30,6 +31,7 @@ import Tag from 'element-ui/lib/tag'
 import 'element-ui/lib/theme-chalk/index.css'
 
 const components = [
+  Alert,
   Aside,
   Button,
   Container,

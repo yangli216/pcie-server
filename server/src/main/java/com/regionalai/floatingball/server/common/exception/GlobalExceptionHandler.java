@@ -46,6 +46,30 @@ public class GlobalExceptionHandler {
         return ApiResponse.error(ex.getCode(), sanitizeBusinessMessage(ex.getMessage()), resolveRequestId(request));
     }
 
+    @ExceptionHandler(ForbiddenException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ApiResponse<Void> handleForbidden(ForbiddenException ex, HttpServletRequest request) {
+        log.warn("forbidden exception. method={}, uri={}, requestId={}, code={}, message={}",
+            request.getMethod(),
+            request.getRequestURI(),
+            resolveRequestId(request),
+            ex.getCode(),
+            ex.getMessage());
+        return ApiResponse.error(ex.getCode(), sanitizeBusinessMessage(ex.getMessage()), resolveRequestId(request));
+    }
+
+    @ExceptionHandler(ServiceUnavailableException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public ApiResponse<Void> handleServiceUnavailable(ServiceUnavailableException ex, HttpServletRequest request) {
+        log.error("service unavailable. method={}, uri={}, requestId={}, code={}, message={}",
+            request.getMethod(),
+            request.getRequestURI(),
+            resolveRequestId(request),
+            ex.getCode(),
+            ex.getMessage());
+        return ApiResponse.error(ex.getCode(), sanitizeBusinessMessage(ex.getMessage()), resolveRequestId(request));
+    }
+
     @ExceptionHandler(UpdateRequiredException.class)
     @ResponseStatus(HttpStatus.UPGRADE_REQUIRED)
     public ApiResponse<Void> handleUpdateRequired(UpdateRequiredException ex, HttpServletRequest request) {

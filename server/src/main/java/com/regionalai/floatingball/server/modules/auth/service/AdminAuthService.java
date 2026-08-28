@@ -8,6 +8,9 @@ import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminLoginRequest;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminLoginResponse;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminPasswordChangeRequest;
+import com.regionalai.floatingball.server.modules.auth.dto.BbpRoleView;
+import com.regionalai.floatingball.server.modules.auth.bbp.BbpAdminAccessService;
+import com.regionalai.floatingball.server.modules.auth.config.AdminAuthMode;
 import com.regionalai.floatingball.server.modules.role.entity.AiRole;
 import com.regionalai.floatingball.server.modules.role.mapper.AiRoleMapper;
 import com.regionalai.floatingball.server.modules.user.entity.AiUser;
@@ -34,20 +37,29 @@ public class AdminAuthService {
     private final AiRoleMapper aiRoleMapper;
     private final AdminTokenService adminTokenService;
     private final DatabaseDialect databaseDialect;
+    private final AdminAuthMode adminAuthMode;
+    private final BbpAdminAccessService bbpAdminAccessService;
 
     public AdminAuthService(AiUserMapper aiUserMapper,
                             AiUserRoleMapper aiUserRoleMapper,
                             AiRoleMapper aiRoleMapper,
                             AdminTokenService adminTokenService,
-                            DatabaseDialect databaseDialect) {
+                            DatabaseDialect databaseDialect,
+                            AdminAuthMode adminAuthMode,
+                            BbpAdminAccessService bbpAdminAccessService) {
         this.aiUserMapper = aiUserMapper;
         this.aiUserRoleMapper = aiUserRoleMapper;
         this.aiRoleMapper = aiRoleMapper;
         this.adminTokenService = adminTokenService;
         this.databaseDialect = databaseDialect;
+        this.adminAuthMode = adminAuthMode;
+        this.bbpAdminAccessService = bbpAdminAccessService;
     }
 
     public AdminLoginResponse login(AdminLoginRequest request) {
+        if (adminAuthMode.isBbp()) {
+            throw new BusinessException("当前已启用 BBP 统一账号认证，请使用 BBP 登录入口");
+        }
         if (request == null || !StringUtils.hasText(request.getUsername()) || !StringUtils.hasText(request.getPassword())) {
             throw new BusinessException("账号或密码不能为空");
         }
@@ -61,7 +73,45 @@ public class AdminAuthService {
         }
 
         log.info("admin login succeeded. username={}", user.getCdUser());
-        return adminTokenService.issue(toCurrentUser(user, findRoleCodesByUserId(user.getIdUser())));
+        AdminCurrentUser currentUser = toCurrentUser(user, findRoleCodesByUserId(user.getIdUser()));
+        currentUser.setAuthProvider("LOCAL");
+        return adminTokenService.issue(currentUser);
+    }
+
+    public AdminLoginResponse loginWithBbp(String username, BbpRoleView bbpRole, String sessionId) {
+        if (!adminAuthMode.isBbp()) {
+            throw new BusinessException("当前未启用 BBP 认证模式");
+        }
+        if (!StringUtils.hasText(username) || bbpRole == null) {
+            throw new BusinessException("BBP登录身份不完整");
+        }
+        String localUsername = adminAuthMode.resolveLocalUsername(username, bbpRole.getRoleCode());
+        AdminCurrentUser currentUser;
+        if (!adminAuthMode.isSystemAdministratorRole(username, bbpRole.getRoleCode())) {
+            List<String> grantRoles = bbpAdminAccessService.findActiveRoleCodes(bbpRole);
+            if (grantRoles.isEmpty()) {
+                throw new BusinessException("BBP账号认证成功，但尚未获得 PCIE 后台访问权限");
+            }
+            currentUser = toBbpGrantedCurrentUser(username, bbpRole, grantRoles);
+        } else {
+            AiUser user = requireActiveUserByUsername(localUsername, "BBP账号认证成功，但尚未获得 PCIE 后台访问权限");
+            List<String> roleCodes = findRoleCodesByUserId(user.getIdUser());
+            if (roleCodes.isEmpty()) {
+                throw new BusinessException("BBP账号认证成功，但未分配 PCIE 后台角色");
+            }
+            currentUser = toCurrentUser(user, roleCodes);
+        }
+        currentUser.setAuthProvider("BBP");
+        currentUser.setAuthSessionId(sessionId);
+        currentUser.setBbpTenantId(bbpRole.getTenantId());
+        currentUser.setBbpUserId(bbpRole.getUserId());
+        currentUser.setBbpRoleId(bbpRole.getRoleId());
+        currentUser.setBbpOrgId(bbpRole.getOrgId());
+        currentUser.setBbpOrgCode(bbpRole.getOrgCode());
+        currentUser.setBbpOrgName(bbpRole.getOrgName());
+        log.info("admin BBP login succeeded. bbpUsername={}, localUsername={}, tenantId={}, bbpUserId={}",
+            username.trim(), currentUser.getCdUser(), bbpRole.getTenantId(), bbpRole.getUserId());
+        return adminTokenService.issue(currentUser);
     }
 
     public AdminCurrentUser currentUser(AdminCurrentUser currentUser) {
@@ -74,6 +124,9 @@ public class AdminAuthService {
     public void changePassword(AdminCurrentUser currentUser, AdminPasswordChangeRequest request) {
         if (currentUser == null || !StringUtils.hasText(currentUser.getIdUser())) {
             throw new BusinessException("未登录");
+        }
+        if ("BBP".equals(currentUser.getAuthProvider())) {
+            throw new BusinessException("BBP统一账号的密码请在 PHIS 门户中修改");
         }
         validatePasswordChangeRequest(request);
 
@@ -180,6 +233,19 @@ public class AdminAuthService {
         currentUser.setNaUser(user.getNaUser());
         currentUser.setIdOrg(user.getIdOrg());
         currentUser.setRoles(roles);
+        return currentUser;
+    }
+
+    private AdminCurrentUser toBbpGrantedCurrentUser(String username,
+                                                     BbpRoleView bbpRole,
+                                                     List<String> roleCodes) {
+        AdminCurrentUser currentUser = new AdminCurrentUser();
+        currentUser.setIdUser(bbpRole.getUserId());
+        currentUser.setCdUser(username.trim());
+        currentUser.setNaUser(StringUtils.hasText(bbpRole.getUserName())
+            ? bbpRole.getUserName().trim() : username.trim());
+        currentUser.setIdOrg(bbpRole.getOrgId());
+        currentUser.setRoles(roleCodes);
         return currentUser;
     }
 }

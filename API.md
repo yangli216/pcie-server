@@ -74,7 +74,7 @@ BODY_SHA256
 ### 2.2 管理端接口
 
 - 当前采用 `Authorization: Bearer {adminToken}` 方案
-- 例外：`POST /admin/api/auth/login` 无需鉴权
+- 例外：`GET /admin/api/auth/capabilities`、`POST /admin/api/auth/login`、`POST /admin/api/auth/bbp/login` 无需鉴权
 - `GET /admin/api/auth/me` 用于管理端恢复当前登录用户
 - `PUT /admin/api/auth/password` 用于当前管理员登录后修改自己的密码
 - 管理端页面默认由同一 Spring Boot 服务托管，入口为 `/admin/`
@@ -1445,7 +1445,7 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 
 ### 5.1 POST `/admin/api/auth/login`
 
-用途：管理员登录。
+用途：`local` 模式下使用 PCIE 本地密码登录。`bbp` 模式不会回退到此接口。
 
 请求：
 
@@ -1467,10 +1467,44 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
     "cdUser": "admin",
     "naUser": "系统管理员",
     "idOrg": "ORG001",
-    "roles": ["SYSTEM_ADMIN"]
+    "roles": ["SYSTEM_ADMIN"],
+    "authProvider": "LOCAL"
   }
 }
 ```
+
+### 5.1.1 GET `/admin/api/auth/capabilities`
+
+用途：登录页查询当前认证模式。无需管理端令牌。
+
+响应 `data`：
+
+```json
+{
+  "mode": "bbp",
+  "bbpEnabled": true,
+  "tenantRequired": false,
+  "tenantId": "tenant-id"
+}
+```
+
+### 5.1.2 POST `/admin/api/auth/bbp/login`
+
+用途：使用 BBP 账号密码完成统一账号登录。密码只用于本次 BBP 出站认证，不落库。登录页不查询、不展示也不提交 BBP 角色；服务端根据 `c_ai_bbp_admin_grant` 自动匹配唯一的 PCIE 授权身份，BBP 业务角色仅用于内部建立 BBP Cookie 会话，不能决定 PCIE 菜单或操作权限。BBP `system` 自动使用 `tenantSystem` 身份并映射到本地 `admin`；普通 BBP 人员必须命中启用的 `ORG_ADMIN` 或 `ORG_ANALYST` 授权，不再按登录名回退本地角色。仅具备 `ORG_ANALYST` 的账号登录后默认进入“统计分析”，只显示“统计分析、辅诊功能、用户活跃度”。
+
+请求：
+
+```json
+{
+  "username": "doctor001",
+  "password": "password",
+  "tenantId": "tenant-id"
+}
+```
+
+`tenantId` 在服务端已固定租户时可省略。普通账号没有 PCIE 后台授权时拒绝登录；若授权同时命中多个不同机构或用户身份，也拒绝登录并提示由系统管理员收敛授权，避免自动进入错误机构。
+
+响应与 5.1 相同，`user.authProvider` 为 `BBP`，并包含 `bbpTenantId`、`bbpOrgId`、`bbpUserId` 与内部会话所用的 `bbpRoleId`。
 
 ### 5.2 GET `/admin/api/auth/me`
 
@@ -1478,7 +1512,203 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 
 ### 5.3 POST `/admin/api/auth/logout`
 
-用途：退出登录；首期可为轻量无状态实现。
+用途：退出登录；BBP 模式同时清理当前进程内的 BBP Cookie 会话。
+
+### 5.3.1 GET `/admin/api/bbp/organizations`
+
+用途：BBP 登录用户读取当前租户的机构目录。仅 `bbp` 模式可用；响应为归一化后的数组，字段包括 `id`、`code`、`name`、`fullName`、`tenantId`、`orgType`、`orgTypeText`、`parentId`、`parentName`、`active`。
+
+管理端约定：`bbp` 模式下“机构”页面直接使用本接口作为主列表数据源；本地 `/admin/api/orgs` 仅供 `local` 模式使用。
+
+上游：`POST {baseUrl}/api/bbp.organization/findByTenantId`，JSON 请求体为 `[tenantId]`。
+
+### 5.3.2 GET `/admin/api/bbp/organizations/{orgId}/persons`
+
+用途：BBP 登录用户按机构读取人员目录。仅 `bbp` 模式可用；响应保留已确认的 `userId`、`name`，并兼容返回 `loginName`、`personId`、`departmentId`、`departmentName`、`active`。
+
+管理端约定：`bbp` 模式下“用户”页面直接使用本接口作为主列表数据源，并通过 BBP 机构目录切换人员范围；本地 `/admin/api/users` 仅供 `local` 模式使用。
+
+上游：`POST {baseUrl}/api/bbp.person/findByOrgId`，JSON 请求体为 `[orgId]`。
+
+已确认的上游响应为 `{ "code": 200, "body": Person[] }`，人员字段与 `findByDeptId` 相同。PCIE 对响应中非空的 `tenantId`、`orgId` 再做租户和机构过滤，防止上游脏数据串入其他机构。
+
+### 5.3.3 GET `/admin/api/bbp/departments/{deptId}/persons`
+
+用途：BBP 登录用户按部门读取人员目录。
+
+上游：`POST {baseUrl}/api/bbp.person/findByDeptId`，JSON 请求体为 `[deptId]`。
+
+人员响应兼容字段包括：`id/personId`、`tenantId`、`personType/personTypeText`、`mpiId/mpi`、`cd/na`、`orgId/orgIdText`、`deptId/deptIdText`、`mobile/email`、`cardType/cardTypeText/cardId`、`gender/genderText`、`birthday`、`avatar`、`userId`、`active`、`createDate/modifyDate`、`titleType/titleTypeText`。
+
+说明：BBP 模式下机构和人员是只读主数据。`POST/PUT/DELETE /admin/api/orgs/**` 以及用户新增、编辑、启停、删除接口均拒绝执行；BBP 机构/用户写接口不在 PCIE 调用范围内。
+
+### 5.3.4 GET `/admin/api/bbp/admin-access`
+
+用途：系统管理员按机构和 PCIE 角色读取 BBP 人员，并与后台访问授权合并。查询参数 `orgId` 必填，`roleCode` 可选且只允许 `ORG_ADMIN`、`ORG_ANALYST`，默认 `ORG_ADMIN`。返回人员稳定 `bbpUserId/personId`、姓名、工号、科室、人员类型、职称、`directoryPresent`、BBP `active` 状态，以及 `adminAccessEnabled`、`roleCode`、`grantId`、`grantRisk`、`updateTime` 和操作人。仅 BBP 登录的 `SYSTEM_ADMIN` 可调用。
+
+BBP 已停用、未明确返回 `active=true`、已移出当前机构目录但仍保留授权的记录也会返回，并以 `grantRisk=true` 标记，便于撤销。人员主数据始终来自 BBP 或既有授权快照，本接口不会反向修改 BBP。
+
+### 5.3.5 PUT `/admin/api/bbp/admin-access/{bbpUserId}`
+
+用途：授予或撤销指定 BBP 人员的 PCIE 后台角色。仅 BBP 登录的 `SYSTEM_ADMIN` 可调用；`roleCode` 只允许 `ORG_ADMIN`（机构权限管理员）或 `ORG_ANALYST`（机构统计员），缺省兼容为 `ORG_ADMIN`。
+
+请求：
+
+```json
+{
+  "orgId": "5bff7f8c6bf7d10e884122fd",
+  "roleCode": "ORG_ANALYST",
+  "enabled": true
+}
+```
+
+授予前服务端重新读取该机构的 BBP 人员目录，要求 `bbpUserId` 属于当前租户和机构且人员明确返回 `active=true`；`active=false` 或状态缺失均默认拒绝新增授权。撤销允许处理已停用、状态未知或已移出目录的历史授权。该接口只修改 `c_ai_bbp_admin_grant` 并写 PCIE 操作日志，不修改 BBP 人员、账号或角色。
+
+数据库尚未初始化 `c_ai_bbp_admin_grant` 必需结构时，本接口及查询接口返回 HTTP 503、错误码 `BBP-ADMIN-GRANT-SCHEMA-NOT-READY`；既有 `system -> admin` 登录不受影响，普通 BBP 用户仍按未授权拒绝登录。
+
+### 5.3.5.1 BBP 机构统计员约束
+
+`ORG_ANALYST` 账号只允许访问以下后台接口：
+
+- `/admin/api/auth/me`
+- `/admin/api/auth/logout`
+- `/admin/api/analytics/**`
+- `/admin/api/user-activity/**`
+
+访问其他 `/admin/api/**` 返回 HTTP 403、错误码 `AUTH-403`。统计接口的汇总、趋势、分布、辅诊功能、用户活跃度和导出请求均由服务端锁定 `hisOrgId=currentUser.bbpOrgId`；缺少 `hisOrgId` 时自动补入，传入其他机构时拒绝。`GET /admin/api/analytics/his-org-options` 对机构统计员只返回本机构。
+
+### 5.3.6 GET `/admin/api/ai-user-permissions`
+
+用途：读取指定机构的 BBP 人员，并与 PCIE 本地 AI 权限记录合并。查询参数：`orgId` 必填；`keyword`、`configured=true|false`、`departmentId`、`active=true|false` 可选；`current` 默认 1，`size` 默认 20、最大 100。系统管理员必须显式选择机构，管理端不能自动选中机构目录第一项。
+
+响应 `data`：
+
+```json
+{
+  "orgId": "5bff7f8c6bf7d10e884122fd",
+  "manageable": true,
+  "total": 35,
+  "configuredCount": 18,
+  "unconfiguredCount": 17,
+  "riskAuthorizedCount": 2,
+  "filteredTotal": 7,
+  "current": 1,
+  "size": 20,
+  "departments": [
+    { "id": "5d5a5668d001613e9417233e", "name": "内科" }
+  ],
+  "records": [
+    {
+      "personId": "5d5a58b3d001613e941723b8",
+      "userId": "5d5a58b4d001613e941723b9",
+      "personCd": "D001",
+      "personName": "张三",
+      "orgId": "5bff7f8c6bf7d10e884122fd",
+      "orgName": "市二医院",
+      "departmentId": "5d5a5668d001613e9417233e",
+      "departmentName": "内科",
+      "configured": true,
+      "permissionId": "01K...",
+      "updateTime": "2026-08-19T16:30:00"
+    }
+  ]
+}
+```
+
+机构隔离：`SYSTEM_ADMIN` 可查询当前租户任意 BBP 机构；其他 BBP 后台用户只能查询登录身份所属机构。查询权限清单不等于拥有写权限。
+
+### 5.3.7 PUT `/admin/api/ai-user-permissions/{personId}`
+
+用途：授予或撤销指定 BBP 人员的 AI 使用权限。PCIE 在写入前重新从 BBP 读取该机构人员，不能信任前端提交的姓名、工号或机构快照。
+
+权限：仅本地 PCIE 角色包含 `SYSTEM_ADMIN` 或 `ORG_ADMIN` 的 BBP 登录用户可以调用；普通机构人员只能查看清单。
+
+请求：
+
+```json
+{
+  "orgId": "5bff7f8c6bf7d10e884122fd",
+  "enabled": true
+}
+```
+
+响应为更新后的人员权限记录。`enabled=false` 保留权限审计记录并把状态设为停用，不删除 BBP 人员。
+
+### 5.3.8 PUT `/admin/api/ai-user-permissions/batch`
+
+用途：对同一机构的多名 BBP 人员批量授予或撤销 AI 使用权限。服务端对 `personIds` 去重后最多处理 200 人，并只读取一次机构人员目录；任一人员不属于该机构，或授予列表包含未明确返回 `active=true` 的人员时，整批不写入。
+
+权限：与单人写接口相同，仅 `SYSTEM_ADMIN` 或 `ORG_ADMIN` 可调用。
+
+请求：
+
+```json
+{
+  "orgId": "5bff7f8c6bf7d10e884122fd",
+  "personIds": [
+    "5d5a58b3d001613e941723b8",
+    "5d5a58b3d001613e941723b9"
+  ],
+  "enabled": true
+}
+```
+
+响应 `data`：
+
+```json
+{
+  "orgId": "5bff7f8c6bf7d10e884122fd",
+  "enabled": true,
+  "requestedCount": 2,
+  "changedCount": 2,
+  "unchangedCount": 0,
+  "records": []
+}
+```
+
+### 5.3.9 PUT `/admin/api/ai-user-permissions/revoke-risk`
+
+用途：重新读取指定机构 BBP 人员目录，并一次性撤销“BBP 已停用”“BBP 状态未知”或“已不在当前机构人员目录”但 PCIE 仍处于授权状态的记录。请求为 `{ "orgId": "..." }`，权限要求与其他写接口相同，响应结构复用批量更新响应且 `enabled=false`。
+
+说明：这是当前无 BBP 服务账号、推送或持续同步能力时的补偿清理接口，不代表人员停用后可以实时自动失效。
+
+### 5.3.10 POST `/integration/api/phis/ai-permissions/check`
+
+用途：PHIS 在用户进入或调用 AI 功能前，向 PCIE 查询该机构人员是否已获得 AI 使用权限。
+
+鉴权：当前联调阶段暂不校验独立服务密钥，也不复用管理端令牌或设备令牌。接口仅允许部署在 PCIE 与 PHIS 之间的可信内网或受控网关后，不得直接暴露公网；后续恢复服务鉴权时不改变本节请求和响应结构。
+
+请求：
+
+```json
+{
+  "tenantId": "zhongshan",
+  "orgId": "5bff7f8c6bf7d10e884122fd",
+  "personId": "5d5a58b3d001613e941723b8",
+  "userId": "5d5a58b4d001613e941723b9",
+  "personCd": "D001"
+}
+```
+
+`orgId` 必填；`personId`、`userId` 至少提供一个。`personCd` 可选，仅用于与稳定身份同时做一致性校验，不能单独作为授权身份。`tenantId` 在服务端已固定 BBP 租户时必须与配置一致。
+
+响应 `data`：
+
+```json
+{
+  "allowed": true,
+  "reason": "AUTHORIZED",
+  "permissionId": "01K...",
+  "orgId": "5bff7f8c6bf7d10e884122fd",
+  "personId": "5d5a58b3d001613e941723b8",
+  "userId": "5d5a58b4d001613e941723b9",
+  "personCd": "D001"
+}
+```
+
+未配置或已撤销时仍返回正常业务响应，`allowed=false`、`reason=NOT_AUTHORIZED`；只有请求格式或服务端处理异常才返回错误。
+
+数据库尚未初始化 `c_ai_user_ai_permission` 必需结构时，权限管理与 PHIS 判权接口返回 HTTP 503、错误码 `AI-PERMISSION-SCHEMA-NOT-READY`，不会自动修改现场数据库。
 
 ### 5.4 GET `/admin/api/stats/overview`
 

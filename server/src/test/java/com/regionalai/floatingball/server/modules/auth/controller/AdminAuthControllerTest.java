@@ -5,6 +5,8 @@ import com.regionalai.floatingball.server.common.exception.GlobalExceptionHandle
 import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminLoginResponse;
 import com.regionalai.floatingball.server.modules.auth.service.AdminAuthService;
+import com.regionalai.floatingball.server.modules.auth.bbp.BbpAuthService;
+import com.regionalai.floatingball.server.modules.auth.bbp.BbpDirectoryService;
 import com.regionalai.floatingball.server.security.AdminContextHolder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,6 +21,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.util.Collections;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -34,13 +37,19 @@ class AdminAuthControllerTest {
     @Mock
     private AdminAuthService adminAuthService;
 
+    @Mock
+    private BbpAuthService bbpAuthService;
+
+    @Mock
+    private BbpDirectoryService bbpDirectoryService;
+
     private MockMvc mockMvc;
     private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
-        mockMvc = MockMvcBuilders.standaloneSetup(new AdminAuthController(adminAuthService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new AdminAuthController(adminAuthService, bbpAuthService, bbpDirectoryService))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
     }
@@ -89,6 +98,32 @@ class AdminAuthControllerTest {
             .andExpect(jsonPath("$.code").value("VALIDATION-001"))
             .andExpect(jsonPath("$.requestId").value("RID-auth-validate"))
             .andExpect(jsonPath("$.message").value("管理员账号不能为空"));
+    }
+
+    @Test
+    void bbpLoginShouldAcceptCredentialsWithoutRoleSelection() throws Exception {
+        AdminCurrentUser user = new AdminCurrentUser();
+        user.setCdUser("ZH0006");
+        user.setAuthProvider("BBP");
+        user.setRoles(Collections.singletonList("ORG_ANALYST"));
+        AdminLoginResponse response = new AdminLoginResponse();
+        response.setToken("bbp-token");
+        response.setExpiresAt(1770000000000L);
+        response.setUser(user);
+        when(bbpAuthService.login(any())).thenReturn(response);
+
+        mockMvc.perform(post("/admin/api/auth/bbp/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Request-Id", "RID-bbp-login")
+                .content("{\"username\":\"ZH0006\",\"password\":\"secret\",\"tenantId\":\"xiaoshan\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.requestId").value("RID-bbp-login"))
+            .andExpect(jsonPath("$.data.token").value("bbp-token"))
+            .andExpect(jsonPath("$.data.user.authProvider").value("BBP"))
+            .andExpect(jsonPath("$.data.user.roles[0]").value("ORG_ANALYST"));
+
+        verify(bbpAuthService).login(argThat(request -> "ZH0006".equals(request.getUsername())
+            && "secret".equals(request.getPassword()) && "xiaoshan".equals(request.getTenantId())));
     }
 
     @Test

@@ -3,11 +3,12 @@
     <router-view v-if="isLoginPage" />
     <admin-layout
       v-else
-      :menu-items="menuItems"
+      :menu-items="visibleMenuItems"
       :route-title="$route.meta.title || '管理端'"
       :visited-tags="visitedTags"
       :current-user-name="currentUserName"
       :current-user-initial="currentUserInitial"
+      :can-change-password="canChangePassword"
       @open-password-dialog="openPasswordDialog"
       @logout="handleLogout"
       @close-tag="closeTag"
@@ -78,10 +79,12 @@ import {
   getAdminUser,
   setAdminUser
 } from './utils/auth'
+import { isStatisticsOnlyUser } from './utils/access'
 
 const menuItems = [
   { path: '/overview', label: '概览', icon: 'el-icon-s-home' },
   { path: '/users', label: '用户', icon: 'el-icon-user' },
+  { path: '/ai-user-permissions', label: 'AI 使用权限', icon: 'el-icon-circle-check' },
   { path: '/roles', label: '角色', icon: 'el-icon-s-custom' },
   { path: '/regions', label: '区域', icon: 'el-icon-location' },
   { path: '/orgs', label: '机构', icon: 'el-icon-office-building' },
@@ -143,6 +146,24 @@ export default {
     },
     currentUserInitial() {
       return this.currentUserName.slice(0, 1)
+    },
+    canChangePassword() {
+      return !this.currentUser || this.currentUser.authProvider !== 'BBP'
+    },
+    statisticsOnly() {
+      return isStatisticsOnlyUser(this.currentUser)
+    },
+    landingPath() {
+      return this.statisticsOnly ? '/analytics' : '/overview'
+    },
+    visibleMenuItems() {
+      if (this.statisticsOnly) {
+        return this.menuItems.filter(item => ['/analytics', '/function-usage', '/user-activity'].includes(item.path))
+      }
+      if (this.currentUser && this.currentUser.authProvider === 'BBP') {
+        return this.menuItems
+      }
+      return this.menuItems.filter(item => item.path !== '/ai-user-permissions')
     }
   },
   created() {
@@ -170,15 +191,19 @@ export default {
     syncAuthState() {
       this.hasToken = Boolean(getAdminToken())
       this.currentUser = getAdminUser()
+      if (isStatisticsOnlyUser(this.currentUser)) {
+        const allowedPaths = ['/analytics', '/function-usage', '/user-activity']
+        this.visitedTags = this.visitedTags.filter(tag => allowedPaths.includes(tag.path))
+      }
     },
     addVisitedTag() {
       if (this.isLoginPage) {
         return
       }
-      const path = this.$route.path === '/' ? '/overview' : (this.$route.path || '/overview')
-      const title = this.$route.meta && this.$route.meta.title ? this.$route.meta.title : (path === '/overview' ? '首页概览' : '当前页面')
-      if (!this.visitedTags.some(tag => tag.path === '/overview')) {
-        this.visitedTags.push({ path: '/overview', title: '首页概览' })
+      const path = this.$route.path === '/' ? this.landingPath : (this.$route.path || this.landingPath)
+      const title = this.$route.meta && this.$route.meta.title ? this.$route.meta.title : (path === this.landingPath ? (this.statisticsOnly ? '统计分析' : '首页概览') : '当前页面')
+      if (!this.visitedTags.some(tag => tag.path === this.landingPath)) {
+        this.visitedTags.push({ path: this.landingPath, title: this.statisticsOnly ? '统计分析' : '首页概览' })
       }
       if (!this.visitedTags.some(tag => tag.path === path)) {
         this.visitedTags.push({ path, title })
@@ -186,13 +211,13 @@ export default {
     },
     closeTag(path) {
       const index = this.visitedTags.findIndex(tag => tag.path === path)
-      if (index === -1 || path === '/overview') {
+      if (index === -1 || path === this.landingPath) {
         return
       }
       this.visitedTags.splice(index, 1)
       if (this.$route.path === path) {
         const fallback = this.visitedTags[index - 1] || this.visitedTags[index] || this.visitedTags[0]
-        this.$router.push(fallback ? fallback.path : '/overview')
+        this.$router.push(fallback ? fallback.path : this.landingPath)
       }
     },
     async ensureCurrentUser() {
@@ -217,6 +242,10 @@ export default {
       }
     },
     openPasswordDialog() {
+      if (!this.canChangePassword) {
+        this.$message.info('BBP统一账号的密码请在 PHIS 门户中修改')
+        return
+      }
       this.passwordDialogVisible = true
     },
     resetPasswordForm() {

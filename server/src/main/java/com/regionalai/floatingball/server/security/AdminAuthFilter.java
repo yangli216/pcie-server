@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.api.ApiResponse;
 import com.regionalai.floatingball.server.common.util.RequestIdUtils;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
+import com.regionalai.floatingball.server.modules.auth.bbp.BbpStatisticsScope;
 import com.regionalai.floatingball.server.modules.auth.service.AdminTokenService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,10 +25,14 @@ public class AdminAuthFilter extends OncePerRequestFilter {
 
     private final AdminTokenService adminTokenService;
     private final ObjectMapper objectMapper;
+    private final BbpStatisticsScope statisticsScope;
 
-    public AdminAuthFilter(AdminTokenService adminTokenService, ObjectMapper objectMapper) {
+    public AdminAuthFilter(AdminTokenService adminTokenService,
+                           ObjectMapper objectMapper,
+                           BbpStatisticsScope statisticsScope) {
         this.adminTokenService = adminTokenService;
         this.objectMapper = objectMapper;
+        this.statisticsScope = statisticsScope;
     }
 
     @Override
@@ -35,6 +40,8 @@ public class AdminAuthFilter extends OncePerRequestFilter {
         String uri = request.getRequestURI();
         return !uri.startsWith("/admin/api/")
             || "/admin/api/auth/login".equals(uri)
+            || "/admin/api/auth/capabilities".equals(uri)
+            || "/admin/api/auth/bbp/login".equals(uri)
             || "OPTIONS".equalsIgnoreCase(request.getMethod());
     }
 
@@ -56,6 +63,13 @@ public class AdminAuthFilter extends OncePerRequestFilter {
             writeUnauthorized(response, request, "管理员令牌无效或已过期");
             return;
         }
+        if (statisticsScope.isStatisticsOnly(user)
+            && !statisticsScope.isAllowedStatisticsApi(request.getRequestURI())) {
+            log.warn("admin auth failed: organization analyst attempted forbidden API. uri={}, bbpUserId={}, orgId={}",
+                request.getRequestURI(), user.getBbpUserId(), user.getBbpOrgId());
+            writeForbidden(response, request, "机构统计账号无权访问该后台功能");
+            return;
+        }
 
         try {
             AdminContextHolder.set(user);
@@ -63,6 +77,17 @@ public class AdminAuthFilter extends OncePerRequestFilter {
         } finally {
             AdminContextHolder.clear();
         }
+    }
+
+    private void writeForbidden(HttpServletResponse response,
+                                HttpServletRequest request,
+                                String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding("UTF-8");
+        response.getWriter().write(objectMapper.writeValueAsString(
+            ApiResponse.error("AUTH-403", message, RequestIdUtils.resolve(request))
+        ));
     }
 
     private void writeUnauthorized(HttpServletResponse response,

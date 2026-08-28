@@ -22,6 +22,7 @@
         :title="routeTitle"
         :current-user-name="currentUserName"
         :current-user-initial="currentUserInitial"
+        :can-change-password="canChangePassword"
         :sidebar-collapsed="sidebarCollapsed && !isNarrowViewport"
         :mobile-sidebar-open="mobileSidebarOpen"
         :narrow-viewport="isNarrowViewport"
@@ -77,6 +78,10 @@ export default {
     currentUserInitial: {
       type: String,
       default: '管'
+    },
+    canChangePassword: {
+      type: Boolean,
+      default: true
     }
   },
   data() {

@@ -27,3 +27,26 @@ mvn -f server/pom.xml test
 ```
 
 该命令会同时安装并构建内嵌管理端。
+
+## 服务管理与本地运行
+
+项目提供统一管理脚本 [manage-server.sh](file:///Users/yangl/IdeaProjects/floating-ball-server/scripts/manage-server.sh)：
+
+```bash
+# 1. 快速构建前端并启动本地开发服务（前台运行，实时看日志，Ctrl+C 停止）
+./scripts/manage-server.sh dev --env development
+
+# 2. 构建前端并启动后台守护服务（默认 test 环境，8080 端口）
+./scripts/manage-server.sh start -b --env test
+
+# 3. 单独构建前端管理端（毫秒级 Vite 构建）
+./scripts/manage-server.sh build frontend
+
+# 4. 启动前端 Vite 热更开发服务器（独立开发页面）
+./scripts/manage-server.sh dev-frontend
+
+# 5. 查看运行状态 / 查看日志 / 停止服务
+./scripts/manage-server.sh status --env test
+./scripts/manage-server.sh logs --env test
+./scripts/manage-server.sh stop --env test
+```

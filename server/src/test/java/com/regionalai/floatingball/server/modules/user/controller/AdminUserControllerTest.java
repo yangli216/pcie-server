@@ -6,6 +6,7 @@ import com.regionalai.floatingball.server.common.exception.GlobalExceptionHandle
 import com.regionalai.floatingball.server.modules.user.dto.AdminUserSaveRequest;
 import com.regionalai.floatingball.server.modules.user.dto.AdminUserView;
 import com.regionalai.floatingball.server.modules.user.service.UserService;
+import com.regionalai.floatingball.server.modules.auth.config.AdminAuthMode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,13 +34,16 @@ class AdminUserControllerTest {
     @Mock
     private UserService userService;
 
+    @Mock
+    private AdminAuthMode adminAuthMode;
+
     private MockMvc mockMvc;
     private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
-        mockMvc = MockMvcBuilders.standaloneSetup(new AdminUserController(userService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new AdminUserController(userService, adminAuthMode))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
     }

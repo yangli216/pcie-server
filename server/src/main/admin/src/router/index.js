@@ -1,12 +1,14 @@
 import Vue from 'vue'
 import Router from 'vue-router'
-import { isAuthenticated } from '../utils/auth'
+import { getAdminUser, isAuthenticated } from '../utils/auth'
+import { isStatisticsOnlyUser } from '../utils/access'
 
 Vue.use(Router)
 
 const LoginView = () => import('../views/LoginView.vue')
 const OverviewView = () => import('../views/OverviewView.vue')
 const UserView = () => import('../views/UserView.vue')
+const AiUserPermissionView = () => import('../views/AiUserPermissionView.vue')
 const RoleView = () => import('../views/RoleView.vue')
 const RegionView = () => import('../views/RegionView.vue')
 const OrgView = () => import('../views/OrgView.vue')
@@ -41,6 +43,7 @@ const router = new Router({
     { path: '/', redirect: '/overview' },
     { path: '/overview', component: OverviewView, meta: { title: '首页概览' } },
     { path: '/users', component: UserView, meta: { title: '用户管理' } },
+    { path: '/ai-user-permissions', component: AiUserPermissionView, meta: { title: 'AI 使用权限', bbpOnly: true } },
     { path: '/roles', component: RoleView, meta: { title: '角色管理' } },
     { path: '/regions', component: RegionView, meta: { title: '区域管理' } },
     { path: '/orgs', component: OrgView, meta: { title: '机构管理' } },
@@ -59,9 +62,9 @@ const router = new Router({
     { path: '/feedbacks', component: FeedbackView, meta: { title: '反馈管理' } },
     { path: '/recommendation-preferences', component: RecommendationPreferenceView, meta: { title: '推荐偏好' } },
     { path: '/patient-memories', component: PatientMemoryView, meta: { title: '患者记忆' } },
-    { path: '/analytics', component: AnalyticsView, meta: { title: '统计分析' } },
-    { path: '/function-usage', component: FunctionUsageView, meta: { title: '辅诊功能' } },
-    { path: '/user-activity', component: UserActivityView, meta: { title: '用户活跃度' } },
+    { path: '/analytics', component: AnalyticsView, meta: { title: '统计分析', organizationStatistics: true } },
+    { path: '/function-usage', component: FunctionUsageView, meta: { title: '辅诊功能', organizationStatistics: true } },
+    { path: '/user-activity', component: UserActivityView, meta: { title: '用户活跃度', organizationStatistics: true } },
     { path: '/security-rejections', component: SecurityRejectionView, meta: { title: '安全拦截' } },
     { path: '/security-analytics', component: SecurityAnalyticsView, meta: { title: '安全分析' } },
     { path: '*', redirect: '/overview' }
@@ -88,6 +91,20 @@ router.beforeEach((to, from, next) => {
         redirect: to.fullPath || '/overview'
       }
     })
+    return
+  }
+
+  const isBbpOnlyRoute = to.matched.some(record => record.meta && record.meta.bbpOnly)
+  const currentUser = getAdminUser()
+  if (isStatisticsOnlyUser(currentUser)) {
+    const statisticsRoute = to.matched.some(record => record.meta && record.meta.organizationStatistics)
+    if (!statisticsRoute) {
+      next('/analytics')
+      return
+    }
+  }
+  if (isBbpOnlyRoute && (!currentUser || currentUser.authProvider !== 'BBP')) {
+    next('/overview')
     return
   }
 

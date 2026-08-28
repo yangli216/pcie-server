@@ -77,6 +77,8 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_audit");
         assertContains(initSql, "CREATE TABLE c_ai_chronic_followup");
         assertContains(initSql, "CREATE TABLE c_ai_chronic_artifact");
+        assertContains(initSql, "CREATE TABLE c_ai_bbp_admin_grant");
+        assertContains(initSql, "CREATE TABLE c_ai_user_ai_permission");
         assertContains(initSql, "id_phr                   VARCHAR2(64) NOT NULL");
         assertContains(initSql, "sd_visit_kind            VARCHAR2(8) NOT NULL");
         assertContains(initSql, "form_data_json           CLOB NOT NULL");
@@ -125,7 +127,11 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_user_log_round_active");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_user_code_active");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_role_code_active");
+        assertContains(initSql, "'ORG_ADMIN', '机构管理员'");
+        assertContains(initSql, "'ORG_ANALYST', '机构统计员'");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_user_role_active");
+        assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_bbp_admin_active");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_bbp_admin_user");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_patient_memory_scope");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_patient_memory_obs_idem");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_patient_memory_fact_key");
@@ -134,6 +140,8 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE INDEX idx_c_ai_chronic_fu_patient");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_chronic_art_req");
         assertContains(initSql, "CREATE INDEX idx_c_ai_chronic_art_pat");
+        assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_user_ai_perm_active");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_user_ai_perm_person");
 
         assertContains(initSql, "CREATE INDEX idx_c_security_rej_time");
         assertContains(initSql, "CREATE INDEX idx_c_security_rej_type");
@@ -197,6 +205,8 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_audit");
         assertContains(initSql, "CREATE TABLE c_ai_chronic_followup");
         assertContains(initSql, "CREATE TABLE c_ai_chronic_artifact");
+        assertContains(initSql, "CREATE TABLE c_ai_bbp_admin_grant");
+        assertContains(initSql, "CREATE TABLE c_ai_user_ai_permission");
         assertContains(initSql, "id_phr                   VARCHAR(64) NOT NULL");
         assertContains(initSql, "sd_visit_kind            VARCHAR(8) NOT NULL");
         assertContains(initSql, "form_data_json           TEXT NOT NULL");
@@ -210,11 +220,17 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE INDEX idx_c_ai_chronic_fu_patient");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_chronic_art_req");
         assertContains(initSql, "CREATE INDEX idx_c_ai_chronic_art_pat");
+        assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_user_ai_perm_active");
+        assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_bbp_admin_active");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_bbp_admin_user");
+        assertContains(initSql, "CREATE INDEX idx_c_ai_user_ai_perm_person");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_org_code_active");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_device_code_org_active");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_feedback_latest_scope");
         assertContains(initSql, "COALESCE(id_device, '-')");
         assertContains(initSql, "INSERT INTO c_ai_org (id_org, cd_org, na_org, id_region, sd_org_type, sd_status, fg_active)");
+        assertContains(initSql, "'ORG_ADMIN', '机构管理员'");
+        assertContains(initSql, "'ORG_ANALYST', '机构统计员'");
         assertContains(initSql, "COMMIT");
 
         assertNotContains(initSql, "VARCHAR2");

@@ -6,6 +6,7 @@ import com.regionalai.floatingball.server.common.util.RequestIdUtils;
 import com.regionalai.floatingball.server.modules.user.dto.AdminUserSaveRequest;
 import com.regionalai.floatingball.server.modules.user.dto.AdminUserView;
 import com.regionalai.floatingball.server.modules.user.service.UserService;
+import com.regionalai.floatingball.server.modules.auth.config.AdminAuthMode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,9 +24,11 @@ import javax.servlet.http.HttpServletRequest;
 public class AdminUserController {
 
     private final UserService userService;
+    private final AdminAuthMode adminAuthMode;
 
-    public AdminUserController(UserService userService) {
+    public AdminUserController(UserService userService, AdminAuthMode adminAuthMode) {
         this.userService = userService;
+        this.adminAuthMode = adminAuthMode;
     }
 
     @GetMapping
@@ -42,6 +45,7 @@ public class AdminUserController {
     @PostMapping
     public ApiResponse<AdminUserView> save(@RequestBody AdminUserSaveRequest request,
                                            HttpServletRequest httpServletRequest) {
+        adminAuthMode.requireDirectoryWritable();
         return ApiResponse.success(userService.save(request), RequestIdUtils.resolve(httpServletRequest));
     }
 
@@ -49,21 +53,25 @@ public class AdminUserController {
     public ApiResponse<AdminUserView> update(@PathVariable String idUser,
                                              @RequestBody AdminUserSaveRequest request,
                                              HttpServletRequest httpServletRequest) {
+        adminAuthMode.requireDirectoryWritable();
         return ApiResponse.success(userService.update(idUser, request), RequestIdUtils.resolve(httpServletRequest));
     }
 
     @PostMapping("/{idUser}/enable")
     public ApiResponse<AdminUserView> enable(@PathVariable String idUser, HttpServletRequest request) {
+        adminAuthMode.requireDirectoryWritable();
         return ApiResponse.success(userService.enable(idUser), RequestIdUtils.resolve(request));
     }
 
     @PostMapping("/{idUser}/disable")
     public ApiResponse<AdminUserView> disable(@PathVariable String idUser, HttpServletRequest request) {
+        adminAuthMode.requireDirectoryWritable();
         return ApiResponse.success(userService.disable(idUser), RequestIdUtils.resolve(request));
     }
 
     @DeleteMapping("/{idUser}")
     public ApiResponse<Void> invalidate(@PathVariable String idUser, HttpServletRequest request) {
+        adminAuthMode.requireDirectoryWritable();
         userService.invalidate(idUser);
         return ApiResponse.success(null, RequestIdUtils.resolve(request));
     }

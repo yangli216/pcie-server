@@ -36,6 +36,14 @@ public class AdminTokenService {
         payload.setNaUser(user.getNaUser());
         payload.setIdOrg(user.getIdOrg());
         payload.setRoles(user.getRoles());
+        payload.setAuthProvider(user.getAuthProvider());
+        payload.setAuthSessionId(user.getAuthSessionId());
+        payload.setBbpTenantId(user.getBbpTenantId());
+        payload.setBbpUserId(user.getBbpUserId());
+        payload.setBbpRoleId(user.getBbpRoleId());
+        payload.setBbpOrgId(user.getBbpOrgId());
+        payload.setBbpOrgCode(user.getBbpOrgCode());
+        payload.setBbpOrgName(user.getBbpOrgName());
         payload.setExpiresAt(expiresAt);
 
         AdminLoginResponse response = new AdminLoginResponse();
@@ -61,6 +69,14 @@ public class AdminTokenService {
             user.setNaUser(payload.getNaUser());
             user.setIdOrg(payload.getIdOrg());
             user.setRoles(payload.getRoles() == null ? Collections.<String>emptyList() : payload.getRoles());
+            user.setAuthProvider(payload.getAuthProvider() == null ? "LOCAL" : payload.getAuthProvider());
+            user.setAuthSessionId(payload.getAuthSessionId());
+            user.setBbpTenantId(payload.getBbpTenantId());
+            user.setBbpUserId(payload.getBbpUserId());
+            user.setBbpRoleId(payload.getBbpRoleId());
+            user.setBbpOrgId(payload.getBbpOrgId());
+            user.setBbpOrgCode(payload.getBbpOrgCode());
+            user.setBbpOrgName(payload.getBbpOrgName());
             return user;
         } catch (Exception ex) {
             log.warn("admin token parse failed: {}", ex.getMessage());
@@ -83,6 +99,14 @@ public class AdminTokenService {
         private String naUser;
         private String idOrg;
         private List<String> roles;
+        private String authProvider;
+        private String authSessionId;
+        private String bbpTenantId;
+        private String bbpUserId;
+        private String bbpRoleId;
+        private String bbpOrgId;
+        private String bbpOrgCode;
+        private String bbpOrgName;
         private Long expiresAt;
     }
 }

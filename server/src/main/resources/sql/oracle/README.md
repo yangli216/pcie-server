@@ -72,6 +72,7 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 10. 脚本末尾显式 `COMMIT`
 11. `c_ai_chronic_followup` 保存原 `TcdVisitForm` 高血压/糖尿病融合随访：`id_phr/id_record/sd_visit_kind` 独立检索，`form_data_json` 无损保存强类型 DTO；`request_id` 来自 `X-Request-Id`，在平台机构激活记录内幂等。旧通用列暂留作未发布实验表兼容，不再作为业务请求结构
 12. `c_ai_chronic_artifact` 健康处方与年度评估打印留痕快照，固化患者证据截止时间、病种及版本、年度指标、医生确认项和打印医生
+13. `c_ai_user_ai_permission` 由 PCIE 保存机构人员 AI 使用权限，BBP/PHIS 只提供人员身份；PHIS 通过独立服务接口按机构和人员标识判权；`c_ai_bbp_admin_grant` 以租户、机构、BBP 稳定用户 ID 和角色编码保存 PCIE 后台 `ORG_ADMIN` / `ORG_ANALYST` 访问授权，和医生 AI 使用权限相互独立；默认角色包含 `SYSTEM_ADMIN`、`ORG_ADMIN` 与 `ORG_ANALYST`
 
 说明：
 

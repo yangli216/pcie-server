@@ -13,7 +13,7 @@
             @custom-change="onCustomDateChange"
           />
         </div>
-        <div class="filter-item">
+        <div v-if="!organizationLocked" class="filter-item">
           <div class="filter-label">区域选择</div>
           <el-select v-model="query.idRegion" placeholder="全部区域" clearable size="small" class="filter-select" @change="search">
             <el-option v-for="r in regionOptions" :key="r.id" :label="r.name" :value="r.id" />
@@ -21,7 +21,16 @@
         </div>
         <div class="filter-item">
           <div class="filter-label">HIS机构</div>
-          <el-select v-model="query.hisOrgId" placeholder="全部HIS机构" clearable filterable size="small" class="filter-select" @change="search">
+          <el-select
+            v-model="query.hisOrgId"
+            :placeholder="organizationLocked ? '本机构' : '全部HIS机构'"
+            :clearable="!organizationLocked"
+            :disabled="organizationLocked"
+            filterable
+            size="small"
+            class="filter-select"
+            @change="search"
+          >
             <el-option v-for="o in hisOrgOptions" :key="o.id" :label="o.label" :value="o.id" />
           </el-select>
         </div>
@@ -103,6 +112,8 @@ import * as echarts from 'echarts'
 import http from '../api/http'
 import { fetchHisOrgOptions, fetchRegions } from '../api/reference'
 import { AdminFilterBar, ChartPanel, MetricCard, TimeRangeFilter } from '../components/ui'
+import { getAdminUser } from '../utils/auth'
+import { bbpOrganizationOption, isBbpOrganizationScopedUser } from '../utils/access'
 
 const TIME_RANGES = [
   { value: 'today', label: '今日' },
@@ -125,6 +136,7 @@ export default {
   data() {
     return {
       loading: false,
+      organizationLocked: false,
       timeRange: 'month',
       timeRangeOptions: TIME_RANGES,
       pageNum: 1,
@@ -150,6 +162,13 @@ export default {
     }
   },
   mounted() {
+    const currentUser = getAdminUser()
+    this.organizationLocked = isBbpOrganizationScopedUser(currentUser)
+    const organization = bbpOrganizationOption(currentUser)
+    if (this.organizationLocked && organization) {
+      this.query.hisOrgId = organization.id
+      this.hisOrgOptions = [organization]
+    }
     this.initDateRange()
     this.loadRefs()
     this.search()
@@ -205,6 +224,10 @@ export default {
     },
     async loadRefs() {
       try {
+        if (this.organizationLocked) {
+          this.moduleOptions = await http.get('/admin/api/analytics/function-modules') || []
+          return
+        }
         const [regions, hisOrgs, mods] = await Promise.all([
           fetchRegions({ sdStatus: '1' }),
           fetchHisOrgOptions(),
@@ -245,7 +268,8 @@ export default {
     },
     reset() {
       this.timeRange = 'month'
-      this.query = { dateFrom: '', dateTo: '', idRegion: '', hisOrgId: '', functionModules: [] }
+      const hisOrgId = this.organizationLocked ? this.query.hisOrgId : ''
+      this.query = { dateFrom: '', dateTo: '', idRegion: '', hisOrgId, functionModules: [] }
       this.pageNum = 1
       this.initDateRange()
       this.search()

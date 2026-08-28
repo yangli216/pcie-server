@@ -1,6 +1,6 @@
 # 全医慧助服务端（PCIE Server）架构说明
 
-> 更新日期：2026-08-07
+> 更新日期：2026-08-28
 
 ## 1. 项目定位
 
@@ -8,7 +8,7 @@
 
 1. 面向桌面端的远端客户端能力：设备注册、配置引导、Prompt / 数据包增量下发、AI 代理、审计上报
 2. 面向管理员的后台管理能力：区域、机构、令牌、AI 配置、Prompt、症状模板、检验检查结果手工回写、客户端版本发布、日志、推荐偏好观测
-3. 面向平台管理员的基础治理能力：管理员登录、用户、角色、概览统计
+3. 面向平台管理员的基础治理能力：管理员登录、用户、角色、概览统计；可选接入 BBP/PHIS 统一账号认证与机构、人员目录
 
 本项目不承接 PCIE 桌面端的本地 HIS 桥接，不替代桌面端 `api.md` 中的 `/api/consultation/*`。
 
@@ -106,6 +106,42 @@ pcie-server/
 11. 测试环境固定发布到 `/data/floating-ball-server-testing`，使用 `xiaoshan-test` profile 和 `9090` 端口；正式环境固定发布到 `/data/floating-ball-server-production`，使用目录内的 `floating-ball-server.jar`、`start.sh`、`xiaoshan` profile 和 `8080` 端口。首次切换时发布脚本允许受控停止旧 `/data/floating-ball-server.jar` 正式进程，失败时恢复旧正式服务；切换成功后后续正式发布只操作 production 目录。
 12. 发布脚本先构建并校验 JAR，再上传到目标环境的临时文件；远端校验摘要、profile 配置、当前进程归属和端口归属后才停止目标服务。切换失败或健康检查失败时自动恢复该环境的上一版 JAR 和启动脚本，不得操作另一环境的 PID、JAR 或启动脚本。
 13. 测试环境一键发布使用 `./scripts/publish-xiaoshan.sh testing`；正式环境使用 `./scripts/publish-xiaoshan.sh production --confirm-production`，必须携带显式正式发布确认参数；脚本会为单次发布复用临时 SSH 控制连接，密码认证场景正常只需输入一次远程服务器密码，已配置 SSH key 时无需输入密码。
+14. 管理端认证由 `floating-ball.admin.auth.mode` 选择 `local` 或 `bbp`。启用 `bbp` 时必须同时配置 `floating-ball.admin.auth.bbp.base-url`；可通过 `tenant-id` 固定租户，未固定时由登录者填写租户 ID。服务地址仅允许 HTTP/HTTPS，不能包含账号信息、query 或 fragment。
+
+### 3.1.1 BBP 统一账号认证边界
+
+1. `local` 模式保持现有本地账号密码认证；`bbp` 模式只接受 BBP 认证，不在 BBP 故障时静默回退本地密码。
+2. BBP 登录页只提交账号、密码以及未固定时的租户 ID，不展示或接收 BBP 角色选择。服务端调用 `POST /logon/myRoles` 验证身份并获取候选身份，再根据 PCIE 授权自动选择仅用于建立 BBP 会话的候选角色调用 `GET /logon/myApps`，并要求响应 Cookie 中存在非空 `tk`。密码按 BBP 既有约定进行一次 MD5 摘要，服务端不保存 BBP 明文密码或 `tk`。
+3. BBP 负责验证账号身份，PCIE 通过 `c_ai_bbp_admin_grant` 按 `tenant_id + org_id + bbp_user_id + role_code` 管理普通 BBP 人员是否允许进入后台及其 PCIE 角色。当前可配置 `ORG_ADMIN`（机构权限管理员）和 `ORG_ANALYST`（机构统计员）；授权使用 BBP 稳定用户 ID，不依赖人员工号或登录名。普通 BBP 用户未命中启用授权时拒绝登录，不再回退本地 `c_ai_user/c_ai_user_role`；BBP `system` 账号仍自动使用 `tenantSystem` 身份并映射到本地 `admin`。
+4. 登录成功后的菜单不根据 BBP 应用菜单覆盖 PCIE 管理端菜单，由 PCIE 角色决定可见范围。`SYSTEM_ADMIN` 和既有管理角色保持原菜单；仅具备 `ORG_ANALYST` 的账号只显示“统计分析、辅诊功能、用户活跃度”，登录后落到“统计分析”。BBP 返回的角色只用于确认候选租户、机构和用户身份以及建立 BBP Cookie 会话，不能授予任何 PCIE 菜单或操作权限；PCIE 后台访问授权与 AI 使用权限均由 PCIE 管理，二者分别存储、不能相互推导。
+5. BBP 登录会话仅保存在当前 PCIE 进程内，并与 12 小时管理端令牌会话绑定，用于读取 BBP 机构与人员目录；进程重启后既有令牌仍可访问 PCIE 本地功能，但再次读取 BBP 目录前需要重新登录。
+6. 机构与人员只读接入：机构使用 `POST /api/bbp.organization/findByTenantId`，人员支持 `POST /api/bbp.person/findByOrgId` 与 `POST /api/bbp.person/findByDeptId`。BBP 模式下管理端“机构”“用户”页面直接以 BBP 目录作为主列表，不再先展示 PCIE 本地表、再通过弹窗查看 BBP 数据。BBP 仍是主数据源，PCIE 不反向修改机构或账号；PCIE 本地机构、用户与角色只承担配置作用域和后台授权。
+7. 启用 `bbp` 模式后，管理端机构、用户页面不得提供新增、编辑、启用、停用或删除操作，后端对应写接口也必须拒绝请求，不能只依赖前端隐藏按钮。
+8. BBP 机构/人员接口兼容直接数组与 `{ code, body }` 包装响应；字段只做兼容映射并保留原始 ID。人员目录保留 BBP 人员、用户、机构、部门、人员类型、职称、联系方式和状态字段；证件号码属于敏感字段，接口可用于授权管理员排障，但管理端列表默认不展示。
+9. 已确认 `bbp.person/findByOrgId` 的请求体为单元素机构 ID 数组 `[orgId]`，响应为 `{ code: 200, body: Person[] }`；人员字段与 `findByDeptId` 使用同一结构，PCIE 必须同时校验响应中的租户和机构，不能仅信任请求作用域。
+10. BBP 模式下机构和人员主数据仍保持只读；`SYSTEM_ADMIN` 可以在“用户”页面针对 BBP 人员分别授予或撤销“PCIE 机构权限管理员”和“机构统计员”后台角色。该动作只写 `c_ai_bbp_admin_grant`，不创建、修改或停用 BBP 人员，也不允许机构管理员继续委派后台角色。
+11. 普通 BBP 人员登录时，服务端只保留租户、机构和 `userId` 同时命中启用 PCIE 后台授权的 BBP 候选身份。同一身份下存在多个 BBP 业务角色时自动选择一个建立会话；未命中任何授权时拒绝登录；命中多个不同机构或用户身份时也拒绝登录并提示管理员收敛授权，避免静默进入错误机构。BBP 已停用角色不会出现在登录候选中；目录人员只有明确返回 `active=true` 时才可新增后台授权，停用或状态缺失均按不可授权处理，已有风险授权在管理页突出显示并允许系统管理员撤销。
+12. `ORG_ANALYST` 是可按 BBP 机构配置的只读统计账号，不为新塘、蜀山、瓜沥等机构写死账号或机构 ID。系统管理员在“用户”页面选择机构和“机构统计员”权限类型后授予；后续新增机构复用同一入口。
+
+### 3.1.2 BBP 机构统计权限边界
+
+1. 仅具备 `ORG_ANALYST` 的 BBP 用户只允许访问 `/admin/api/analytics/**`、`/admin/api/user-activity/**` 以及当前用户/退出登录接口；其他管理接口统一返回 HTTP 403 与 `AUTH-403`。前端菜单和路由守卫只是体验层，服务端接口白名单是最终边界。
+2. 所有统计汇总、趋势、分布、辅诊功能排行、用户活跃度明细和 Excel 导出都必须由服务端把 `hisOrgId` 强制锁定为登录令牌中的 `bbpOrgId`。请求未传机构时自动补入本机构；显式传入其他机构时拒绝，不能仅依赖前端禁用下拉框。
+3. 机构统计员页面默认显示并选中登录 BBP 机构，HIS 机构选择不可清空或修改；区域筛选不展示，避免产生可扩大范围的错觉。机构选项接口只返回本机构，不能向该角色泄露其他机构目录。
+4. `SYSTEM_ADMIN` 仍可跨机构统计；其他 BBP 非系统账号即使不是纯 `ORG_ANALYST`，统计查询也统一锁定登录机构。一个账号同时拥有 `ORG_ADMIN` 与 `ORG_ANALYST` 时保留管理菜单，但统计数据仍只能查看本机构；本地认证模式维持现有统计范围。
+
+### 3.1.3 AI 使用权限边界
+
+1. BBP/PHIS 只提供机构、人员主数据和统一账号身份，不作为 AI 使用权限的权威来源。
+2. PCIE 通过 `c_ai_user_ai_permission` 保存租户、机构、BBP 人员/用户标识、真实工号及启停状态；管理端“AI 使用权限”页面把 BBP 人员目录与 PCIE 权限记录合并，明确展示已授权和未授权人员。
+3. `SYSTEM_ADMIN` 可管理当前租户全部机构；其他 BBP 后台用户只能查询自身机构。写操作额外要求 PCIE 登录角色包含 `SYSTEM_ADMIN` 或 `ORG_ADMIN`，普通机构人员只能查看，不能授予或撤销权限。机构和角色范围都必须由服务端根据登录身份校验，不接受前端自行声明扩大范围；BBP 登录用户的 `ORG_ADMIN` 必须来自 `c_ai_bbp_admin_grant`，本地用户角色只在 `local` 认证模式下生效。
+4. PHIS 通过 `POST /integration/api/phis/ai-permissions/check` 查询人员是否允许使用 AI。当前联调阶段暂不启用独立服务密钥，也不复用管理端令牌或设备令牌；该接口只能部署在 PCIE 与 PHIS 之间的可信内网或受控网关后，不得直接暴露公网。后续恢复服务鉴权时应在网关/mTLS 或独立服务凭据中选择一种，并保持判权业务契约不变。
+5. PHIS 判权采用默认拒绝：权限记录不存在、已停用、租户/机构不匹配或身份字段无法匹配时均返回 `allowed=false`，不得因 BBP 人员处于激活状态自动放行。请求必须至少提供稳定的 `personId` 或 `userId`；`personCd` 只作为同时校验字段，不允许单独按工号放行。
+6. 单人和批量权限写入都必须先一次读取目标机构的 BBP 人员目录、校验全部人员归属和启停状态，再在同一事务中全量写入；新增授权要求人员明确返回 `active=true`，停用或状态缺失均默认拒绝。批量请求去重后最多 200 人，任一人员不合法时整批不写入。
+7. 权限授予和撤销只修改 PCIE 权限记录，不反向修改 BBP 机构、人员、账号或角色。每次变更同时写入 PCIE 操作日志，记录机构、人员、目标状态和操作人。
+8. 权限清单按机构、科室、BBP 启停状态和授权状态筛选，并由服务端稳定排序、分页返回；机构总人数和授权汇总不受当前筛选影响。系统管理员必须显式选择机构，普通机构用户的机构上下文固定为登录角色所属机构。
+9. 管理端把“BBP 已停用”“BBP 未明确返回启用状态”或“已不在当前 BBP 机构目录”但 PCIE 仍处于授权状态的记录计为风险授权，并允许权限管理员按机构一键撤销。PHIS 判权接口本身不持有 BBP 登录会话，因此人员停用的实时失效需要 BBP 后续提供推送、服务账号或其他可持续同步机制；在该机制接入前，风险清理是管理端补偿措施，不能宣称实时同步。
+10. 应用启动时只读探测 `c_ai_user_ai_permission` 表及必需列，不自动修改现场数据库；探测失败时记录明确的 DBA 迁移提示，权限管理和 PHIS 判权接口返回 503 与稳定错误码，其他后台能力继续可用。存量库仍由 DBA 根据当前 `init.sql` 和现场结构生成一次性迁移脚本。
 
 ### 3.2 客户端安全基线
 
@@ -488,6 +524,16 @@ pcie-server/
    - 激活角色通过 `uk_c_ai_role_code_active` 保证 `cd_role` 唯一
 16. `c_ai_user_role`
    - 激活映射通过 `uk_c_ai_user_role_active` 保证 `id_user + id_role` 不重复
+17. `c_ai_user_ai_permission`
+   - 保存 PCIE 管理的人员 AI 使用权限，BBP/PHIS 人员字段仅作为身份锚点和显示快照
+   - 以 `tenant_id + org_id + subject_key` 保证同一机构人员只有一条激活权限记录
+   - `sd_status='1'` 表示允许使用，`sd_status='0'` 表示已撤销；不存在记录与已撤销均按无权限处理
+   - `person_id`、`user_id`、`person_cd` 建立查询索引；PHIS 请求必须同时携带机构 ID，并至少使用 `person_id` 或 `user_id` 之一，`person_cd` 只能作为一致性校验字段
+18. `c_ai_bbp_admin_grant`
+   - 保存 PCIE 对 BBP 人员的后台访问授权，不保存 BBP 密码、Cookie 或人员主数据副本
+   - 以 `tenant_id + org_id + bbp_user_id + role_code` 保证同一机构人员同一后台角色只有一条激活授权记录
+   - 当前允许授予 `ORG_ADMIN` 与 `ORG_ANALYST`；`sd_status='1'` 表示允许以对应 PCIE 机构角色进入后台，`sd_status='0'` 表示已撤销
+   - 保存人员姓名、登录名、人员 ID 仅用于管理端显示和审计快照，登录校验以稳定的 `bbp_user_id`、租户和机构为准
 
 扩展表如用户、角色、统计可在第二阶段补齐。
 
@@ -500,6 +546,7 @@ pcie-server/
 3. 反馈提交：上一版 `fg_latest` 降级、新版插入、首版 root 回填必须同事务完成；`uk_c_ai_feedback_latest_scope` 防止并发提交产生两个最新版。
 4. 问诊日志保存：按 `consultation_id + consultation_type + id_device` 只对尚未结束的 `generated` 记录做事务化 upsert；`completed` / `abandoned` 记录保留为历史轮次，同一就诊再次生成时插入新记录。并发首次创建由唯一索引兜底，服务端在唯一冲突后重读未结束记录并重试一次更新。
 5. 现场旧库一次性迁移添加唯一约束前必须先清理重复激活数据；迁移脚本应在发现重复时中止并提示具体对象。
+6. BBP 后台管理员授权的启用/撤销与操作日志必须同事务提交；并发写入由 `c_ai_bbp_admin_grant` 的激活唯一索引兜底，不能在数据库唯一键异常导致事务失效后继续重试查询或更新。
 
 ## 8. 数据库初始化约定
 

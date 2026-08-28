@@ -30,7 +30,7 @@
         </button>
         <div class="admin-user-menu__panel">
           <div class="admin-user-menu__name">{{ currentUserName }}</div>
-          <button type="button" @click="$emit('open-password-dialog')">修改密码</button>
+          <button v-if="canChangePassword" type="button" @click="$emit('open-password-dialog')">修改密码</button>
           <button type="button" @click="$emit('logout')">退出登录</button>
         </div>
       </div>
@@ -53,6 +53,10 @@ export default {
     currentUserInitial: {
       type: String,
       default: '管'
+    },
+    canChangePassword: {
+      type: Boolean,
+      default: true
     },
     sidebarCollapsed: {
       type: Boolean,
