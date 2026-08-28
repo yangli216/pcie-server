@@ -33,4 +33,19 @@ class ClientReleaseControllerTest {
         assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
         assertNull(response.getBody());
     }
+
+    @Test
+    void latestShouldAcceptEmptyWin7ReleaseChannel() {
+        ReleaseService releaseService = new ReleaseService(tempDir.toString(), "http://release.local", new ObjectMapper());
+        ClientReleaseController controller = new ClientReleaseController(releaseService);
+        MockHttpServletRequest request = new MockHttpServletRequest(
+            "GET",
+            "/v1/client/releases/win7-production/latest.json"
+        );
+
+        ResponseEntity<TauriLatestJson> response = controller.latest("win7-production", request);
+
+        assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
+        assertNull(response.getBody());
+    }
 }

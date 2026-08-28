@@ -212,7 +212,9 @@ import { AdminFilterBar, CodeTag, StatusPill, TableAction } from '../components/
 
 const channelOptions = [
   { value: 'production', label: '正式内网' },
-  { value: 'testing', label: '测试内网' }
+  { value: 'testing', label: '测试内网' },
+  { value: 'win7-production', label: 'Win7 正式内网' },
+  { value: 'win7-testing', label: 'Win7 测试内网' }
 ]
 
 function createDefaultForm() {

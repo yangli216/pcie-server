@@ -64,6 +64,8 @@ public class ClientDownloadPageController {
             .append("<nav class=\"tabs\">")
             .append(channelLink("production", "正式内网", selectedChannel))
             .append(channelLink("testing", "测试内网", selectedChannel))
+            .append(channelLink("win7-production", "Win7 正式内网", selectedChannel))
+            .append(channelLink("win7-testing", "Win7 测试内网", selectedChannel))
             .append("</nav></div><section class=\"panel\">");
 
         if (items == null || items.isEmpty()) {
@@ -98,7 +100,12 @@ public class ClientDownloadPageController {
             return "production";
         }
         String value = channel.trim();
-        return "testing".equals(value) ? "testing" : "production";
+        if ("testing".equals(value)
+            || "win7-production".equals(value)
+            || "win7-testing".equals(value)) {
+            return value;
+        }
+        return "production";
     }
 
     private String formatFileSize(Long value) {

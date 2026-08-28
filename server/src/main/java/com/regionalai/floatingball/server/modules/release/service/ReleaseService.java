@@ -51,7 +51,12 @@ public class ReleaseService {
 
     private static final Logger log = LoggerFactory.getLogger(ReleaseService.class);
 
-    private static final List<String> CHANNELS = Arrays.asList("production", "testing");
+    private static final List<String> CHANNELS = Arrays.asList(
+        "production",
+        "testing",
+        "win7-production",
+        "win7-testing"
+    );
     private static final Pattern SAFE_SEGMENT = Pattern.compile("[A-Za-z0-9._-]+");
     private static final String LATEST_FILE = "latest.json";
     private static final String POLICY_FILE = "policy.json";
@@ -186,7 +191,7 @@ public class ReleaseService {
         return readReleaseView(channel);
     }
 
-    public ReleaseView upload(ReleaseUploadRequest request) {
+    public synchronized ReleaseView upload(ReleaseUploadRequest request) {
         String channel = normalizeChannel(request.getChannel());
         MultipartFile file = request.getFile();
         if (file == null || file.isEmpty()) {
@@ -202,6 +207,7 @@ public class ReleaseService {
         String signature = releaseMetadata.signature;
         String pubDate = releaseMetadata.pubDate;
         String notes = releaseMetadata.notes;
+        validateWin7ReleaseVersion(channel, version, currentLatestJson);
         validatePackageMatchesMetadata(uploadedLatestJson, originalFileName, releaseMetadata);
         Path targetDirectory = storageRoot.resolve(channel).resolve(target).normalize();
         ensureInsideStorage(targetDirectory);
@@ -252,6 +258,9 @@ public class ReleaseService {
         ReleaseMetadata releaseMetadata = firstReleaseMetadata(packages);
         List<ReleaseView> views = new ArrayList<ReleaseView>();
         try {
+            for (String channel : channels) {
+                validateWin7ReleaseVersion(channel, releaseMetadata.version, readLatestJson(channel));
+            }
             for (String channel : channels) {
                 applyReleasePackages(channel, releaseMetadata, packages, request.getForceUpdate());
                 views.add(readReleaseView(channel));
@@ -374,6 +383,7 @@ public class ReleaseService {
                                       List<ReleasePackage> packages,
                                       Boolean forceUpdate) throws IOException {
         TauriLatestJson currentLatestJson = readLatestJson(channel);
+        validateWin7ReleaseVersion(channel, releaseMetadata.version, currentLatestJson);
         TauriLatestJson latestJson = currentLatestJson;
         if (StringUtils.hasText(currentLatestJson.getVersion()) && !releaseMetadata.version.equals(currentLatestJson.getVersion())) {
             writeHistorySnapshot(channel, currentLatestJson, readPolicy(channel));
@@ -995,7 +1005,9 @@ public class ReleaseService {
     private String normalizeChannel(String channel) {
         String value = requireText(channel, "发布通道不能为空").trim();
         if (!CHANNELS.contains(value)) {
-            throw new BusinessException("发布通道仅支持 production 或 testing");
+            throw new BusinessException(
+                "发布通道仅支持 production、testing、win7-production 或 win7-testing"
+            );
         }
         return value;
     }
@@ -1118,6 +1130,35 @@ public class ReleaseService {
             }
         }
         return 0;
+    }
+
+    private void validateWin7ReleaseVersion(String channel,
+                                            String candidateVersion,
+                                            TauriLatestJson currentLatestJson) {
+        if (!channel.startsWith("win7-")) {
+            return;
+        }
+
+        String currentVersion = currentLatestJson == null ? null : trimToNull(currentLatestJson.getVersion());
+        if (candidateVersion.equals(currentVersion)) {
+            return;
+        }
+
+        String highestVersion = currentVersion;
+        for (ReleaseHistoryView history : readHistoryViews(channel)) {
+            String historyVersion = trimToNull(history.getVersion());
+            if (historyVersion != null
+                && (highestVersion == null || compareVersions(historyVersion, highestVersion) > 0)) {
+                highestVersion = historyVersion;
+            }
+        }
+        if (highestVersion != null && compareVersions(candidateVersion, highestVersion) <= 0) {
+            throw new BusinessException(
+                "RELEASE-VERSION",
+                "Win7 通道新版本必须高于历史最高版本 " + highestVersion
+                    + "；当前提交 " + candidateVersion + "。降级或恢复旧版本请使用回滚功能。"
+            );
+        }
     }
 
     private String normalizeVersionText(String value) {

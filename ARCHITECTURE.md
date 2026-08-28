@@ -137,7 +137,7 @@ pcie-server/
 - `modules/prompt` 负责 Prompt 配置化的逐步迁移：保留桌面端 `prompts/delta` 读取链路，管理端提供 Prompt 列表、新增、编辑、发布、归档和停用；服务端内置首批语音问诊默认 Prompt，配置表存在已发布覆盖时按机构级 > 区域级 > 全局级优先级生效。普通语音渐进结果使用独立 `voiceIntentRecognitionStream` 编码和 NDJSON 分区协议，避免历史 `voiceIntentRecognition` 纯 JSON 已发布覆盖与新客户端协议混用；新编码默认同时返回核心病历、病历上下文、AI 病历候选、诊断、诊疗路由、明确医嘱和其余病历字段，客户端仍负责实时目录匹配、药品定稿及 PHIS 回写。
 - `modules/datapackage` 继续负责映射数据包读取；`template` 类型数据包仅作为症状模板表未初始化时的兼容回退来源，管理端不再提供数据包维护入口
 - `modules/recommendationpreference` 负责接收桌面端在目录匹配之后产生的诊断和医嘱标准候选选择事件，按机构/科室/医生聚合偏好分，并为灰度客户端返回带样本置信度与作用域权重的名次 boost；管理端提供只读观测页查看聚合偏好分、样本计数和原始事件，便于确认采集效果与排查上报链路。该模块不学习 AI 原始文案，不注入 Prompt，不生成新的候选项，首版管理端不提供人工编辑偏好分入口
-- `modules/release` 使用服务端本地文件目录托管桌面端安装包、签名文件、`latest.json` 元数据、`policy.json` 发布策略与历史发布快照，不新增数据库表；管理端上传后由客户端通过公开 `/v1/client/releases/{channel}/latest.json` 检测更新，并通过 `/v1/client/releases/{channel}/policy.json` 判断是否必须更新
+- `modules/release` 使用服务端本地文件目录托管桌面端安装包、签名文件、`latest.json` 元数据、`policy.json` 发布策略与历史发布快照，不新增数据库表；管理端上传后由客户端通过公开 `/v1/client/releases/{channel}/latest.json` 检测更新，并通过 `/v1/client/releases/{channel}/policy.json` 判断是否必须更新。普通客户端与 Win7 legacy 客户端共用发布服务实现，但通道、策略和历史目录完全隔离
 
 ### 4.2.1 内网客户端版本发布
 
@@ -148,12 +148,12 @@ pcie-server/
 - 管理端“版本发布”列表展示当前安装包的公开下载地址，支持复制链接和浏览器直接打开；首次部署新客户端时可直接访问 `/client-download?channel=production` 选择平台下载安装包，无需 U 盘拷贝
 - 管理端通过 `/admin/api/releases/policy` 独立开启或关闭当前通道强制更新，不需要重新上传安装包；开启时最低可用版本固定为当前通道 `latestVersion`，关闭时清空 `minSupportedVersion`
 - 管理端通过 `/admin/api/releases/history` 查看历史发布快照，通过 `/admin/api/releases/rollback` 回滚到历史版本；回滚只恢复当前通道的 `latest.json` 与 `policy.json`，不会重新上传安装包
-- 每次上传新版本前，服务端会先把目标通道当前发布保存为历史快照；上传后也保存新版本快照。若同一版本分平台多次上传或批量上传，服务端会合并同版本平台；若版本号变化，则每个目标通道都重新开始该版本的 `platforms` 集合，避免把上一版本平台误混入新版本 `latest.json`
+- 每次上传新版本前，服务端会先把目标通道当前发布保存为历史快照；上传后也保存新版本快照。若同一版本分平台多次上传或批量上传，服务端会合并同版本平台；若版本号变化，则每个目标通道都重新开始该版本的 `platforms` 集合，避免把上一版本平台误混入新版本 `latest.json`。Win7 两条通道额外以全部历史快照的最高版本执行单调递增门禁，同一当前版本可补传平台，低版本或回滚后复用旧版本均拒绝，降级只能使用显式回滚入口
 - 客户端更新检测与策略查询不走设备鉴权，避免 Tauri updater 无法附带 `Authorization`；仅暴露静态安装包、Tauri 兼容元数据和强制更新策略，不暴露管理能力
 - 未上传版本的通道在访问 `/v1/client/releases/{channel}/latest.json` 时返回 `204 No Content`，作为 Tauri updater 可识别的“无可用更新”状态，不走业务异常日志
 - 设备业务接口通过 `DeviceAuthFilter` 统一执行强制更新拦截：`/v1/client/releases/**` 始终放行，其他 `/v1/*` 在 `forceUpdate=true` 且客户端版本低于 `minSupportedVersion` 时返回 `426 / UPDATE-REQUIRED`
 - 桌面端请求头优先携带 `X-Client-Version` 与 `X-Update-Channel` 供拦截器判断；旧客户端缺失请求头时，服务端回退设备表 `client_version` 与 `production` 通道策略
-- 通道固定为 `production` / `testing`，分别对应桌面端设置页中的“正式内网”与“测试内网”更新源
+- 通道固定为 `production` / `testing` / `win7-production` / `win7-testing`。前两者只服务普通客户端，后两者只服务同一 `main` 源码下的 Win7 legacy 独立构建；Win7 与普通 Windows 的 Tauri target 都是 `windows-x86_64`，因此不得跨通道上传、合并 `latest.json`、复用强更策略或执行回滚。GitHub 托管构建只离线生成带内网 URL 的签名 Artifact，不连接本服务；管理员在内网完成上传，由本服务执行最终版本门禁
 - 平台值需与 Tauri updater target 匹配，例如 `darwin-aarch64`、`darwin-x86_64`、`windows-x86_64`
 
 ### 4.3 数据访问层

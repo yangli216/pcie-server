@@ -265,7 +265,7 @@ BODY_SHA256
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| channels | string[] | 是 | 可重复字段，发布通道集合：`production` 正式内网，`testing` 测试内网 |
+| channels | string[] | 是 | 可重复字段，发布通道集合：`production` / `testing` 普通客户端，`win7-production` / `win7-testing` Win7 legacy 客户端 |
 | metadataFile | file | 是 | Tauri 发布产物中的 `latest.json`，服务端从中解析 `version`、`platforms.{target}.signature`、`notes`、`pub_date` |
 | version | string | 否 | 客户端版本号；默认从 `metadataFile.version` 读取，手工填写时覆盖文件值 |
 | notes | string | 否 | 更新说明；默认从 `metadataFile.notes` 读取，手工填写时覆盖文件值 |
@@ -280,7 +280,7 @@ BODY_SHA256
 3. 若多个 target 的 URL 指向同一个文件名，服务端会把同一个上传文件发布到这些 target；典型场景是 macOS universal 包 `PCIE_universal.app.tar.gz` 同时匹配 `darwin-aarch64` 与 `darwin-x86_64`。
 4. 安装包文件名必须与对应 `latest.json` 平台 URL 指向的文件名一致，否则 Tauri updater 会签名校验失败。
 5. 同一次批量发布内的所有安装包必须解析为同一个版本号；不同版本应拆成多次发布。
-6. 若目标通道当前版本与本次版本不同，服务端会先保存该通道当前快照，再用本次安装包集合生成新的 `latest.json`；若版本相同，则合并或覆盖对应平台。
+6. 若目标通道当前版本与本次版本不同，服务端会先保存该通道当前快照，再用本次安装包集合生成新的 `latest.json`；若版本相同，则合并或覆盖对应平台。对于 `win7-production / win7-testing`，新版本还必须严格高于该通道全部历史快照中的最高版本；低版本、回滚后复用旧版本会返回 `RELEASE-VERSION`，降级只能调用回滚接口。
 7. 勾选强制更新前，必须确认本次目标通道的所有实际部署平台安装包均已上传，否则旧客户端会被禁止使用但无法下载对应平台更新。
 
 响应 `data`：目标通道的当前发布列表，每条结构同 `GET /admin/api/releases` 的 `ReleaseView`。
@@ -330,7 +330,7 @@ BODY_SHA256
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| channel | string | 是 | 发布通道：`production` 正式内网，`testing` 测试内网 |
+| channel | string | 是 | 发布通道：`production` 普通正式内网、`testing` 普通测试内网、`win7-production` Win7 正式内网、`win7-testing` Win7 测试内网 |
 | metadataFile | file | 是 | Tauri 发布产物中的 `latest.json`，服务端从中解析 `version`、`platforms.{target}.signature`、`notes`、`pub_date` |
 | version | string | 否 | 客户端版本号；默认从 `metadataFile.version` 读取，手工填写时覆盖文件值 |
 | target | string | 否 | Tauri updater target；默认按安装包文件名匹配 `metadataFile.platforms`，多平台无法匹配时需手工填写 |
@@ -340,7 +340,7 @@ BODY_SHA256
 | forceUpdate | boolean | 否 | 是否强制更新；为 `true` 时，低于本次发布版本的客户端只能访问更新检查和安装包下载 |
 | file | file | 是 | 安装包或更新包文件，通常为 Tauri bundle 产物 |
 
-说明：运维推荐只选择 `latest.json` 与对应安装包文件；`version`、`target`、`signature` 仅作为解析失败或多平台歧义时的兜底覆盖项。安装包文件名必须与 `latest.json.platforms.{target}.url` 中的文件名一致，例如签名对应 `PCIE.app.tar.gz` 时不能上传 `PCIE.dmg`，否则 Tauri updater 会签名校验失败。勾选强制更新前，必须确认该通道所有实际部署平台的安装包均已上传到当前 `latest.json`，否则旧客户端会被禁止使用但无法下载对应平台更新。
+说明：运维推荐只选择 `latest.json` 与对应安装包文件；`version`、`target`、`signature` 仅作为解析失败或多平台歧义时的兜底覆盖项。安装包文件名必须与 `latest.json.platforms.{target}.url` 中的文件名一致，例如签名对应 `PCIE.app.tar.gz` 时不能上传 `PCIE.dmg`，否则 Tauri updater 会签名校验失败。勾选强制更新前，必须确认该通道所有实际部署平台的安装包均已上传到当前 `latest.json`，否则旧客户端会被禁止使用但无法下载对应平台更新。Win7 x64 与普通 Windows x64 在 Tauri 元数据中都使用 `windows-x86_64`，必须依靠 `win7-*` 与普通通道隔离，禁止把两种 MSI 上传到同一通道；Win7 新版本上传还必须严格高于该通道历史最高版本，同版本补传除外，降级只能走 `/admin/api/releases/rollback`。
 
 部署说明：生产/内网环境推荐设置 `FB_RELEASE_PUBLIC_BASE_URL=http://后端内网IP:8080`，确保管理端展示、复制的更新源以及 `latest.json` 内下载地址都不出现 `localhost`。
 
@@ -453,12 +453,12 @@ BODY_SHA256
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| channel | string | 否 | 发布通道：`production` 或 `testing`，默认 `production` |
+| channel | string | 否 | 发布通道：`production`、`testing`、`win7-production` 或 `win7-testing`，默认 `production` |
 
 说明：
 
 1. 该页面不需要设备令牌或管理员令牌，只展示当前通道的版本号、发布时间、平台 target、文件名和下载按钮。
-2. 若当前通道尚未上传安装包，页面展示“暂无可下载客户端”，并保留正式/测试通道切换入口。
+2. 若当前通道尚未上传安装包，页面展示“暂无可下载客户端”，并保留普通正式/测试与 Win7 正式/测试通道切换入口。
 3. 下载按钮指向同一套公开文件接口：`/v1/client/releases/{channel}/files/{target}/{fileName}`。
 
 ### 3.8 客户端检查更新策略
@@ -486,7 +486,7 @@ BODY_SHA256
 
 1. `forceUpdate=false` 时，客户端可提示可选更新，但服务端不因版本较低拦截业务接口。
 2. `forceUpdate=true` 时，低于 `minSupportedVersion` 的客户端只能访问 `/v1/client/releases/**`。
-3. 桌面端每个 `/v1/*` 业务请求应携带 `X-Client-Version` 与 `X-Update-Channel`；服务端在缺失请求头时回退设备表 `client_version` 与 `production` 通道策略。
+3. 桌面端每个 `/v1/*` 业务请求应携带 `X-Client-Version` 与 `X-Update-Channel`；普通构建发送 `production/testing`，Win7 构建发送 `win7-production/win7-testing`。服务端在缺失或无法识别请求头时仅回退设备表 `client_version` 与 `production` 通道策略，不会猜测客户端属于 Win7。
 
 强制更新拦截响应：
 

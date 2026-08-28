@@ -30,6 +30,19 @@ class ClientDownloadPageControllerTest {
         assertTrue(response.getBody().contains("全医慧助（PCIE）客户端下载"));
         assertTrue(response.getBody().contains("暂无可下载客户端"));
         assertTrue(response.getBody().contains("/client-download?channel=testing"));
+        assertTrue(response.getBody().contains("/client-download?channel=win7-production"));
+        assertTrue(response.getBody().contains("/client-download?channel=win7-testing"));
+    }
+
+    @Test
+    void downloadPageShouldAcceptWin7ReleaseChannel() {
+        ReleaseService releaseService = new ReleaseService(tempDir.toString(), "http://release.local", new ObjectMapper());
+        ClientDownloadPageController controller = new ClientDownloadPageController(releaseService);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/client-download");
+
+        ResponseEntity<String> response = controller.downloadPage("win7-production", request);
+
+        assertTrue(response.getBody().contains("class=\"tab active\" href=\"/client-download?channel=win7-production\""));
     }
 
     @Test

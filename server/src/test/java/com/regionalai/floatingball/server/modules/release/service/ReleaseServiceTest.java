@@ -1,6 +1,7 @@
 package com.regionalai.floatingball.server.modules.release.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseBatchUploadRequest;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseDownloadItem;
 import com.regionalai.floatingball.server.modules.release.dto.ReleaseHistoryView;
@@ -23,6 +24,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReleaseServiceTest {
@@ -104,6 +106,58 @@ class ReleaseServiceTest {
         assertEquals("PCIE_1.2.15_aarch64.app.tar.gz", macItem.getFileName());
         assertTrue(macItem.getDownloadUrl().startsWith("http://release.lan:8080/v1/client/releases/production/files/darwin-aarch64/"));
         assertTrue(macItem.getFileSize() > 0);
+    }
+
+    @Test
+    void win7ReleaseChannelsShouldRemainIsolatedFromRegularWindowsChannels() {
+        uploadToChannel(
+            "win7-production",
+            "1.4.6",
+            "windows-x86_64",
+            "PCIE-Win7-Legacy_1.4.6_x64_zh-CN.msi.zip",
+            true
+        );
+
+        TauriLatestJson win7Latest = releaseService.getLatestJson("win7-production");
+        ReleasePolicyView win7Policy = releaseService.getPolicy("win7-production");
+        assertEquals("1.4.6", win7Latest.getVersion());
+        assertTrue(win7Latest.getPlatforms().containsKey("windows-x86_64"));
+        assertTrue(Boolean.TRUE.equals(win7Policy.getForceUpdate()));
+        assertEquals("1.4.6", win7Policy.getMinSupportedVersion());
+
+        assertNull(releaseService.getAvailableLatestJson("production", null));
+        assertFalse(Boolean.TRUE.equals(releaseService.getPolicy("production").getForceUpdate()));
+
+        List<ReleaseView> channels = releaseService.list(null);
+        assertEquals(4, channels.size());
+        assertTrue(channels.stream().anyMatch(item -> "win7-testing".equals(item.getChannel())));
+    }
+
+    @Test
+    void win7ReleaseUploadShouldAdvanceBeyondHistoricalMaximumAndUseRollbackForDowngrades() {
+        uploadToChannel("win7-testing", "1.4.6", "windows-x86_64", "PCIE-Win7_1.4.6.msi.zip", false);
+        uploadToChannel("win7-testing", "1.4.7", "windows-x86_64", "PCIE-Win7_1.4.7.msi.zip", false);
+
+        ReleaseRollbackRequest rollbackRequest = new ReleaseRollbackRequest();
+        rollbackRequest.setChannel("win7-testing");
+        rollbackRequest.setVersion("1.4.6");
+        releaseService.rollback(rollbackRequest);
+
+        BusinessException reusedVersion = assertThrows(
+            BusinessException.class,
+            () -> uploadToChannel("win7-testing", "1.4.7", "windows-x86_64", "PCIE-Win7_1.4.7-reused.msi.zip", false)
+        );
+        assertEquals("RELEASE-VERSION", reusedVersion.getCode());
+        assertTrue(reusedVersion.getMessage().contains("1.4.7"));
+
+        BusinessException lowerVersion = assertThrows(
+            BusinessException.class,
+            () -> uploadToChannel("win7-testing", "1.4.5", "windows-x86_64", "PCIE-Win7_1.4.5.msi.zip", false)
+        );
+        assertEquals("RELEASE-VERSION", lowerVersion.getCode());
+
+        uploadToChannel("win7-testing", "1.4.8", "windows-x86_64", "PCIE-Win7_1.4.8.msi.zip", false);
+        assertEquals("1.4.8", releaseService.getLatestJson("win7-testing").getVersion());
     }
 
     @Test
@@ -201,8 +255,16 @@ class ReleaseServiceTest {
     }
 
     private void upload(String version, String target, String fileName, boolean forceUpdate) {
+        uploadToChannel("production", version, target, fileName, forceUpdate);
+    }
+
+    private void uploadToChannel(String channel,
+                                 String version,
+                                 String target,
+                                 String fileName,
+                                 boolean forceUpdate) {
         ReleaseUploadRequest request = new ReleaseUploadRequest();
-        request.setChannel("production");
+        request.setChannel(channel);
         request.setForceUpdate(forceUpdate);
         request.setMetadataFile(new MockMultipartFile(
             "metadataFile",
