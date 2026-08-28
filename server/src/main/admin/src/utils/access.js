@@ -12,6 +12,21 @@ export function isStatisticsOnlyUser(user) {
     !roles.includes(SYSTEM_ADMIN) && !roles.includes(ORG_ADMIN))
 }
 
+function routeHasMeta(route, key) {
+  return Boolean(route && Array.isArray(route.matched) &&
+    route.matched.some(record => record.meta && record.meta[key]))
+}
+
+export function resolveAdminRouteRedirect(route, user) {
+  if (isStatisticsOnlyUser(user) && !routeHasMeta(route, 'organizationStatistics')) {
+    return '/analytics'
+  }
+  if (routeHasMeta(route, 'bbpOnly') && (!user || user.authProvider !== 'BBP')) {
+    return '/overview'
+  }
+  return ''
+}
+
 export function isBbpOrganizationScopedUser(user) {
   return Boolean(user && user.authProvider === 'BBP' && !userRoles(user).includes(SYSTEM_ADMIN))
 }

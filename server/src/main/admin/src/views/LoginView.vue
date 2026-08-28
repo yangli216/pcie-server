@@ -67,6 +67,7 @@ import { isNavigationFailure, NavigationFailureType } from 'vue-router'
 import http from '../api/http'
 import { isStatisticsOnlyUser } from '../utils/access'
 import { setAdminAuth } from '../utils/auth'
+import { resolveAdminRouteRedirect } from '../utils/access'
 
 function resolveRedirectPath(value) {
   return typeof value === 'string' && value.indexOf('/') === 0 ? value : '/overview'

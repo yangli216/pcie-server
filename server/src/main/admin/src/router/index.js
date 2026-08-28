@@ -1,7 +1,7 @@
 import Vue from 'vue'
 import Router from 'vue-router'
 import { getAdminUser, isAuthenticated } from '../utils/auth'
-import { isStatisticsOnlyUser } from '../utils/access'
+import { resolveAdminRouteRedirect } from '../utils/access'
 
 Vue.use(Router)
 
@@ -96,17 +96,10 @@ router.beforeEach((to, from, next) => {
     return
   }
 
-  const isBbpOnlyRoute = to.matched.some(record => record.meta && record.meta.bbpOnly)
   const currentUser = getAdminUser()
-  if (isStatisticsOnlyUser(currentUser)) {
-    const statisticsRoute = to.matched.some(record => record.meta && record.meta.organizationStatistics)
-    if (!statisticsRoute) {
-      next('/analytics')
-      return
-    }
-  }
-  if (isBbpOnlyRoute && (!currentUser || currentUser.authProvider !== 'BBP')) {
-    next('/overview')
+  const accessRedirect = resolveAdminRouteRedirect(to, currentUser)
+  if (accessRedirect) {
+    next(accessRedirect)
     return
   }
 
