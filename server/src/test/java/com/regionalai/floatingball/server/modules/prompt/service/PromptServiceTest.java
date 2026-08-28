@@ -68,9 +68,16 @@ class PromptServiceTest {
             promptService.resolveEffectivePrompt("voiceIntentRecognitionStream", null, null);
 
         assertNotNull(prompt);
-        assertEquals("v1.0", prompt.getVersionNum());
+        assertEquals("v1.1", prompt.getVersionNum());
         assertTrue(prompt.getSysPrompt().contains("record_suggestions"));
         assertTrue(prompt.getSysPrompt().contains("recommendation_plan"));
+        assertTrue(prompt.getSysPrompt().contains("type 必须为 medicine、examination、labTest、procedure 之一的字符串"));
+
+        com.regionalai.floatingball.server.modules.prompt.dto.PromptView repairPrompt =
+            promptService.resolveEffectivePrompt("voiceIntentRepair", null, null);
+        assertNotNull(repairPrompt);
+        assertEquals("v1.1", repairPrompt.getVersionNum());
+        assertTrue(repairPrompt.getSysPrompt().contains("无法确认时删除该条"));
     }
 
     private AiPrompt buildPrompt(String idPrompt,

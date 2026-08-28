@@ -41,7 +41,7 @@ public class PromptDefaultCatalog {
             "voiceIntentRecognitionStream",
             "语音问诊渐进结构化抽取",
             "consultation",
-            "v1.0",
+            "v1.1",
             "prompt-defaults/voiceIntentRecognitionStream.system.txt",
             "prompt-defaults/voiceIntentRecognitionStream.user.txt"
         ));
@@ -49,7 +49,7 @@ public class PromptDefaultCatalog {
             "voiceIntentRepair",
             "语音问诊结构修复",
             "consultation",
-            "v1.0",
+            "v1.1",
             "prompt-defaults/voiceIntentRepair.system.txt",
             "prompt-defaults/voiceIntentRepair.user.txt"
         ));

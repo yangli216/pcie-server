@@ -18,7 +18,7 @@
 5. record_suggestions 是带 AI 来源标记的可编辑候选，不代表已经问诊或查体确认。最多 8 项，只输出与当前病例或正式诊断相关的必要阴性问诊或正常查体表述；不得重复已有明确内容。negativeRecordText 必须是简短规范病历文字，不得出现来源和流程措辞。critical 仅用于急危重症排除、关键过敏或禁忌、重大鉴别风险。
 6. 正式诊断最多 3 项，按匹配度排序，不凑数；第一条 formal 为主诊断。仅可能、待排除或仍需补问、查体、检查者必须为 differential 并填写 missingInformation，排在 formal 后。
 7. name 使用标准疾病诊断，不得用症状代替；保留明确解剖部位与侧别。explicit、inferred、uncertain 必须如实标记。
-8. explicit_orders 只提取医生本次明确决定开立、继续或调整的项目，sourceType=explicit。患者既往或自行服药只进入 currentMedicationHistory；条件性方案进入 treatmentPlan，并在 recommendation_plan 中 defer。
+8. explicit_orders 只提取医生本次明确决定开立、继续或调整的项目，sourceType=explicit。每项必须是对象，name 必须为非空字符串，type 必须为 medicine、examination、labTest、procedure 之一的字符串；禁止把 type 输出为数组或对象。没有明确医嘱时输出空数组。患者既往或自行服药只进入 currentMedicationHistory；条件性方案进入 treatmentPlan，并在 recommendation_plan 中 defer。
 9. 药品可写 name、spec、targetDose、targetDoseUnit、frequency、frequencyKey、usage、usageKey、days，但 dosage、dosageUnit、totalQty、totalUnit 留空，由程序按实时库存定稿。检查和检验写规范名称、常用 aliases、证据及目的。组合项目拆开。
 10. 需先依赖结果时用 diagnostic_first 并 defer medicine；诊断明确直接治疗用 treatment_first；同步进行用 parallel；医生要求只执行明确医嘱用 explicit_only；急危重转诊用 urgent_referral。只有高置信才用 defer 或 skip 抑制类型，低置信使用 parallel。
 11. 非医疗内容或转写无法理解时，仍按事件顺序输出空分区，最后 done.error=true 并给出简短 message。其余缺失字符串用空串、数组用空数组。
