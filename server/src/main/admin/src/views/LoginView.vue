@@ -63,11 +63,22 @@
 </template>
 
 <script>
+import { isNavigationFailure, NavigationFailureType } from 'vue-router'
 import http from '../api/http'
+import { isStatisticsOnlyUser } from '../utils/access'
 import { setAdminAuth } from '../utils/auth'
 
 function resolveRedirectPath(value) {
   return typeof value === 'string' && value.indexOf('/') === 0 ? value : '/overview'
+}
+
+function resolvePostLoginPath(value, user) {
+  const requestedPath = resolveRedirectPath(value)
+  if (!isStatisticsOnlyUser(user)) {
+    return requestedPath
+  }
+  const path = requestedPath.split('?')[0]
+  return ['/analytics', '/function-usage', '/user-activity'].includes(path) ? requestedPath : '/analytics'
 }
 
 export default {
@@ -109,13 +120,23 @@ export default {
       if (!data || !data.token) {
         throw new Error('登录响应缺少 token')
       }
+      const currentUser = data.user || null
       setAdminAuth({
         token: data.token,
         expiresAt: data.expiresAt,
-        user: data.user || null
+        user: currentUser
       })
       this.$message.success('登录成功')
-      await this.$router.replace(resolveRedirectPath(this.$route.query.redirect))
+      const targetPath = resolvePostLoginPath(this.$route.query.redirect, currentUser)
+      try {
+        await this.$router.replace(targetPath)
+      } catch (error) {
+        const expectedRedirect = isNavigationFailure(error, NavigationFailureType.redirected)
+        const duplicateNavigation = isNavigationFailure(error, NavigationFailureType.duplicated)
+        if (!expectedRedirect && !duplicateNavigation) {
+          throw error
+        }
+      }
     },
     async submitBbpLogin() {
       const data = await http.post('/admin/api/auth/bbp/login', {
