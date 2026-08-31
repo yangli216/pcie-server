@@ -190,7 +190,9 @@ verify_admin_ui_resources() {
 
 TMP_START_SCRIPT=""
 TMP_REMOTE_DEPLOYER=""
-SSH_CONTROL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/floating-ball-publish-ssh.XXXXXX")"
+# OpenSSH limits Unix-domain socket paths to roughly 100 bytes. macOS commonly
+# provides a long per-user TMPDIR, so keep the control socket under /tmp.
+SSH_CONTROL_DIR="$(mktemp -d "/tmp/pcie-publish-ssh.XXXXXX")"
 SSH_CONTROL_PATH="${SSH_CONTROL_DIR}/control-%C"
 SSH_BASE_OPTIONS=(
   -o StrictHostKeyChecking=accept-new

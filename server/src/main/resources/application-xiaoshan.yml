@@ -17,10 +17,19 @@ spring:
 
 floating-ball:
   admin:
+    auth:
+      mode: ${FB_ADMIN_AUTH_MODE:bbp}
+      bbp:
+        base-url: ${FB_ADMIN_BBP_BASE_URL:http://192.168.204.13:30010/phis}
+        tenant-id: ${FB_ADMIN_BBP_TENANT_ID:xswjj}
+        system-login-name: ${FB_ADMIN_BBP_SYSTEM_LOGIN_NAME:system}
+        system-local-username: ${FB_ADMIN_BBP_SYSTEM_LOCAL_USERNAME:admin}
+        connect-timeout-ms: ${FB_ADMIN_BBP_CONNECT_TIMEOUT_MS:10000}
+        read-timeout-ms: ${FB_ADMIN_BBP_READ_TIMEOUT_MS:30000}
     bootstrap-reset:
-      enabled: true
-      username: admin
-      password: admin123
+      enabled: ${FB_ADMIN_BOOTSTRAP_RESET_ENABLED:false}
+      username: ${FB_ADMIN_BOOTSTRAP_RESET_USERNAME:admin}
+      password: ${FB_ADMIN_BOOTSTRAP_RESET_PASSWORD:}
   cors:
     allowed-origins:
       - http://localhost:5174
