@@ -73,6 +73,7 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "CREATE TABLE c_security_rejection_log");
         assertContains(initSql, "CREATE TABLE c_ai_inpatient_emr_tpl_cache");
         assertContains(initSql, "CREATE TABLE c_ai_outpatient_emr_tpl_snapshot");
+        assertContains(initSql, "CREATE TABLE c_ai_outpatient_emr_tpl_mapping");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_obs");
         assertContains(initSql, "CREATE TABLE c_ai_patient_memory_fact");
@@ -116,6 +117,8 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "template_definition     CLOB NOT NULL");
         assertContains(initSql, "COMMENT ON COLUMN c_ai_outpatient_emr_tpl_snapshot.parse_result_json");
         assertContains(initSql, "c_ai_outpatient_emr_tpl_snapshot (id_org, template_id, template_hash)");
+        assertContains(initSql, "c_ai_outpatient_emr_tpl_mapping (id_snapshot, field_id)");
+        assertContains(initSql, "COMMENT ON COLUMN c_ai_outpatient_emr_tpl_mapping.record_field");
         assertNotContains(initSql, "source_scene");
         assertNotContains(initSql, "template_source");
         assertNotContains(initSql, "source_format");
@@ -212,11 +215,13 @@ class OracleSchemaScriptTest {
         assertContains(initSql, "total_changes        NUMERIC(5)");
         assertContains(initSql, "CREATE TABLE c_ai_inpatient_emr_tpl_cache");
         assertContains(initSql, "CREATE TABLE c_ai_outpatient_emr_tpl_snapshot");
+        assertContains(initSql, "CREATE TABLE c_ai_outpatient_emr_tpl_mapping");
         assertContains(initSql, "template_html           TEXT NOT NULL");
         assertContains(initSql, "template_definition     TEXT NOT NULL");
         assertContains(initSql, "parse_result_json       TEXT NOT NULL");
         assertContains(initSql, "CREATE UNIQUE INDEX uk_c_ai_outemr_tpl_snap");
         assertContains(initSql, "c_ai_outpatient_emr_tpl_snapshot (id_org, template_id, template_hash)");
+        assertContains(initSql, "c_ai_outpatient_emr_tpl_mapping (id_snapshot, field_id)");
         assertNotContains(initSql, "source_scene");
         assertNotContains(initSql, "template_source");
         assertNotContains(initSql, "source_format");

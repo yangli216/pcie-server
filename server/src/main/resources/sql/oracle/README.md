@@ -62,7 +62,7 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 
 1. `c_ai_config` 的语音独立密钥、PMPHAI / Reviewer 服务端托管字段、思考模式、fast model 和检查项目独立审查开关
 2. `c_ai_device.device_public_key` 请求签名公钥字段，以及 `register_ip` / `last_seen_ip` 注册与最近访问来源字段
-3. 症状模板、住院病历模板字段缓存、门诊模板对原文与解析快照、模板变更日志、辅诊功能事件、安全拒绝日志等业务表；门诊快照只接收正式 HIS Bridge/SDK 分析链路中同一模板的渲染 HTML 与结构定义 JSON，按机构与模板对 hash 去重，只保存两份原文与确定性合并解析结果，不保存患者、病历上下文或生成值；功能事件的 `cd_doctor` 与 `client_version` 固化医生真实工号和事件发生时客户端版本，用于医生客户端使用情况统计
+3. 症状模板、住院病历模板字段缓存、门诊模板对原文与解析快照、门诊字段映射覆盖、模板变更日志、辅诊功能事件、安全拒绝日志等业务表；门诊快照只接收正式 HIS Bridge/SDK 分析链路中同一模板的渲染 HTML 与结构定义 JSON，按机构与模板对 hash 去重，只保存两份原文与确定性合并解析结果，不保存患者、病历上下文或生成值；`c_ai_outpatient_emr_tpl_mapping` 只按模板快照与字段 ID 保存管理员覆盖，不修改不可变快照；功能事件的 `cd_doctor` 与 `client_version` 固化医生真实工号和事件发生时客户端版本，用于医生客户端使用情况统计
 4. 操作日志、问诊日志、反馈日志、推荐偏好事件和推荐偏好聚合的结构化查询列、语音复盘字段、变更摘要字段和并发唯一索引；其中问诊日志唯一索引只约束尚未结束的 `generated` 记录，同一就诊回写或放弃后再次问诊会保留为新的日志轮次
 5. 第三方 ODS 检验检查申请单 `hi_ods_apply`、检验常规报告 `hi_ods_apply_lis_report` 与检查报告 `hi_ods_apply_pacs_report`，用于管理端手工模拟第三方结果回写；不包含未提供结构的 `hi_ods_lis_result` 主表
 6. 默认区域 `REGION001`

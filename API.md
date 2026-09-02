@@ -1,6 +1,6 @@
 # 全医慧助服务端（PCIE Server）API 说明
 
-> 更新日期：2026-08-04
+> 更新日期：2026-08-31
 > 范围：全医慧助（PCIE）桌面端当前唯一远程业务契约 `/v1/*`；桌面端已取消本地/区域双模式
 >
 > 仓库与 Maven 工程已更名为 `pcie-server`；为兼容既有部署，`/v1/*`、`/admin/api/*`、`floating-ball.*` 配置键、`FB_*` 环境变量和数据库结构保持不变。
@@ -780,6 +780,8 @@ Content-Type: application/json
 
 用途：门诊分析在解析模板前，按当前认证机构、模板 ID 与模板对 hash 查询是否已有可直接复用的确定性字段解析。该接口只读取历史快照，不更新最近接收设备/时间，也不接收模板原文、患者、就诊或模型数据。
 
+外部接入边界：本接口及下一节登记接口只供全医慧助（PCIE）桌面端内部调用，不是 HIS / 医生站的接入入口。HIS 必须调用桌面端 `sdk.analyzeOutpatientEmr(...)` 或本地 `POST /api/outpatient/emr/analyze`，完整契约见 [`pcie/api.md` 6.3C](../pcie/api.md#63c-post-apioutpatientemranalyze)。设备令牌、ECDSA 签名、历史快照查询和登记均由桌面端处理，HIS 不得持有设备私钥后绕过桌面端直调 `/v1/*`。
+
 请求必须经过设备令牌与 ECDSA P-256 签名，只接受：
 
 ```json
@@ -824,9 +826,10 @@ Content-Type: application/json
 约束：
 
 1. `templateId` 与 `templateHash` 均按原值严格校验；hash 只能是 64 位小写 SHA-256。查询键固定为认证设备的 `idOrg + templateId + templateHash`。
-2. `cacheHit=true` 时，`id / parseResult / receivedAt` 必须全部存在，`parseResult` 使用下节登记接口的完整严格 schema；服务端发现存量 JSON 损坏时直接失败，不返回伪命中。
+2. `cacheHit=true` 时，`id / parseResult / receivedAt` 必须全部存在，`parseResult` 使用下节登记接口的完整严格 schema；服务端先读取不可变快照，再叠加该 `idSnapshot` 的激活字段映射覆盖并返回有效映射。人工直接映射继续使用兼容值 `mappingSource="definition-record-field"`，人工章节组合映射继续使用 `mappingSource="definition-article-record-field"`，不新增字段或枚举；服务端发现存量 JSON 损坏或覆盖后形成重复映射时直接失败，不返回伪命中。
 3. `cacheHit=false` 时，桌面端才允许执行模板定义解码、HTML/JSON 严格配对和字段映射，并随后调用登记接口；命中时禁止重新解析或重复登记。
 4. 查询失败或响应 schema/身份/hash 不一致时，桌面端必须在模型调用前停止，不得回退到本地重复解析、旧 schema 或早期实验协议。
+5. 命中只复用确定性模板 `parseResult`，不复用患者病例参数或模型输出；每次 HIS 分析请求仍按当前 `recordContext + targetFieldIds` 执行一次 `outpatient-emr-analysis`。
 
 ### 3.5.3 POST `/v1/client/outpatient-emr/templates/snapshots`
 
@@ -874,7 +877,7 @@ Content-Type: application/json
 3. 顶层、`parseResult`、字段和字典项只接受示例中的当前 schema，未知字段直接拒绝；字段最多 2000 个，字段 ID 唯一。每个字段必须显式包含定义章节 ID、业务章节 ID、渲染章节名和定义章节名，服务端不修剪或补造。未映射字段必须显式提交 `recordField: null`、`mappingSource: "unmapped"`、`projectionMode: null`；这两个 `null` 在落库解析 JSON 与详情响应中也必须原样保留，缺失属性不属于当前协议。
 4. `parseResult.fields` 与每个 `dictionaryItems` 必须显式提供。字典项文字非空，编码可为空；任一编码或文字在同一字典中重复时拒绝。客户端已经排除 `value/text` 同时为空的不可选占位，后台不得再次收到。
 5. 严禁携带 `visitId / requestId / patient / recordContext / fieldValues / dictionarySelections / outpatientRecord`、模型输出或医生编辑结果。
-6. 服务端按 `idOrg + templateId + templateHash` 保持唯一；正常业务只在历史查询未命中时登记。首次出现的模板 ID、同一模板任一原文字节变化都形成新记录；不同模板 ID 即使原文相同也不能共享一条记录。并发首次解析可能同时登记，由唯一键收敛到同一记录并返回 `deduplicated=true`；重复登记是只读幂等响应，不更新已有原文、解析结果、设备或接收时间。
+6. 服务端按 `idOrg + templateId + templateHash` 保持唯一；正常业务只在历史查询未命中时登记。首次出现的模板 ID、同一模板任一原文字节变化都形成新记录；不同模板 ID 即使原文相同也不能共享一条记录。并发首次解析可能同时登记，由唯一键收敛到同一记录并返回 `deduplicated=true`；重复登记是只读幂等响应，不更新已有原文、解析结果、设备或接收时间。管理端人工字段映射保存在独立覆盖表，不回写本接口登记的 `parseResult`。
 7. 登记是未命中分支的模型调用前置门禁：登记失败时桌面端不得调用模型，确保后台记录与模型实际消费前的模板对及解析版本一致。
 
 响应 `data`：
@@ -2538,7 +2541,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 - `sdStatus`：`1` 启用，`0` 停用
 
 ### 5.39.2 GET `/admin/api/inpatient-emr/templates/{idCache}`
-用途：查看单个模板缓存及字段解析结果；响应包含原生 `htmlContent`，管理端基于该字段提供源码查看和 HTML 预览。`fields` 包含完整模板字段，字段规则中会附带 `rule.resolvedPrompt` 和 `rule.promptSource`，分别表示当前展示提示词和来源（`custom` 已维护、`default` 按字段规则生成、`not_ai` 非 AI 生成字段）。默认提示词会结合模板名称、记录类型、字段名称、所属段落、字段含义和住院数据依赖生成。
+用途：查看单个模板缓存及字段解析结果；响应包含原生 `htmlContent`，管理端基于该字段提供源码查看和病例预渲染。预渲染按桌面端相同的 `[data-id][data-type]` 字段定位规则写入脱敏示例值，并区分 AI 生成字段与 HIS / 人工字段；示例只用于检查模板结构和回填效果，不读取、不保存真实患者数据。当前机构尚无住院模板缓存时，管理端仍提供内置模板的病例预渲染示例，并明确提示真实模板需由桌面端首次解析后上传。`fields` 包含完整模板字段，字段规则中会附带 `rule.resolvedPrompt` 和 `rule.promptSource`，分别表示当前展示提示词和来源（`custom` 已维护、`default` 按字段规则生成、`not_ai` 非 AI 生成字段）。默认提示词会结合模板名称、记录类型、字段名称、所属段落、字段含义和住院数据依赖生成。
 
 ### 5.39.2.1 PUT `/admin/api/inpatient-emr/templates/{idCache}/fields/{fieldId}/generation`
 用途：手动调整指定字段是否由 AI 辅助生成。
@@ -2594,7 +2597,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 ### 5.39.7 GET `/admin/api/outpatient-emr/templates`
 
-用途：分页查询门诊模板对原文与解析快照。
+用途：分页查询门诊病例模板版本。管理端入口与住院侧统一命名为“门诊病例模板”，但底层仍是不可变模板对快照，不提供模板启停或删除。
 
 请求参数：
 
@@ -2602,11 +2605,71 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 - `size`
 - `keyword`：匹配模板主键、模板名称或模板 hash
 
-列表返回模板身份、字段总数、可写字段数、字典字段数、已映射字段数、最近接收设备与时间；这些字段均为正式必填响应，服务端与管理端不得将缺失值默认成空列表或 0。不在列表返回两份大字段原文和解析 JSON，也不再提供“源格式”筛选或展示。
+列表返回模板身份、字段总数、可写字段数、字典字段数、自动映射字段数、最近接收设备与时间；这些字段均为正式必填响应，服务端与管理端不得将缺失值默认成空列表或 0。不在列表返回两份大字段原文和解析 JSON，也不再提供“源格式”筛选或展示。人工覆盖后的有效映射数在详情中重新计算。
 
 ### 5.39.8 GET `/admin/api/outpatient-emr/templates/{idSnapshot}`
 
-用途：只读查看单个门诊模板对快照。响应同时包含 `templateHtml`、`templateDefinition` 与结构化 `parseResult`；管理端分别以“渲染 HTML”“结构定义 JSON”“完整解析 JSON”源码文本展示，不执行模板脚本，也不把 HTML 当作可信内容渲染。未映射字段固定返回 `recordField: null`、`mappingSource: "unmapped"`、`projectionMode: null`，不得把显式 `null` 省略成缺失属性。该接口不返回患者、就诊、病历上下文、模型结果或医生编辑值，因为快照表从未接收或保存这些数据。
+用途：查看单个门诊模板对快照及其有效字段映射。响应同时包含 `templateHtml`、`templateDefinition`、叠加人工覆盖后的结构化 `parseResult` 和 `mappingOverrides`；`mappedFieldCount` 按有效映射重新计算。`mappingOverrides` 仅包含人工维护过的字段，并同时返回该字段在不可变快照中的自动映射，供管理端展示“自动生成 / 人工维护 / 待确认”状态。
+
+管理端使用内存中的脱敏门诊示例值，按有效 `parseResult.fields[].recordField / projectionMode` 和客户端一致的 `[data-id][data-type]` 字段定位规则提供病例预渲染。公共查看页签统一为“病例预渲染 / 模板源码”，模板源码内再区分渲染 HTML、结构定义 JSON 和完整解析 JSON；字段映射使用独立“字段映射”操作进入，不与病例预览混排。预渲染只在无脚本权限、禁止外部资源的 sandbox iframe 中执行确定性文本回填，不执行模板脚本，也不读取或保存真实患者数据；当前机构没有门诊快照时，管理端提供同样受限的内置示例。未映射字段固定返回 `recordField: null`、`mappingSource: "unmapped"`、`projectionMode: null`，不得把显式 `null` 省略成缺失属性。该接口不返回患者、就诊、病历上下文、模型结果或医生编辑值。
+
+`mappingOverrides` 单项示例：
+
+```json
+{
+  "fieldId": "chiefText",
+  "mappingStatus": "mapped",
+  "recordField": "chiefComplaint",
+  "projectionMode": "direct",
+  "automaticRecordField": "chiefComplaint",
+  "automaticMappingSource": "deterministic-article",
+  "automaticProjectionMode": "section-compose",
+  "updatedAt": 1787800000000
+}
+```
+
+### 5.39.9 PUT `/admin/api/outpatient-emr/templates/{idSnapshot}/mapping`
+
+用途：为指定门诊模板版本的一个动态解析字段保存人工映射覆盖。请求字段 ID 放在请求体，避免模板字段 ID 包含 `/` 等字符时被路径解析破坏。
+
+请求：
+
+```json
+{
+  "fieldId": "chiefText",
+  "mappingStatus": "mapped",
+  "recordField": "chiefComplaint",
+  "projectionMode": "direct"
+}
+```
+
+约束：
+
+1. `mappingStatus` 只支持 `mapped / unmapped`。`mapped` 时 `recordField` 必须是当前支持的标准病例字段，`projectionMode` 只支持 `direct / section-compose`；`unmapped` 时两者必须显式为 `null`。
+2. 字段必须真实存在于该快照。直接映射同一标准字段只能有一个字段；多个字段映射同一标准字段时，必须属于同一业务章节且全部使用 `section-compose`。
+3. 覆盖以 `idSnapshot + fieldId` 唯一并事务化 upsert，不修改 `templateHtml / templateDefinition / parseResultJson`。
+4. 成功响应返回与 `GET /{idSnapshot}` 相同的最新详情，便于管理端立即刷新有效映射和预渲染。
+
+显式不映射请求：
+
+```json
+{
+  "fieldId": "unknownField",
+  "mappingStatus": "unmapped",
+  "recordField": null,
+  "projectionMode": null
+}
+```
+
+### 5.39.10 DELETE `/admin/api/outpatient-emr/templates/{idSnapshot}/mapping`
+
+用途：删除一个字段的人工覆盖并恢复快照中的自动映射。
+
+请求参数：
+
+- `fieldId`：必填，必须存在于该快照
+
+成功响应返回最新详情。不存在覆盖时按幂等成功处理，不修改模板快照。
 
 ### 5.40 GET `/admin/api/data-packages`
 用途：分页查询数据包列表。

@@ -30,8 +30,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -142,6 +144,8 @@ class OutpatientEmrTemplateControllerTest {
                 Collections.singletonList(item)
             ));
         when(snapshotService.get("snapshot-1")).thenReturn(item);
+        when(snapshotService.updateMapping(eq("snapshot-1"), any())).thenReturn(item);
+        when(snapshotService.clearMapping("snapshot-1", "婚育状况")).thenReturn(item);
         ObjectMapper nonNullObjectMapper = new ObjectMapper()
             .setSerializationInclusion(JsonInclude.Include.NON_NULL);
         MockMvc mockMvc = MockMvcBuilders
@@ -163,5 +167,22 @@ class OutpatientEmrTemplateControllerTest {
             .andExpect(jsonPath("$.data.parseResult.fields[0].recordField").value(nullValue()))
             .andExpect(jsonPath("$.data.parseResult.fields[0].mappingSource").value("unmapped"))
             .andExpect(jsonPath("$.data.parseResult.fields[0].projectionMode").value(nullValue()));
+
+        mockMvc.perform(put("/admin/api/outpatient-emr/templates/snapshot-1/mapping")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Request-Id", "RID-outpatient-mapping")
+                .content("{\"fieldId\":\"婚育状况\",\"mappingStatus\":\"mapped\","
+                    + "\"recordField\":\"personalHistory\",\"projectionMode\":\"direct\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.requestId").value("RID-outpatient-mapping"))
+            .andExpect(jsonPath("$.data.templateName").value("门诊初诊病历"));
+
+        mockMvc.perform(delete("/admin/api/outpatient-emr/templates/snapshot-1/mapping")
+                .param("fieldId", "婚育状况"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.templateName").value("门诊初诊病历"));
+
+        verify(snapshotService).updateMapping(eq("snapshot-1"), any());
+        verify(snapshotService).clearMapping("snapshot-1", "婚育状况");
     }
 }

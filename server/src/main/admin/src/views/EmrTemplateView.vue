@@ -1,10 +1,10 @@
 <template>
   <div class="emr-template-view">
     <el-tabs v-model="activeTab" type="card" class="emr-template-tabs">
-      <el-tab-pane label="门诊解析记录" name="outpatient">
+      <el-tab-pane label="门诊病例模板" name="outpatient">
         <outpatient-emr-template-panel />
       </el-tab-pane>
-      <el-tab-pane label="住院模板缓存" name="inpatient" lazy>
+      <el-tab-pane label="住院病例模板" name="inpatient" lazy>
         <inpatient-emr-template-view />
       </el-tab-pane>
     </el-tabs>

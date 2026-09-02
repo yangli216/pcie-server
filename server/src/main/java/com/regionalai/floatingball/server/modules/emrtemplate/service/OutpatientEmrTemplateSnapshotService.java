@@ -10,6 +10,8 @@ import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.device.entity.AiDevice;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateDictionaryItemSnapshot;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateFieldSnapshot;
+import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateMappingOverrideVO;
+import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateMappingRequest;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateParseSnapshot;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateSnapshotReceipt;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateSnapshotRequest;
@@ -17,12 +19,15 @@ import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrT
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateSnapshotResolveRequest;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateSnapshotVO;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.StrictOutpatientEmrSnapshotDto;
+import com.regionalai.floatingball.server.modules.emrtemplate.entity.AiOutpatientEmrTemplateMapping;
 import com.regionalai.floatingball.server.modules.emrtemplate.entity.AiOutpatientEmrTemplateSnapshot;
+import com.regionalai.floatingball.server.modules.emrtemplate.mapper.AiOutpatientEmrTemplateMappingMapper;
 import com.regionalai.floatingball.server.modules.emrtemplate.mapper.AiOutpatientEmrTemplateSnapshotMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -34,8 +39,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -50,6 +57,8 @@ public class OutpatientEmrTemplateSnapshotService {
     private static final String RESOLUTION_SCHEMA = "outpatient-emr-template-pair-resolution.v1";
     private static final String SNAPSHOT_SCHEMA = "outpatient-emr-template-pair-snapshot.v1";
     private static final String PARSE_SCHEMA = "outpatient-emr-template-pair.v1";
+    private static final String MAPPING_STATUS_MAPPED = "mapped";
+    private static final String MAPPING_STATUS_UNMAPPED = "unmapped";
     private static final int MAX_TEMPLATE_SOURCE_BYTES = 1024 * 1024;
     private static final int MAX_PARSE_RESULT_BYTES = 2 * 1024 * 1024;
     private static final int MAX_FIELD_COUNT = 2000;
@@ -76,11 +85,14 @@ public class OutpatientEmrTemplateSnapshotService {
     private static final Set<String> PROJECTION_MODES = unmodifiableSet("direct", "section-compose");
 
     private final AiOutpatientEmrTemplateSnapshotMapper snapshotMapper;
+    private final AiOutpatientEmrTemplateMappingMapper mappingMapper;
     private final ObjectMapper objectMapper;
 
     public OutpatientEmrTemplateSnapshotService(AiOutpatientEmrTemplateSnapshotMapper snapshotMapper,
+                                                 AiOutpatientEmrTemplateMappingMapper mappingMapper,
                                                  ObjectMapper objectMapper) {
         this.snapshotMapper = snapshotMapper;
+        this.mappingMapper = mappingMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -119,6 +131,8 @@ public class OutpatientEmrTemplateSnapshotService {
             throw new BusinessException("历史模板解析身份与查询不一致");
         }
         OutpatientEmrTemplateParseSnapshot parseResult = readParseResult(entity.getParseResultJson());
+        validateParseResult(parseResult);
+        applyMappingOverrides(entity.getIdSnapshot(), parseResult);
         validateParseResult(parseResult);
         Long receivedAt = toEpochMillis(entity.getLastReceivedAt());
         if (receivedAt == null) {
@@ -271,14 +285,64 @@ public class OutpatientEmrTemplateSnapshotService {
     }
 
     public OutpatientEmrTemplateSnapshotVO get(String idSnapshot) {
-        if (!StringUtils.hasText(idSnapshot)) {
-            throw new BusinessException("idSnapshot 不能为空");
+        return toView(requireSnapshot(idSnapshot), true);
+    }
+
+    @Transactional
+    public OutpatientEmrTemplateSnapshotVO updateMapping(
+        String idSnapshot,
+        OutpatientEmrTemplateMappingRequest request
+    ) {
+        AiOutpatientEmrTemplateSnapshot snapshot = requireSnapshot(idSnapshot);
+        ValidatedMappingUpdate validated = validateMappingUpdate(snapshot, request);
+        AiOutpatientEmrTemplateMapping existing = findMapping(snapshot.getIdSnapshot(), validated.fieldId);
+        if (existing == null) {
+            AiOutpatientEmrTemplateMapping mapping = new AiOutpatientEmrTemplateMapping();
+            mapping.setIdMapping(UUID.randomUUID().toString().replace("-", ""));
+            mapping.setIdSnapshot(snapshot.getIdSnapshot());
+            mapping.setFieldId(validated.fieldId);
+            mapping.setRecordField(validated.recordField);
+            mapping.setProjectionMode(validated.projectionMode);
+            mapping.setFgActive(ACTIVE);
+            try {
+                mappingMapper.insert(mapping);
+            } catch (DuplicateKeyException duplicateKeyException) {
+                AiOutpatientEmrTemplateMapping concurrent = findMapping(
+                    snapshot.getIdSnapshot(),
+                    validated.fieldId
+                );
+                if (concurrent == null) {
+                    throw duplicateKeyException;
+                }
+                concurrent.setRecordField(validated.recordField);
+                concurrent.setProjectionMode(validated.projectionMode);
+                concurrent.setFgActive(ACTIVE);
+                mappingMapper.updateById(concurrent);
+            }
+        } else {
+            existing.setRecordField(validated.recordField);
+            existing.setProjectionMode(validated.projectionMode);
+            existing.setFgActive(ACTIVE);
+            mappingMapper.updateById(existing);
         }
-        AiOutpatientEmrTemplateSnapshot entity = snapshotMapper.selectById(idSnapshot.trim());
-        if (entity == null || !ACTIVE.equals(entity.getFgActive())) {
-            throw new BusinessException("门诊模板解析记录不存在");
+        return toView(snapshot, true);
+    }
+
+    @Transactional
+    public OutpatientEmrTemplateSnapshotVO clearMapping(String idSnapshot, String fieldId) {
+        AiOutpatientEmrTemplateSnapshot snapshot = requireSnapshot(idSnapshot);
+        String normalizedFieldId = requireText(fieldId, "fieldId", 512);
+        OutpatientEmrTemplateParseSnapshot parseResult = readParseResult(snapshot.getParseResultJson());
+        validateParseResult(parseResult);
+        requireField(parseResult, normalizedFieldId);
+        AiOutpatientEmrTemplateMapping existing = findMapping(
+            snapshot.getIdSnapshot(),
+            normalizedFieldId
+        );
+        if (existing != null) {
+            mappingMapper.deleteById(existing.getIdMapping());
         }
-        return toView(entity, true);
+        return toView(snapshot, true);
     }
 
     private ValidatedSnapshot validate(AiDevice device,
@@ -442,6 +506,7 @@ public class OutpatientEmrTemplateSnapshotService {
                 mappedFieldCount += 1;
             }
         }
+        validateRecordFieldOwnership(fields);
 
         String parseResultJson = writeParseResult(parseResult);
         if (utf8Length(parseResultJson) > MAX_PARSE_RESULT_BYTES) {
@@ -455,6 +520,177 @@ public class OutpatientEmrTemplateSnapshotService {
             dictionaryFieldCount,
             mappedFieldCount
         );
+    }
+
+    private ValidatedMappingUpdate validateMappingUpdate(
+        AiOutpatientEmrTemplateSnapshot snapshot,
+        OutpatientEmrTemplateMappingRequest request
+    ) {
+        if (request == null) {
+            throw new BusinessException("请求体不能为空");
+        }
+        assertNoUnknownFields(request, "请求");
+        String fieldId = requireText(request.getFieldId(), "fieldId", 512);
+        String mappingStatus = requireText(request.getMappingStatus(), "mappingStatus", 16);
+        String recordField;
+        String projectionMode;
+        if (MAPPING_STATUS_MAPPED.equals(mappingStatus)) {
+            recordField = requireText(request.getRecordField(), "recordField", 64);
+            projectionMode = requireText(request.getProjectionMode(), "projectionMode", 64);
+            if (!RECORD_FIELDS.contains(recordField)) {
+                throw new BusinessException("recordField 不支持");
+            }
+            if (!PROJECTION_MODES.contains(projectionMode)) {
+                throw new BusinessException("projectionMode 不支持");
+            }
+        } else if (MAPPING_STATUS_UNMAPPED.equals(mappingStatus)) {
+            if (request.getRecordField() != null || request.getProjectionMode() != null) {
+                throw new BusinessException("unmapped 映射的 recordField/projectionMode 必须为 null");
+            }
+            recordField = null;
+            projectionMode = null;
+        } else {
+            throw new BusinessException("mappingStatus 只支持 mapped 或 unmapped");
+        }
+
+        OutpatientEmrTemplateParseSnapshot parseResult = readParseResult(snapshot.getParseResultJson());
+        validateParseResult(parseResult);
+        applyMappingOverrides(snapshot.getIdSnapshot(), parseResult);
+        OutpatientEmrTemplateFieldSnapshot field = requireField(parseResult, fieldId);
+        applyMappingValue(field, recordField, projectionMode);
+        validateParseResult(parseResult);
+        return new ValidatedMappingUpdate(fieldId, recordField, projectionMode);
+    }
+
+    private void validateRecordFieldOwnership(List<OutpatientEmrTemplateFieldSnapshot> fields) {
+        Map<String, List<OutpatientEmrTemplateFieldSnapshot>> owners =
+            new LinkedHashMap<String, List<OutpatientEmrTemplateFieldSnapshot>>();
+        for (OutpatientEmrTemplateFieldSnapshot field : fields) {
+            if (field.getRecordField() == null) {
+                continue;
+            }
+            List<OutpatientEmrTemplateFieldSnapshot> mappedFields = owners.get(field.getRecordField());
+            if (mappedFields == null) {
+                mappedFields = new ArrayList<OutpatientEmrTemplateFieldSnapshot>();
+                owners.put(field.getRecordField(), mappedFields);
+            }
+            mappedFields.add(field);
+        }
+        for (Map.Entry<String, List<OutpatientEmrTemplateFieldSnapshot>> entry : owners.entrySet()) {
+            List<OutpatientEmrTemplateFieldSnapshot> mappedFields = entry.getValue();
+            if (mappedFields.size() <= 1) {
+                continue;
+            }
+            String articleId = mappedFields.get(0).getArticleId();
+            boolean validComposition = StringUtils.hasText(articleId);
+            for (OutpatientEmrTemplateFieldSnapshot field : mappedFields) {
+                if (!articleId.equals(field.getArticleId())
+                    || !"section-compose".equals(field.getProjectionMode())) {
+                    validComposition = false;
+                    break;
+                }
+            }
+            if (!validComposition) {
+                List<String> fieldIds = new ArrayList<String>();
+                for (OutpatientEmrTemplateFieldSnapshot field : mappedFields) {
+                    fieldIds.add(field.getId());
+                }
+                throw new BusinessException(
+                    "标准字段 " + entry.getKey() + " 存在重复映射: " + String.join("、", fieldIds)
+                );
+            }
+        }
+    }
+
+    private List<OutpatientEmrTemplateMappingOverrideVO> applyMappingOverrides(
+        String idSnapshot,
+        OutpatientEmrTemplateParseSnapshot parseResult
+    ) {
+        Map<String, OutpatientEmrTemplateFieldSnapshot> fieldsById =
+            new LinkedHashMap<String, OutpatientEmrTemplateFieldSnapshot>();
+        for (OutpatientEmrTemplateFieldSnapshot field : parseResult.getFields()) {
+            fieldsById.put(field.getId(), field);
+        }
+        List<OutpatientEmrTemplateMappingOverrideVO> views =
+            new ArrayList<OutpatientEmrTemplateMappingOverrideVO>();
+        for (AiOutpatientEmrTemplateMapping mapping : listMappings(idSnapshot)) {
+            OutpatientEmrTemplateFieldSnapshot field = fieldsById.get(mapping.getFieldId());
+            if (field == null) {
+                throw new BusinessException("门诊模板字段映射引用了不存在的字段: " + mapping.getFieldId());
+            }
+            OutpatientEmrTemplateMappingOverrideVO view =
+                new OutpatientEmrTemplateMappingOverrideVO();
+            view.setFieldId(mapping.getFieldId());
+            view.setMappingStatus(
+                mapping.getRecordField() == null ? MAPPING_STATUS_UNMAPPED : MAPPING_STATUS_MAPPED
+            );
+            view.setRecordField(mapping.getRecordField());
+            view.setProjectionMode(mapping.getProjectionMode());
+            view.setAutomaticRecordField(field.getRecordField());
+            view.setAutomaticMappingSource(field.getMappingSource());
+            view.setAutomaticProjectionMode(field.getProjectionMode());
+            view.setUpdatedAt(toEpochMillis(
+                mapping.getUpdateTime() == null ? mapping.getInsertTime() : mapping.getUpdateTime()
+            ));
+            views.add(view);
+            applyMappingValue(field, mapping.getRecordField(), mapping.getProjectionMode());
+        }
+        return views;
+    }
+
+    private void applyMappingValue(OutpatientEmrTemplateFieldSnapshot field,
+                                   String recordField,
+                                   String projectionMode) {
+        field.setRecordField(recordField);
+        field.setProjectionMode(projectionMode);
+        if (recordField == null) {
+            field.setMappingSource("unmapped");
+        } else if ("section-compose".equals(projectionMode)) {
+            field.setMappingSource("definition-article-record-field");
+        } else {
+            field.setMappingSource("definition-record-field");
+        }
+    }
+
+    private OutpatientEmrTemplateFieldSnapshot requireField(
+        OutpatientEmrTemplateParseSnapshot parseResult,
+        String fieldId
+    ) {
+        for (OutpatientEmrTemplateFieldSnapshot field : parseResult.getFields()) {
+            if (fieldId.equals(field.getId())) {
+                return field;
+            }
+        }
+        throw new BusinessException("门诊模板字段不存在: " + fieldId);
+    }
+
+    private List<AiOutpatientEmrTemplateMapping> listMappings(String idSnapshot) {
+        List<AiOutpatientEmrTemplateMapping> mappings = mappingMapper.selectList(
+            new LambdaQueryWrapper<AiOutpatientEmrTemplateMapping>()
+                .eq(AiOutpatientEmrTemplateMapping::getIdSnapshot, idSnapshot)
+                .eq(AiOutpatientEmrTemplateMapping::getFgActive, ACTIVE)
+                .orderByAsc(AiOutpatientEmrTemplateMapping::getFieldId)
+        );
+        return mappings == null ? Collections.<AiOutpatientEmrTemplateMapping>emptyList() : mappings;
+    }
+
+    private AiOutpatientEmrTemplateMapping findMapping(String idSnapshot, String fieldId) {
+        List<AiOutpatientEmrTemplateMapping> mappings = mappingMapper.selectList(
+            new LambdaQueryWrapper<AiOutpatientEmrTemplateMapping>()
+                .eq(AiOutpatientEmrTemplateMapping::getIdSnapshot, idSnapshot)
+                .eq(AiOutpatientEmrTemplateMapping::getFieldId, fieldId)
+                .eq(AiOutpatientEmrTemplateMapping::getFgActive, ACTIVE)
+        );
+        return mappings == null || mappings.isEmpty() ? null : mappings.get(0);
+    }
+
+    private AiOutpatientEmrTemplateSnapshot requireSnapshot(String idSnapshot) {
+        String normalizedId = requireText(idSnapshot, "idSnapshot", 32);
+        AiOutpatientEmrTemplateSnapshot entity = snapshotMapper.selectById(normalizedId);
+        if (entity == null || !ACTIVE.equals(entity.getFgActive())) {
+            throw new BusinessException("门诊模板解析记录不存在");
+        }
+        return entity;
     }
 
     private void validateDictionaryItems(List<OutpatientEmrTemplateDictionaryItemSnapshot> items,
@@ -533,7 +769,16 @@ public class OutpatientEmrTemplateSnapshotService {
         if (includeDetail) {
             view.setTemplateHtml(entity.getTemplateHtml());
             view.setTemplateDefinition(entity.getTemplateDefinition());
-            view.setParseResult(readParseResult(entity.getParseResultJson()));
+            OutpatientEmrTemplateParseSnapshot parseResult = readParseResult(entity.getParseResultJson());
+            validateParseResult(parseResult);
+            List<OutpatientEmrTemplateMappingOverrideVO> overrides = applyMappingOverrides(
+                entity.getIdSnapshot(),
+                parseResult
+            );
+            ValidatedParseResult validated = validateParseResult(parseResult);
+            view.setParseResult(parseResult);
+            view.setMappingOverrides(overrides);
+            view.setMappedFieldCount(Integer.valueOf(validated.mappedFieldCount));
         }
         return view;
     }
@@ -722,6 +967,20 @@ public class OutpatientEmrTemplateSnapshotService {
             this.writableFieldCount = writableFieldCount;
             this.dictionaryFieldCount = dictionaryFieldCount;
             this.mappedFieldCount = mappedFieldCount;
+        }
+    }
+
+    private static final class ValidatedMappingUpdate {
+        private final String fieldId;
+        private final String recordField;
+        private final String projectionMode;
+
+        private ValidatedMappingUpdate(String fieldId,
+                                       String recordField,
+                                       String projectionMode) {
+            this.fieldId = fieldId;
+            this.recordField = recordField;
+            this.projectionMode = projectionMode;
         }
     }
 }

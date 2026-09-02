@@ -1,70 +1,59 @@
 <template>
   <div class="page-surface outpatient-template-panel">
-    <admin-filter-bar>
-      <div class="filter-row outpatient-template-panel__filters">
-        <div class="filter-item outpatient-template-panel__keyword">
-          <div class="filter-label">搜索</div>
-          <el-input
-            v-model.trim="keyword"
-            size="small"
-            clearable
-            placeholder="模板名称、主键或 hash"
-            @keyup.enter.native="search"
-            @clear="search"
-          />
-        </div>
-        <div class="filter-actions">
-          <el-button type="primary" size="small" icon="el-icon-search" @click="search">查询</el-button>
-          <el-button size="small" @click="reset">重置</el-button>
-        </div>
+    <section class="page-section page-section--padded page-section--toolbar outpatient-template-panel__toolbar">
+      <div class="page-toolbar__filters">
+        <el-input
+          v-model.trim="keyword"
+          clearable
+          placeholder="输入模板名称、主键或 hash"
+          class="search-input outpatient-template-panel__keyword"
+          @keyup.enter.native="search"
+          @clear="search"
+        />
+        <el-button type="primary" icon="el-icon-search" @click="search">查询</el-button>
+        <el-button @click="reset">重置</el-button>
       </div>
-      <template #actions>
-        <el-button size="small" icon="el-icon-refresh" :loading="loading" @click="loadData">刷新</el-button>
-      </template>
-    </admin-filter-bar>
+      <el-button icon="el-icon-refresh" :loading="loading" @click="loadData">刷新</el-button>
+    </section>
 
     <section class="page-section page-section--table">
-      <div class="page-section__header outpatient-template-panel__header">
-        <div>
-          <div class="page-section__title">门诊模板解析记录</div>
-          <div class="outpatient-template-panel__hint">
-            展示正式 HIS 调用在模型分析前登记的渲染 HTML、结构定义 JSON 和确定性合并解析结果，不包含患者、病历上下文或生成值。
+      <el-table v-loading="loading" :data="records" aria-label="门诊病例模板列表">
+        <template slot="empty">
+          <div class="outpatient-template-empty">
+            <span class="outpatient-template-empty__title">暂无门诊病例模板</span>
+            <span>桌面端首次动态解析门诊模板后会自动登记；你也可以先检查病例预渲染效果。</span>
+            <el-button type="text" icon="el-icon-view" @click="openPreviewExample">查看病例预渲染示例</el-button>
           </div>
-        </div>
-        <span class="outpatient-template-panel__count">共 {{ total }} 个模板版本</span>
-      </div>
-
-      <el-table
-        v-loading="loading"
-        :data="records"
-        aria-label="门诊模板解析记录列表"
-      >
-        <el-table-column label="模板名称" min-width="170">
-          <template slot-scope="{ row }">{{ row.templateName }}</template>
+        </template>
+        <el-table-column label="模板名称" min-width="180">
+          <template slot-scope="{ row }">{{ row.templateName || '未命名模板' }}</template>
         </el-table-column>
-        <el-table-column label="模板主键" min-width="160">
+        <el-table-column label="模板主键" min-width="175">
           <template slot-scope="{ row }"><code-tag :value="row.templateId" /></template>
         </el-table-column>
-        <el-table-column label="字段统计" min-width="175">
+        <el-table-column label="模板 hash" min-width="205">
+          <template slot-scope="{ row }"><code-tag :value="shortHash(row.templateHash)" /></template>
+        </el-table-column>
+        <el-table-column label="字段统计" min-width="195">
           <template slot-scope="{ row }">
             <span class="field-stats">
               {{ row.fieldCount }} 总计 · {{ row.writableFieldCount }} 可写 ·
-              {{ row.dictionaryFieldCount }} 字典 · {{ row.mappedFieldCount }} 映射
+              {{ row.dictionaryFieldCount }} 字典 · {{ row.mappedFieldCount }} 自动映射
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="模板 hash" min-width="210">
-          <template slot-scope="{ row }"><code-tag :value="shortHash(row.templateHash)" /></template>
-        </el-table-column>
-        <el-table-column label="最近设备" min-width="135">
+        <el-table-column label="最近设备" min-width="145">
           <template slot-scope="{ row }"><code-tag :value="row.cdDevice || row.idDevice" /></template>
         </el-table-column>
-        <el-table-column label="最近接收" width="180">
+        <el-table-column label="更新时间" width="180">
           <template slot-scope="{ row }">{{ formatTime(row.receivedAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="90" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template slot-scope="{ row }">
-            <table-action label="查看详情" @click="openDetail(row)" />
+            <div class="table-actions">
+              <table-action label="病例预渲染" @click="openPreview(row)" />
+              <table-action label="字段映射" @click="openMapping(row)" />
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -80,116 +69,148 @@
     </section>
 
     <el-dialog
-      v-if="detailVisible"
-      :title="detailTitle"
-      :visible.sync="detailVisible"
-      width="94vw"
-      top="4vh"
-      custom-class="outpatient-template-detail"
-      @closed="resetDetail"
+      v-if="previewVisible"
+      :title="previewTitle"
+      :visible.sync="previewVisible"
+      width="1080px"
+      top="5vh"
+      custom-class="outpatient-preview-dialog"
+      @closed="resetPreview"
     >
-      <div v-loading="detailLoading" class="outpatient-template-detail__body">
-        <div v-if="detail" class="snapshot-summary">
-          <div class="snapshot-summary__item">
-            <span>模板主键</span>
-            <code-tag :value="detail.templateId" />
-          </div>
-          <div class="snapshot-summary__item">
-            <span>模板 hash</span>
-            <code-tag :value="detail.templateHash" />
-          </div>
-          <div class="snapshot-summary__item">
-            <span>解析统计</span>
-            <strong>
-              {{ detail.fieldCount }} 总计 / {{ detail.writableFieldCount }} 可写 /
-              {{ detail.dictionaryFieldCount }} 字典 / {{ detail.mappedFieldCount }} 映射
-            </strong>
-          </div>
-          <div class="snapshot-summary__item">
-            <span>最近接收设备</span>
-            <code-tag :value="detail.cdDevice || detail.idDevice" />
-          </div>
-          <div class="snapshot-summary__item">
-            <span>最近接收时间</span>
-            <strong>{{ formatTime(detail.receivedAt) }}</strong>
-          </div>
-        </div>
-
-        <el-tabs v-if="detail" v-model="detailTab" class="snapshot-tabs">
-          <el-tab-pane label="解析字段" name="fields">
-            <div class="field-toolbar">
-              <el-input
-                v-model.trim="fieldKeyword"
-                size="small"
-                clearable
-                placeholder="搜索字段 ID、名称、章节或映射"
-                prefix-icon="el-icon-search"
-              />
-              <span>显示 {{ filteredFields.length }} / {{ detailFields.length }} 个字段</span>
+      <div v-loading="previewLoading" class="outpatient-preview-dialog__body">
+        <el-tabs v-if="previewDetail" v-model="previewTab">
+          <el-tab-pane label="病例预渲染" name="preview">
+            <outpatient-template-preview
+              :template-html="previewDetail.templateHtml"
+              :fields="previewFields"
+              :example="previewIsExample"
+            />
+          </el-tab-pane>
+          <el-tab-pane label="模板源码" name="source">
+            <div class="source-toolbar">
+              <el-radio-group v-model="sourceMode" size="small">
+                <el-radio-button label="html">渲染 HTML</el-radio-button>
+                <el-radio-button label="definition">结构定义 JSON</el-radio-button>
+                <el-radio-button label="parse">完整解析 JSON</el-radio-button>
+              </el-radio-group>
+              <span>{{ sourceNote }}</span>
             </div>
-            <el-table :data="filteredFields" height="470" aria-label="门诊模板解析字段">
-              <el-table-column label="字段 ID" min-width="170" show-overflow-tooltip>
-                <template slot-scope="{ row }"><code-tag :value="row.id" /></template>
-              </el-table-column>
-              <el-table-column prop="name" label="字段名称" min-width="140" show-overflow-tooltip />
-              <el-table-column label="所属章节" min-width="160" show-overflow-tooltip>
-                <template slot-scope="{ row }">
-                  {{ row.articleName }} / {{ row.articleDefinitionName }}
-                </template>
-              </el-table-column>
-              <el-table-column prop="type" label="类型" width="105" />
-              <el-table-column label="属性" width="150">
-                <template slot-scope="{ row }">
-                  <div class="field-flags">
-                    <status-pill :tone="row.readonly ? 'muted' : 'success'" :label="row.readonly ? '只读' : '可写'" />
-                    <status-pill :tone="row.aiSuitable ? 'success' : 'muted'" :label="row.aiSuitable ? 'AI' : '非AI'" />
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column label="字典项" width="85">
-                <template slot-scope="{ row }">{{ row.dictionaryItems.length }}</template>
-              </el-table-column>
-              <el-table-column label="标准字段映射" min-width="170" show-overflow-tooltip>
-                <template slot-scope="{ row }"><code-tag :value="row.recordField || '未映射'" /></template>
-              </el-table-column>
-              <el-table-column label="映射来源 / 投影" min-width="190" show-overflow-tooltip>
-                <template slot-scope="{ row }">{{ row.mappingSource }} / {{ row.projectionMode || '--' }}</template>
-              </el-table-column>
-            </el-table>
-          </el-tab-pane>
-          <el-tab-pane label="渲染 HTML" name="html">
-            <div class="source-note">按文本查看客户端实际传入的渲染实例；后台不会执行脚本或渲染 HTML。</div>
             <el-input
-              :value="detail.templateHtml"
+              :value="sourceContent"
               type="textarea"
-              :rows="24"
-              readonly
-              class="snapshot-code-input"
-            />
-          </el-tab-pane>
-          <el-tab-pane label="结构定义 JSON" name="definition">
-            <div class="source-note">按文本查看与渲染实例配对的完整结构定义和字典。</div>
-            <el-input
-              :value="detail.templateDefinition"
-              type="textarea"
-              :rows="24"
-              readonly
-              class="snapshot-code-input"
-            />
-          </el-tab-pane>
-          <el-tab-pane label="完整解析 JSON" name="json">
-            <el-input
-              :value="parseResultJson"
-              type="textarea"
-              :rows="25"
+              :rows="22"
               readonly
               class="snapshot-code-input"
             />
           </el-tab-pane>
         </el-tabs>
       </div>
-      <span slot="footer">
-        <el-button @click="detailVisible = false">关闭</el-button>
+    </el-dialog>
+
+    <el-dialog
+      v-if="mappingVisible"
+      :title="mappingTitle"
+      :visible.sync="mappingVisible"
+      width="96vw"
+      top="4vh"
+      custom-class="outpatient-mapping-dialog"
+      @closed="resetMapping"
+    >
+      <div v-loading="mappingLoading" class="outpatient-mapping-dialog__body">
+        <template v-if="mappingDetail">
+          <div class="mapping-summary">
+            <div>
+              <strong>动态解析字段 {{ mappingFields.length }} 个</strong>
+              <span>
+                自动映射 {{ automaticMappedCount }} · 人工维护 {{ mappingOverrides.length }} ·
+                当前有效映射 {{ mappingDetail.mappedFieldCount }}
+              </span>
+            </div>
+            <span>人工维护仅对当前模板版本生效；恢复后继续采用客户端自动解析结果。</span>
+          </div>
+          <outpatient-field-mapping-panel
+            ref="mappingPanel"
+            :fields="mappingFields"
+            :mapping-overrides="mappingOverrides"
+            :table-height="mappingTableHeight"
+            @edit="openMappingEditor"
+          />
+        </template>
+      </div>
+    </el-dialog>
+
+    <el-dialog
+      v-if="mappingEditorVisible"
+      :title="mappingEditorTitle"
+      :visible.sync="mappingEditorVisible"
+      append-to-body
+      width="640px"
+      custom-class="outpatient-mapping-editor"
+      @closed="resetMappingEditor"
+    >
+      <template v-if="activeField">
+        <div class="mapping-editor-field">
+          <div>
+            <span>字段 ID</span>
+            <code-tag :value="activeField.id" />
+          </div>
+          <div>
+            <span>字段名称</span>
+            <strong>{{ activeField.name }}</strong>
+          </div>
+          <div>
+            <span>所属章节</span>
+            <strong>{{ activeField.articleName }} · {{ activeField.articleDefinitionName }}</strong>
+          </div>
+        </div>
+
+        <div class="automatic-mapping-note">
+          <span>客户端自动解析</span>
+          <strong>{{ automaticMappingText }}</strong>
+          <small>{{ automaticMappingSourceText }}</small>
+        </div>
+
+        <el-form label-position="top" class="mapping-editor-form">
+          <el-form-item label="维护方式">
+            <el-radio-group v-model="mappingForm.mappingStatus">
+              <el-radio-button label="mapped">指定标准字段</el-radio-button>
+              <el-radio-button label="unmapped">明确不映射</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <template v-if="mappingForm.mappingStatus === 'mapped'">
+            <div class="mapping-editor-form__row">
+              <el-form-item label="标准病例字段">
+                <el-select v-model="mappingForm.recordField" filterable placeholder="选择标准病例字段">
+                  <el-option
+                    v-for="item in recordFieldOptions"
+                    :key="item.value"
+                    :label="`${item.label}（${item.value}）`"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="投影方式">
+                <el-select v-model="mappingForm.projectionMode" placeholder="选择投影方式">
+                  <el-option label="直接写入" value="direct" />
+                  <el-option label="同章节字段组合" value="section-compose" />
+                </el-select>
+              </el-form-item>
+            </div>
+          </template>
+          <el-alert
+            v-else
+            title="该字段将被明确排除，不参与门诊病例标准字段回填。"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
+        </el-form>
+      </template>
+      <span slot="footer" class="mapping-editor-footer">
+        <el-button v-if="activeOverride" type="text" :loading="restoringMapping" @click="restoreAutomaticMapping">恢复自动映射</el-button>
+        <span class="mapping-editor-footer__spacer"></span>
+        <el-button @click="mappingEditorVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingMapping" @click="saveMapping">保存</el-button>
       </span>
     </el-dialog>
   </div>
@@ -197,150 +218,23 @@
 
 <script>
 import http from '../api/http'
-import { AdminFilterBar, CodeTag, StatusPill, TableAction } from '../components/ui'
-
-const recordFields = new Set([
-  'chiefComplaint',
-  'historyOfPresentIllness',
-  'pastMedicalHistory',
-  'personalHistory',
-  'menstrualHistory',
-  'familyHistory',
-  'physicalExam',
-  'precautions'
-])
-const mappingSources = new Set([
-  'definition-record-field',
-  'definition-article-record-field',
-  'canonical-id',
-  'deterministic-alias',
-  'deterministic-article',
-  'unmapped'
-])
-const countFields = [
-  'fieldCount',
-  'writableFieldCount',
-  'dictionaryFieldCount',
-  'mappedFieldCount'
-]
-
-function isExactText(value, allowEmpty = false) {
-  return typeof value === 'string' &&
-    (allowEmpty || value.length > 0) &&
-    value === value.trim()
-}
-
-function isNullableExactText(value) {
-  return value === null || isExactText(value)
-}
-
-function isSnapshotSummary(value) {
-  return Boolean(
-    value &&
-    isExactText(value.id) &&
-    isExactText(value.idOrg) &&
-    isNullableExactText(value.idRegion) &&
-    isExactText(value.templateId) &&
-    isExactText(value.templateName) &&
-    typeof value.templateHash === 'string' && /^[a-f0-9]{64}$/.test(value.templateHash) &&
-    isExactText(value.idDevice) &&
-    isNullableExactText(value.cdDevice) &&
-    Number.isInteger(value.receivedAt) &&
-    Number.isInteger(value.createdAt) &&
-    Number.isInteger(value.updatedAt) &&
-    countFields.every(field => Number.isInteger(value[field]) && value[field] >= 0) &&
-    value.fieldCount > 0 &&
-    value.writableFieldCount <= value.fieldCount &&
-    value.dictionaryFieldCount <= value.fieldCount &&
-    value.mappedFieldCount <= value.fieldCount
-  )
-}
-
-function requireSnapshotPage(data) {
-  if (
-    !data ||
-    !Number.isInteger(data.current) ||
-    data.current < 1 ||
-    !Number.isInteger(data.size) ||
-    data.size < 1 ||
-    !Array.isArray(data.records) ||
-    !data.records.every(isSnapshotSummary) ||
-    !Number.isInteger(data.total) ||
-    data.total < 0
-  ) {
-    throw new Error('门诊模板解析记录响应不符合当前接口协议')
-  }
-  return data
-}
-
-function isDictionaryItems(items) {
-  if (!Array.isArray(items)) return false
-  const tokens = new Set()
-  return items.every(item => {
-    if (!item || !isExactText(item.value, true) || !isExactText(item.text)) return false
-    const itemTokens = item.value === item.text ? [item.value] : [item.value, item.text]
-    if (itemTokens.some(token => tokens.has(token))) return false
-    itemTokens.forEach(token => tokens.add(token))
-    return true
-  })
-}
-
-function isSnapshotField(field) {
-  if (
-    !field ||
-    !isExactText(field.id) ||
-    !isExactText(field.name) ||
-    !isExactText(field.type) ||
-    !isExactText(field.articleTemplateId) ||
-    !isExactText(field.articleId) ||
-    !isExactText(field.articleName) ||
-    !isExactText(field.articleDefinitionName) ||
-    typeof field.readonly !== 'boolean' ||
-    typeof field.aiSuitable !== 'boolean' ||
-    !isExactText(field.baselineValue, true) ||
-    !isExactText(field.baselineDictionaryValue, true) ||
-    !isDictionaryItems(field.dictionaryItems) ||
-    !isNullableExactText(field.recordField) ||
-    !mappingSources.has(field.mappingSource) ||
-    !isNullableExactText(field.projectionMode)
-  ) return false
-
-  if (field.recordField === null) {
-    return field.mappingSource === 'unmapped' && field.projectionMode === null
-  }
-  return recordFields.has(field.recordField) &&
-    field.mappingSource !== 'unmapped' &&
-    (field.projectionMode === 'direct' || field.projectionMode === 'section-compose')
-}
-
-function requireSnapshotDetail(data) {
-  if (
-    !isSnapshotSummary(data) ||
-    typeof data.templateHtml !== 'string' ||
-    !data.templateHtml.trim() ||
-    typeof data.templateDefinition !== 'string' ||
-    !data.templateDefinition.trim() ||
-    !data.parseResult ||
-    data.parseResult.schemaVersion !== 'outpatient-emr-template-pair.v1' ||
-    !Array.isArray(data.parseResult.fields) ||
-    data.parseResult.fields.length !== data.fieldCount ||
-    !data.parseResult.fields.every(isSnapshotField) ||
-    new Set(data.parseResult.fields.map(field => field.id)).size !== data.fieldCount ||
-    data.parseResult.fields.filter(field => !field.readonly).length !== data.writableFieldCount ||
-    data.parseResult.fields.filter(field => field.dictionaryItems.length > 0).length !== data.dictionaryFieldCount ||
-    data.parseResult.fields.filter(field => field.recordField !== null).length !== data.mappedFieldCount
-  ) {
-    throw new Error('门诊模板解析详情响应不符合当前接口协议')
-  }
-  return data
-}
+import { CodeTag, TableAction } from '../components/ui'
+import OutpatientFieldMappingPanel from '../components/outpatient-emr/OutpatientFieldMappingPanel.vue'
+import OutpatientTemplatePreview from '../components/outpatient-emr/OutpatientTemplatePreview.vue'
+import { outpatientPreviewExample } from '../utils/outpatientEmrPreview'
+import {
+  mappingSourceLabels,
+  recordFieldOptions,
+  requireSnapshotDetail,
+  requireSnapshotPage
+} from '../utils/outpatientEmrTemplateContract'
 
 export default {
   name: 'OutpatientEmrTemplatePanel',
   components: {
-    AdminFilterBar,
     CodeTag,
-    StatusPill,
+    OutpatientFieldMappingPanel,
+    OutpatientTemplatePreview,
     TableAction
   },
   data() {
@@ -351,46 +245,108 @@ export default {
       size: 10,
       total: 0,
       records: [],
-      detailVisible: false,
-      detailLoading: false,
-      detail: null,
-      detailTab: 'fields',
-      fieldKeyword: ''
+      previewVisible: false,
+      previewLoading: false,
+      previewDetail: null,
+      previewName: '',
+      previewIsExample: false,
+      previewTab: 'preview',
+      sourceMode: 'html',
+      mappingVisible: false,
+      mappingLoading: false,
+      mappingDetail: null,
+      mappingName: '',
+      mappingEditorVisible: false,
+      activeField: null,
+      mappingForm: {
+        mappingStatus: 'mapped',
+        recordField: '',
+        projectionMode: 'direct'
+      },
+      savingMapping: false,
+      restoringMapping: false,
+      viewportHeight: window.innerHeight || 768,
+      recordFieldOptions
     }
   },
   computed: {
-    detailTitle() {
-      return this.detail ? `${this.detail.templateName} - 传入模板与解析结果` : '传入模板与解析结果'
+    previewTitle() {
+      return this.previewName ? `${this.previewName} - 病例预渲染` : '病例预渲染'
     },
-    detailFields() {
-      return this.detail ? this.detail.parseResult.fields : []
+    previewFields() {
+      return this.previewDetail ? this.previewDetail.parseResult.fields : []
     },
-    filteredFields() {
-      const keyword = String(this.fieldKeyword || '').toLowerCase()
-      if (!keyword) return this.detailFields
-      return this.detailFields.filter(field => [
-        field.id,
-        field.name,
-        field.type,
-        field.articleTemplateId,
-        field.articleId,
-        field.articleName,
-        field.articleDefinitionName,
-        field.recordField,
-        field.mappingSource,
-        field.projectionMode
-      ].filter(Boolean).join(' ').toLowerCase().indexOf(keyword) > -1)
+    sourceContent() {
+      if (!this.previewDetail) return ''
+      if (this.sourceMode === 'definition') return this.previewDetail.templateDefinition
+      if (this.sourceMode === 'parse') return JSON.stringify(this.previewDetail.parseResult, null, 2)
+      return this.previewDetail.templateHtml
     },
-    parseResultJson() {
-      return this.detail && this.detail.parseResult
-        ? JSON.stringify(this.detail.parseResult, null, 2)
-        : ''
+    sourceNote() {
+      if (this.sourceMode === 'definition') return '与渲染 HTML 配对的结构定义和字典，只读展示。'
+      if (this.sourceMode === 'parse') return '客户端动态解析并叠加当前版本人工映射后的结果。'
+      return 'HIS 实际传入的渲染实例，只读展示。'
+    },
+    mappingTitle() {
+      return this.mappingName ? `${this.mappingName} - 字段映射` : '字段映射'
+    },
+    mappingFields() {
+      return this.mappingDetail ? this.mappingDetail.parseResult.fields : []
+    },
+    mappingOverrides() {
+      return this.mappingDetail ? this.mappingDetail.mappingOverrides : []
+    },
+    automaticMappedCount() {
+      const overrideMap = this.mappingOverrides.reduce((result, item) => {
+        result[item.fieldId] = item
+        return result
+      }, Object.create(null))
+      return this.mappingFields.filter((field) => {
+        const override = overrideMap[field.id]
+        return override ? override.automaticRecordField : field.recordField
+      }).length
+    },
+    mappingTableHeight() {
+      return Math.max(340, Math.min(680, this.viewportHeight - 245))
+    },
+    activeOverride() {
+      if (!this.activeField) return null
+      return this.mappingOverrides.find(item => item.fieldId === this.activeField.id) || null
+    },
+    mappingEditorTitle() {
+      return this.activeField ? `${this.activeField.name} - 字段映射维护` : '字段映射维护'
+    },
+    automaticMappingText() {
+      if (!this.activeField) return '未映射'
+      const recordField = this.activeOverride
+        ? this.activeOverride.automaticRecordField
+        : this.activeField.recordField
+      const projectionMode = this.activeOverride
+        ? this.activeOverride.automaticProjectionMode
+        : this.activeField.projectionMode
+      if (!recordField) return '未映射'
+      return `${this.recordFieldLabel(recordField)} · ${this.projectionLabel(projectionMode)}`
+    },
+    automaticMappingSourceText() {
+      if (!this.activeField) return ''
+      const source = this.activeOverride
+        ? this.activeOverride.automaticMappingSource
+        : this.activeField.mappingSource
+      return `来源：${mappingSourceLabels[source] || source || '未识别'}`
     }
   },
   mounted() {
+    this.updateViewportHeight()
+    window.addEventListener('resize', this.updateViewportHeight)
     this.loadData()
   },
+  beforeDestroy() {
+    window.removeEventListener('resize', this.updateViewportHeight)
+  },
   methods: {
+    updateViewportHeight() {
+      this.viewportHeight = window.innerHeight || 768
+    },
     async loadData() {
       this.loading = true
       try {
@@ -404,7 +360,7 @@ export default {
         this.records = data.records
         this.total = data.total
       } catch (error) {
-        this.$message.error(error.message || '门诊模板解析记录加载失败')
+        this.$message.error(error.message || '门诊病例模板加载失败')
       } finally {
         this.loading = false
       }
@@ -418,33 +374,142 @@ export default {
       this.current = 1
       this.loadData()
     },
-    async openDetail(row) {
-      this.detailVisible = true
-      this.detailLoading = true
-      this.detail = null
-      this.detailTab = 'fields'
-      this.fieldKeyword = ''
+    async fetchDetail(row) {
+      return requireSnapshotDetail(
+        await http.get(`/admin/api/outpatient-emr/templates/${row.id}`)
+      )
+    },
+    async openPreview(row) {
+      this.previewVisible = true
+      this.previewLoading = true
+      this.previewDetail = null
+      this.previewName = row.templateName || '未命名模板'
+      this.previewIsExample = false
+      this.previewTab = 'preview'
+      this.sourceMode = 'html'
       try {
-        this.detail = requireSnapshotDetail(
-          await http.get(`/admin/api/outpatient-emr/templates/${row.id}`)
-        )
+        this.previewDetail = await this.fetchDetail(row)
       } catch (error) {
-        this.detailVisible = false
-        this.$message.error(error.message || '门诊模板解析详情加载失败')
+        this.previewVisible = false
+        this.$message.error(error.message || '门诊病例模板读取失败')
       } finally {
-        this.detailLoading = false
+        this.previewLoading = false
       }
     },
-    resetDetail() {
-      this.detail = null
-      this.detailTab = 'fields'
-      this.fieldKeyword = ''
+    openPreviewExample() {
+      this.previewDetail = requireSnapshotDetail(outpatientPreviewExample)
+      this.previewName = outpatientPreviewExample.templateName
+      this.previewIsExample = true
+      this.previewLoading = false
+      this.previewTab = 'preview'
+      this.sourceMode = 'html'
+      this.previewVisible = true
+    },
+    resetPreview() {
+      this.previewDetail = null
+      this.previewName = ''
+      this.previewIsExample = false
+      this.previewTab = 'preview'
+      this.sourceMode = 'html'
+    },
+    async openMapping(row) {
+      this.mappingVisible = true
+      this.mappingLoading = true
+      this.mappingDetail = null
+      this.mappingName = row.templateName || '未命名模板'
+      try {
+        this.mappingDetail = await this.fetchDetail(row)
+      } catch (error) {
+        this.mappingVisible = false
+        this.$message.error(error.message || '门诊模板字段映射读取失败')
+      } finally {
+        this.mappingLoading = false
+      }
+    },
+    resetMapping() {
+      this.mappingDetail = null
+      this.mappingName = ''
+      this.resetMappingEditor()
+    },
+    openMappingEditor(field) {
+      const override = this.mappingOverrides.find(item => item.fieldId === field.id) || null
+      this.activeField = field
+      this.mappingForm = {
+        mappingStatus: override ? override.mappingStatus : (field.recordField ? 'mapped' : 'unmapped'),
+        recordField: (override ? override.recordField : field.recordField) || '',
+        projectionMode: (override ? override.projectionMode : field.projectionMode) || 'direct'
+      }
+      this.mappingEditorVisible = true
+    },
+    resetMappingEditor() {
+      this.activeField = null
+      this.mappingForm = {
+        mappingStatus: 'mapped',
+        recordField: '',
+        projectionMode: 'direct'
+      }
+      this.savingMapping = false
+      this.restoringMapping = false
+    },
+    async saveMapping() {
+      if (!this.mappingDetail || !this.activeField) return
+      if (this.mappingForm.mappingStatus === 'mapped' && !this.mappingForm.recordField) {
+        this.$message.warning('请选择标准病例字段')
+        return
+      }
+      this.savingMapping = true
+      try {
+        const mapped = this.mappingForm.mappingStatus === 'mapped'
+        this.mappingDetail = requireSnapshotDetail(await http.put(
+          `/admin/api/outpatient-emr/templates/${this.mappingDetail.id}/mapping`,
+          {
+            fieldId: this.activeField.id,
+            mappingStatus: this.mappingForm.mappingStatus,
+            recordField: mapped ? this.mappingForm.recordField : null,
+            projectionMode: mapped ? this.mappingForm.projectionMode : null
+          }
+        ))
+        this.mappingEditorVisible = false
+        this.$message.success('字段映射已保存，并对当前模板版本生效')
+        await this.loadData()
+      } catch (error) {
+        this.$message.error(error.message || '字段映射保存失败')
+      } finally {
+        this.savingMapping = false
+      }
+    },
+    async restoreAutomaticMapping() {
+      if (!this.mappingDetail || !this.activeField || !this.activeOverride) return
+      this.restoringMapping = true
+      try {
+        this.mappingDetail = requireSnapshotDetail(await http.delete(
+          `/admin/api/outpatient-emr/templates/${this.mappingDetail.id}/mapping`,
+          { params: { fieldId: this.activeField.id } }
+        ))
+        this.mappingEditorVisible = false
+        this.$message.success('已恢复客户端自动映射')
+        await this.loadData()
+      } catch (error) {
+        this.$message.error(error.message || '恢复自动映射失败')
+      } finally {
+        this.restoringMapping = false
+      }
+    },
+    recordFieldLabel(value) {
+      const item = recordFieldOptions.find(option => option.value === value)
+      return item ? `${item.label}（${item.value}）` : value || '未映射'
+    },
+    projectionLabel(value) {
+      if (value === 'direct') return '直接写入'
+      if (value === 'section-compose') return '章节组合'
+      return '无投影'
     },
     shortHash(value) {
       const text = String(value)
       return text.length > 18 ? `${text.slice(0, 10)}…${text.slice(-6)}` : text
     },
     formatTime(value) {
+      if (!value) return '-'
       return new Date(value).toLocaleString()
     }
   }
@@ -452,31 +517,13 @@ export default {
 </script>
 
 <style scoped>
-.outpatient-template-panel__filters {
-  flex-wrap: wrap;
+.outpatient-template-panel__toolbar {
+  padding-top: 16px;
+  padding-bottom: 16px;
 }
 
 .outpatient-template-panel__keyword {
-  min-width: 280px;
-}
-
-.outpatient-template-panel__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.outpatient-template-panel__hint,
-.outpatient-template-panel__count,
-.field-toolbar,
-.source-note {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-
-.outpatient-template-panel__hint {
-  margin-top: 5px;
+  width: 300px;
 }
 
 .field-stats {
@@ -485,64 +532,36 @@ export default {
   white-space: nowrap;
 }
 
-.outpatient-template-detail__body {
-  min-height: 520px;
-}
-
-.snapshot-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  overflow: hidden;
-  margin-bottom: 16px;
-  border: 0.5px solid var(--border-color-base);
-  border-radius: 8px;
-  background: var(--border-color-light);
-}
-
-.snapshot-summary__item {
-  min-width: 0;
+.outpatient-template-empty {
+  min-height: 150px;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 7px;
-  padding: 12px 14px;
-  background: #fff;
+  color: #8a9693;
+  line-height: 1.5;
 }
 
-.snapshot-summary__item > span {
-  color: var(--color-text-secondary);
-  font-size: 12px;
+.outpatient-template-empty__title {
+  color: #53605d;
+  font-size: 15px;
+  font-weight: 600;
 }
 
-.snapshot-summary__item > strong {
-  overflow: hidden;
-  color: var(--color-text-primary);
-  font-size: 13px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.outpatient-preview-dialog__body,
+.outpatient-mapping-dialog__body {
+  min-height: 120px;
 }
 
-.field-toolbar {
+.source-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 12px;
-}
-
-.field-toolbar .el-input {
-  width: 360px;
-}
-
-.field-flags {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.source-note {
-  margin-bottom: 10px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
 }
 
 .snapshot-code-input ::v-deep textarea {
@@ -551,9 +570,247 @@ export default {
   line-height: 1.55;
 }
 
-@media (max-width: 1100px) {
-  .snapshot-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+.mapping-summary {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid #dcebe6;
+  border-radius: 8px;
+  background: #f7fbf9;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.mapping-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mapping-summary strong {
+  color: #253b35;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mapping-editor-field {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin-bottom: 14px;
+  border: 1px solid var(--border-color-base);
+  border-radius: 8px;
+  background: var(--border-color-light);
+}
+
+.mapping-editor-field > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.mapping-editor-field > div:last-child {
+  grid-column: 1 / -1;
+}
+
+.mapping-editor-field span,
+.automatic-mapping-note span,
+.automatic-mapping-note small {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.mapping-editor-field strong,
+.automatic-mapping-note strong {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automatic-mapping-note {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 10px 12px;
+  border-left: 3px solid #33a77a;
+  background: #f4faf7;
+}
+
+.mapping-editor-form__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.mapping-editor-form__row .el-select {
+  width: 100%;
+}
+
+.mapping-editor-footer {
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.mapping-editor-footer__spacer {
+  flex: 1;
+}
+
+::v-deep .outpatient-preview-dialog {
+  max-width: 94vw;
+}
+
+::v-deep .outpatient-preview-dialog .el-dialog__body {
+  padding: 10px 20px 20px;
+}
+
+::v-deep .outpatient-preview-dialog .source-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+::v-deep .outpatient-preview-dialog .snapshot-code-input textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+::v-deep .outpatient-mapping-dialog {
+  max-width: 1440px;
+}
+
+::v-deep .outpatient-mapping-dialog .el-dialog__body {
+  max-height: calc(92vh - 54px);
+  padding: 12px 16px 16px;
+  overflow: hidden;
+}
+
+::v-deep .outpatient-mapping-dialog .mapping-summary {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid #dcebe6;
+  border-radius: 8px;
+  background: #f7fbf9;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+::v-deep .outpatient-mapping-dialog .mapping-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+::v-deep .outpatient-mapping-dialog .mapping-summary strong {
+  color: #253b35;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+::v-deep .outpatient-mapping-editor .mapping-editor-field {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin-bottom: 14px;
+  border: 1px solid var(--border-color-base);
+  border-radius: 8px;
+  background: var(--border-color-light);
+}
+
+::v-deep .outpatient-mapping-editor .mapping-editor-field > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+::v-deep .outpatient-mapping-editor .mapping-editor-field > div:last-child {
+  grid-column: 1 / -1;
+}
+
+::v-deep .outpatient-mapping-editor .mapping-editor-field span,
+::v-deep .outpatient-mapping-editor .automatic-mapping-note span,
+::v-deep .outpatient-mapping-editor .automatic-mapping-note small {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+::v-deep .outpatient-mapping-editor .mapping-editor-field strong,
+::v-deep .outpatient-mapping-editor .automatic-mapping-note strong {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+::v-deep .outpatient-mapping-editor .automatic-mapping-note {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 10px 12px;
+  border-left: 3px solid #33a77a;
+  background: #f4faf7;
+}
+
+::v-deep .outpatient-mapping-editor .mapping-editor-form__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+::v-deep .outpatient-mapping-editor .mapping-editor-form__row .el-select {
+  width: 100%;
+}
+
+::v-deep .outpatient-mapping-editor .mapping-editor-footer {
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+::v-deep .outpatient-mapping-editor .mapping-editor-footer__spacer {
+  flex: 1;
+}
+
+@media (max-width: 900px) {
+  .source-toolbar,
+  .mapping-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .automatic-mapping-note {
+    grid-template-columns: 1fr;
   }
 }
 </style>

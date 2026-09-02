@@ -403,6 +403,31 @@ CREATE INDEX idx_c_ai_outemr_tpl_id ON c_ai_outpatient_emr_tpl_snapshot (templat
 CREATE INDEX idx_c_ai_outemr_tpl_time ON c_ai_outpatient_emr_tpl_snapshot (fg_active, dt_last_received);
 
 
+CREATE TABLE c_ai_outpatient_emr_tpl_mapping (
+    id_mapping             VARCHAR(32) PRIMARY KEY,
+    id_snapshot            VARCHAR(32) NOT NULL,
+    field_id               VARCHAR(512) NOT NULL,
+    record_field           VARCHAR(64),
+    projection_mode        VARCHAR(64),
+    fg_active              CHAR(1) DEFAULT '1' NOT NULL,
+    insert_time            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_time            TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE c_ai_outpatient_emr_tpl_mapping IS '门诊病历模板版本字段人工映射覆盖表';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_mapping.id_mapping IS '字段映射覆盖主键ID';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_mapping.id_snapshot IS '对应门诊模板快照ID';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_mapping.field_id IS '模板动态解析字段ID';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_mapping.record_field IS '覆盖后的标准病例字段，空表示显式不映射';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_mapping.projection_mode IS '覆盖后的投影方式，显式不映射时为空';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_mapping.fg_active IS '逻辑有效标记';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_mapping.insert_time IS '创建时间';
+COMMENT ON COLUMN c_ai_outpatient_emr_tpl_mapping.update_time IS '更新时间';
+
+CREATE UNIQUE INDEX uk_c_ai_outemr_tpl_map ON c_ai_outpatient_emr_tpl_mapping (id_snapshot, field_id);
+CREATE INDEX idx_c_ai_outemr_tpl_map_active ON c_ai_outpatient_emr_tpl_mapping (id_snapshot, fg_active);
+
+
 CREATE TABLE c_ai_symptom_template_change_log (
     id_log                  VARCHAR(32) PRIMARY KEY,
     id_template             VARCHAR(32),

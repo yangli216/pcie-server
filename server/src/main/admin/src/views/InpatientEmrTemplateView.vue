@@ -20,6 +20,13 @@
 
     <div class="page-card">
       <el-table :data="records" v-loading="loading">
+        <template slot="empty">
+          <div class="inpatient-template-empty">
+            <span class="inpatient-template-empty__title">暂无住院模板缓存</span>
+            <span>桌面端首次解析住院模板后会自动上传；你也可以先检查病例预渲染效果。</span>
+            <el-button type="text" icon="el-icon-view" @click="openPreviewExample">查看病例预渲染示例</el-button>
+          </div>
+        </template>
         <el-table-column prop="templateName" label="模板名称" min-width="180">
           <template slot-scope="{ row }">{{ row.templateName || '未命名模板' }}</template>
         </el-table-column>
@@ -45,7 +52,7 @@
         <el-table-column label="操作" width="330" fixed="right">
           <template slot-scope="{ row }">
             <div class="table-actions">
-              <table-action label="查看模板" @click="openTemplateViewer(row)" />
+              <table-action label="病例预渲染" @click="openTemplateViewer(row)" />
               <table-action label="字段维护" @click="openDetail(row)" />
               <table-action v-if="row.sdStatus !== '1'" label="启用" @click="enableRecord(row)" />
               <table-action v-else label="停用" @click="disableRecord(row)" />
@@ -171,15 +178,14 @@
       @closed="resetTemplateViewer"
     >
       <el-tabs v-model="templateViewMode">
-        <el-tab-pane label="HTML预览" name="preview">
-          <iframe
-            class="template-preview-frame"
-            sandbox=""
-            :srcdoc="templateViewerHtml"
-            title="病历模板HTML预览"
-          ></iframe>
+        <el-tab-pane label="病例预渲染" name="preview">
+          <inpatient-template-preview
+            :html-content="templateViewerHtml"
+            :fields="templateViewerFields"
+            :example="templateViewerIsExample"
+          />
         </el-tab-pane>
-        <el-tab-pane label="源码" name="source">
+        <el-tab-pane label="模板源码" name="source">
           <el-input
             :value="templateViewerHtml"
             type="textarea"
@@ -197,10 +203,13 @@
 import http from '../api/http'
 import { truncate } from '../utils/admin'
 import { CodeTag, SegmentedSwitch, StatusPill, TableAction } from '../components/ui'
+import InpatientTemplatePreview from '../components/inpatient-emr/InpatientTemplatePreview.vue'
+import { inpatientPreviewExample } from '../utils/inpatientEmrPreview'
 
 export default {
   components: {
     CodeTag,
+    InpatientTemplatePreview,
     SegmentedSwitch,
     StatusPill,
     TableAction
@@ -218,6 +227,7 @@ export default {
       selectedRecord: null,
       templateViewerVisible: false,
       templateViewerRecord: null,
+      templateViewerIsExample: false,
       templateViewMode: 'preview',
       promptDialogVisible: false,
       activeField: null,
@@ -265,10 +275,13 @@ export default {
       return Math.max(320, Math.min(680, this.viewportHeight - 245))
     },
     templateViewerTitle() {
-      return this.templateViewerRecord ? `${this.templateViewerRecord.templateName || '未命名模板'} - 模板查看` : '模板查看'
+      return this.templateViewerRecord ? `${this.templateViewerRecord.templateName || '未命名模板'} - 病例预渲染` : '病例预渲染'
     },
     templateViewerHtml() {
       return this.templateViewerRecord && this.templateViewerRecord.htmlContent ? this.templateViewerRecord.htmlContent : ''
+    },
+    templateViewerFields() {
+      return this.templateViewerRecord && Array.isArray(this.templateViewerRecord.fields) ? this.templateViewerRecord.fields : []
     }
   },
   mounted() {
@@ -320,11 +333,18 @@ export default {
     async openTemplateViewer(row) {
       try {
         this.templateViewerRecord = await http.get(`/admin/api/inpatient-emr/templates/${row.id}`)
+        this.templateViewerIsExample = false
         this.templateViewMode = 'preview'
         this.templateViewerVisible = true
       } catch (error) {
         this.$message.error(error.message || '读取模板源码失败')
       }
+    },
+    openPreviewExample() {
+      this.templateViewerRecord = inpatientPreviewExample
+      this.templateViewerIsExample = true
+      this.templateViewMode = 'preview'
+      this.templateViewerVisible = true
     },
     resetDetail() {
       this.selectedRecord = null
@@ -338,6 +358,7 @@ export default {
     },
     resetTemplateViewer() {
       this.templateViewerRecord = null
+      this.templateViewerIsExample = false
       this.templateViewMode = 'preview'
     },
     openPrompt(field) {
@@ -491,12 +512,21 @@ export default {
 </script>
 
 <style scoped>
-.template-preview-frame {
-  width: 100%;
-  height: 560px;
-  border: 1px solid #d8e0e3;
-  border-radius: 6px;
-  background: #ffffff;
+.inpatient-template-empty {
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #8a9693;
+  line-height: 1.5;
+}
+
+.inpatient-template-empty__title {
+  color: #53605d;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .template-source-input :deep(textarea) {

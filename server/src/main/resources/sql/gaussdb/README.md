@@ -67,7 +67,7 @@ FB_DB_PASSWORD=Rbmh_ai@123
 ## 注意事项
 
 1. GaussDB 脚本不提供 Oracle 风格的 `bootstrap.sql`；数据库、schema、用户和表空间通常由 DBA 按现场规范预先创建。
-2. 激活记录唯一性使用表达式唯一索引实现，语义与 Oracle 基线一致；问诊日志只对激活且尚未结束的 `generated` 轮次做唯一约束。门诊模板快照只接收正式 HIS Bridge/SDK 分析链路中同一模板的渲染 HTML 与结构定义 JSON，按机构、模板 ID 与模板对 hash 标识版本，只保存两份原文和确定性合并解析结果，不保存患者、病历上下文或生成值。
+2. 激活记录唯一性使用表达式唯一索引实现，语义与 Oracle 基线一致；问诊日志只对激活且尚未结束的 `generated` 轮次做唯一约束。门诊模板快照只接收正式 HIS Bridge/SDK 分析链路中同一模板的渲染 HTML 与结构定义 JSON，按机构、模板 ID 与模板对 hash 标识版本，只保存两份原文和确定性合并解析结果，不保存患者、病历上下文或生成值；`c_ai_outpatient_emr_tpl_mapping` 以模板快照和字段 ID 保存独立人工覆盖，不修改不可变快照。
 3. 现场旧库不能重建时，由 DBA 基于当前 `init.sql` 与现场结构生成一次性迁移脚本；客户端使用情况上线前需确认 `c_ai_feature_event.cd_doctor`、`client_version` 与 `idx_c_ai_feature_event_usage` 已补齐。历史空值不得猜测回填。
 4. 若需要普通 PostgreSQL 运行，优先复用本目录结构作为 PG 兼容基线，再结合现场版本验证 JSON、表达式索引和时间函数兼容性。
 5. 存量库使用当前应用账号执行 `gsql -v ON_ERROR_STOP=1 -f update_his_org_statistics.sql`。该脚本补齐客户端使用情况字段和索引，清空历史功能事件的临床关联与 payload，并按稳定 UUID 重建幂等键；执行前必须备份、停止写入、核查外部报表依赖并由 DBA 在维护窗口审核。后续慢病脚本职责保持不变。

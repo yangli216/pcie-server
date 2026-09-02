@@ -168,7 +168,11 @@ pcie-server/
 - 封装“机构级 > 区域级 > 全局级”的配置查找优先级
 - `modules/config` 中的 AI 配置除主模型地址/密钥外，还负责托管 `chatFast` 独立模型、`enableThinking` 开关、独立审查 AI、`check_examination` 审查开关与 PMPHAI 的服务端密钥；`bootstrap` 只下发非密钥视图
 - `modules/symptom` 负责症状模板的逐条 CRUD、内置模板导入、JSON 模板文件导入、作用域合并、客户端 `templates/delta` 聚合与症状模板修改日志，数据结构对齐 `floating-ball` 的 `SymptomManagement.vue` / disease editor
-- `modules/emrtemplate` 承载两条语义独立的链路。住院链路继续缓存 HTML 模板解析结果，客户端按 HIS 传入的 `templateId` 复用已解析字段。门诊链路不复用住院缓存，也不向桌面端下发模板：客户端在正式 HIS Bridge/SDK 门诊分析调用模型前，先通过签名 `POST /v1/client/outpatient-emr/templates/snapshots/resolve` 按认证机构、`templateId` 与模板对 hash 精确查询历史解析；命中时返回已保存的 `outpatient-emr-template-pair.v1` 完整字段快照且不更新数据库，未命中时客户端才执行严格解析并通过签名 `POST /v1/client/outpatient-emr/templates/snapshots` 登记 `outpatient-emr-template-pair-snapshot.v1`。该快照把同一模板的渲染 HTML、结构定义 JSON 与完整合并解析结果作为一个不可分割版本；服务端按约定公式复算模板对 hash，严格校验顶层、字段和字典项 schema，不修剪或补造字段身份，并按 `idOrg + templateId + templateHash` 保持唯一。首次出现的模板 ID 或任一原文字节变化都形成新记录，不同模板 ID 不因内容相同而共享记录；同一身份的重复/并发登记只返回已有记录，不更新原文、解析结果、设备或时间。历史查询失败或存量解析损坏必须显式失败，不允许客户端以重复解析、旧 schema 或旧实验路径兜底。未映射字段的 `recordField` 与 `projectionMode` 在落库 JSON、历史解析响应和管理端详情响应中都必须保留显式 `null`，不能受全局 Jackson 非空序列化策略影响而被省略。`c_ai_outpatient_emr_tpl_snapshot` 只保存模板身份、两份原文、完整合并解析 JSON、字段统计、首次接收设备和时间，不保存患者、就诊、病历上下文、模型返回或医生编辑结果。管理端“病历模板”页以“住院模板缓存 / 门诊解析记录”双页签呈现，门诊详情只读分栏查看渲染 HTML、结构定义 JSON、完整解析 JSON 和字段表，不执行 HTML、不提供发布、修改或反向下发；桌面端不提供本地模板实验台。旧 `sourceFormat/templateSource` 不兼容、不落库、不保留查询筛选或展示兜底。
+- `modules/emrtemplate` 承载两条语义独立但管理口径一致的链路。住院链路继续缓存 HTML 模板解析结果，客户端按 HIS 传入的 `templateId` 复用已解析字段；管理端使用脱敏示例病例按桌面端相同的 `[data-id][data-type]` 规则预渲染缓存模板，空缓存时提供不依赖后端数据的内置示例，但不读取或保存真实患者数据。门诊链路不复用住院缓存，也不向桌面端下发模板：客户端在正式 HIS Bridge/SDK 门诊分析调用模型前，先通过签名 `POST /v1/client/outpatient-emr/templates/snapshots/resolve` 按认证机构、`templateId` 与模板对 hash 精确查询历史解析；未命中时客户端才执行严格解析并通过签名 `POST /v1/client/outpatient-emr/templates/snapshots` 登记 `outpatient-emr-template-pair-snapshot.v1`。该快照把同一模板的渲染 HTML、结构定义 JSON 与完整合并解析结果作为不可分割版本；服务端按约定公式复算模板对 hash，严格校验顶层、字段和字典项 schema，不修剪或补造字段身份，并按 `idOrg + templateId + templateHash` 保持唯一。首次出现的模板 ID 或任一原文字节变化都形成新记录；同一身份的重复/并发登记只返回已有记录，不更新原文、解析结果、设备或时间。`c_ai_outpatient_emr_tpl_snapshot` 只保存模板身份、两份原文、完整解析 JSON、字段统计、首次接收设备和时间，不保存患者、就诊、病历上下文、模型返回或医生编辑结果。
+
+  门诊字段人工维护独立保存在 `c_ai_outpatient_emr_tpl_mapping`，以 `idSnapshot + fieldId` 唯一，不修改不可变快照。管理端保存覆盖前必须确认字段属于该快照，并对标准病例字段、投影方式和重复映射做完整校验；覆盖可以指定有效映射，也可以显式设为未映射。历史解析命中及管理端详情读取快照后，在内存中叠加该版本的激活覆盖，并重新计算有效映射数；删除覆盖即恢复原始自动映射。为兼容当前 `outpatient-emr-template-pair.v1` 严格客户端，人工直接映射继续投影为 `mappingSource="definition-record-field"`，人工章节组合映射投影为 `mappingSource="definition-article-record-field"`，不增加响应字段或新枚举。历史查询失败、存量解析损坏或覆盖冲突必须显式失败，不允许客户端重复解析兜底。未映射字段的 `recordField / projectionMode` 必须保留显式 `null`。
+
+  管理端统一以“门诊病例模板 / 住院病例模板”双页签呈现，公共操作统一为“病例预渲染 / 字段维护（门诊称字段映射）”。门诊预渲染按有效 `recordField / projectionMode` 使用脱敏模拟病例；字段映射展示自动来源、人工覆盖和待确认状态；渲染 HTML、结构定义 JSON、完整解析 JSON 收入只读“解析详情”。门诊快照仍不提供发布、启停、删除或反向下发，桌面端不提供本地模板实验台。旧 `sourceFormat/templateSource` 不兼容、不落库、不保留查询筛选或展示兜底。
 - `modules/lisresult` 负责面向管理端的检验检查结果手动录入与第三方回写模拟：只查询 `hi_ods_apply` 中检验/检查类、未报告/未作废的申请单；面向 PHIS 多版本表结构差异，申请单列表、报告查看和回写前校验查询必须显式选择界面展示或逻辑处理需要的最小列，避免实体映射中的扩展字段参与运行时查询；检验录入后将报告组 ID 写回 `hi_ods_apply.id_result`，并把每个检验指标写入 `hi_ods_apply_lis_report`；检查录入后将报告 ID 写回 `hi_ods_apply.id_result`，并把报告结果、临床印象、影像诊断、阴阳性等字段写入 `hi_ods_apply_pacs_report`。该功能不接管业务系统产生申请单的链路，也不新增本地 `/api/consultation/*` 能力。
 - `modules/prompt` 负责 Prompt 配置化的逐步迁移：保留桌面端 `prompts/delta` 读取链路，管理端提供 Prompt 列表、新增、编辑、发布、归档和停用；服务端内置首批语音问诊默认 Prompt，配置表存在已发布覆盖时按机构级 > 区域级 > 全局级优先级生效。普通语音渐进结果使用独立 `voiceIntentRecognitionStream` 编码和 NDJSON 分区协议，避免历史 `voiceIntentRecognition` 纯 JSON 已发布覆盖与新客户端协议混用；新编码默认同时返回核心病历、病历上下文、AI 病历候选、诊断、诊疗路由、明确医嘱和其余病历字段，并把明确医嘱的 `name` 与字符串枚举 `type` 作为独立可选分区契约，单条无法确认时应删除而不是重写病例结论，客户端仍负责协议容错、实时目录匹配、药品定稿及 PHIS 回写。
 - `modules/datapackage` 继续负责映射数据包读取；`template` 类型数据包仅作为症状模板表未初始化时的兼容回退来源，管理端不再提供数据包维护入口
@@ -517,23 +521,30 @@ pcie-server/
    - 通过 `id_device + idempotency_key` 保证同一设备的同一功能调用只计一次
    - 医生使用情况以“后台机构 + HIS 机构 + `cd_doctor`”聚合，最近事件版本为当前版本，并在该版本内取最早 `event_time`；缺少真实工号或客户端版本的历史事件不参与该列表
    - 索引：`idx_c_ai_feature_event_time` / `_feature` / `_doctor` / `_org` / `_idem` / `_usage`
-13. `c_security_rejection_log`
+13. `c_ai_inpatient_emr_tpl_cache`
+   - 保存住院 HTML 模板与字段解析缓存，支持字段生成类型、提示词、启停和逻辑删除维护
+14. `c_ai_outpatient_emr_tpl_snapshot`
+   - 保存门诊模板对不可变版本，以 `id_org + template_id + template_hash` 唯一，只包含模板原文、确定性解析快照和接收元数据
+15. `c_ai_outpatient_emr_tpl_mapping`
+   - 保存门诊模板版本字段映射覆盖，以 `id_snapshot + field_id` 唯一；`record_field / projection_mode` 同时为空表示管理员显式设为未映射
+   - 覆盖记录不保存病例数据，不修改模板快照；客户端命中和管理端详情在内存中叠加覆盖
+16. `c_security_rejection_log`
    - 记录设备鉴权、请求签名、强制更新门禁和实时语音握手等安全拒绝事件
    - 关键列包括 `rejection_type`、`request_method`、`request_path`、`client_ip`、`id_device`、`cd_device`、`id_org`、`request_id`、`reject_reason`、`reject_detail`、`has_signature`、`timestamp_header`、`nonce_header`、`client_version`、`update_channel`
    - 索引：`idx_c_security_rej_time` / `_type` / `_ip` / `_device` / `_path`
-14. `c_ai_user`
+17. `c_ai_user`
    - 激活账号通过 `uk_c_ai_user_code_active` 保证 `cd_user` 唯一，用户资料与角色映射替换在同一事务内完成
    - `sd_status` 表示启用/停用，管理端启停只修改该字段；`fg_active` 仅表示逻辑作废，不作为日常启停入口
-15. `c_ai_role`
+18. `c_ai_role`
    - 激活角色通过 `uk_c_ai_role_code_active` 保证 `cd_role` 唯一
-16. `c_ai_user_role`
+19. `c_ai_user_role`
    - 激活映射通过 `uk_c_ai_user_role_active` 保证 `id_user + id_role` 不重复
-17. `c_ai_user_ai_permission`
+20. `c_ai_user_ai_permission`
    - 保存 PCIE 管理的人员 AI 使用权限，BBP/PHIS 人员字段仅作为身份锚点和显示快照
    - 以 `tenant_id + org_id + subject_key` 保证同一机构人员只有一条激活权限记录
    - `sd_status='1'` 表示允许使用，`sd_status='0'` 表示已撤销；不存在记录与已撤销均按无权限处理
    - `person_id`、`user_id`、`person_cd` 建立查询索引；PHIS 请求必须同时携带机构 ID，并至少使用 `person_id` 或 `user_id` 之一，`person_cd` 只能作为一致性校验字段
-18. `c_ai_bbp_admin_grant`
+21. `c_ai_bbp_admin_grant`
    - 保存 PCIE 对 BBP 人员的后台访问授权，不保存 BBP 密码、Cookie 或人员主数据副本
    - 以 `tenant_id + org_id + bbp_user_id + role_code` 保证同一机构人员同一后台角色只有一条激活授权记录
    - 当前允许授予 `ORG_ADMIN` 与 `ORG_ANALYST`；`sd_status='1'` 表示允许以对应 PCIE 机构角色进入后台，`sd_status='0'` 表示已撤销

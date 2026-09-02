@@ -2,6 +2,8 @@ package com.regionalai.floatingball.server.modules.emrtemplate.dto;
 
 import lombok.Data;
 
+import java.util.List;
+
 @Data
 public class OutpatientEmrTemplateSnapshotVO {
 
@@ -26,6 +28,8 @@ public class OutpatientEmrTemplateSnapshotVO {
     private String templateDefinition;
 
     private OutpatientEmrTemplateParseSnapshot parseResult;
+
+    private List<OutpatientEmrTemplateMappingOverrideVO> mappingOverrides;
 
     private Integer fieldCount;
 
