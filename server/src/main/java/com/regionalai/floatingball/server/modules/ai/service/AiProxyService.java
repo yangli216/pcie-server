@@ -220,7 +220,14 @@ public class AiProxyService {
                             UpstreamChatConfig upstreamConfig,
                             List<Map<String, Object>> messages,
                             Double temperature) {
-        Map<String, Object> payload = buildChatPayload(upstreamConfig.getModel(), messages, Boolean.FALSE, temperature, upstreamConfig.isEnableThinking());
+        Map<String, Object> payload = buildChatPayload(
+            upstreamConfig.getModel(),
+            messages,
+            Boolean.FALSE,
+            temperature,
+            upstreamConfig.isEnableThinking(),
+            shouldEnableWebSearch(request)
+        );
         OutboundCall outboundCall = null;
 
         try {
@@ -361,7 +368,8 @@ public class AiProxyService {
             request.getMessages(),
             Boolean.TRUE,
             request.getTemperature(),
-            upstreamConfig.isEnableThinking()
+            upstreamConfig.isEnableThinking(),
+            shouldEnableWebSearch(request)
         );
 
         StringBuilder responseTextBuilder = new StringBuilder();
@@ -782,12 +790,16 @@ public class AiProxyService {
                                                  List<Map<String, Object>> messages,
                                                  Boolean stream,
                                                  Double temperature,
-                                                 boolean enableThinking) {
+                                                 boolean enableThinking,
+                                                 boolean enableSearch) {
         Map<String, Object> payload = new HashMap<String, Object>();
         payload.put("model", model);
         payload.put("messages", messages);
         payload.put("stream", stream);
         payload.put("enable_thinking", enableThinking);
+        if (enableSearch) {
+            payload.put("enable_search", true);
+        }
         if (!Boolean.TRUE.equals(stream)) {
             payload.put("max_tokens", 4096);
         }
@@ -795,6 +807,14 @@ public class AiProxyService {
             payload.put("temperature", temperature);
         }
         return payload;
+    }
+
+    private boolean shouldEnableWebSearch(ChatRequest request) {
+        return request != null
+            && Boolean.TRUE.equals(request.getEnableSearch())
+            && Boolean.TRUE.equals(request.getStream())
+            && "chat-stream".equals(request.getScene())
+            && "chat_panel".equals(request.getSourceModule());
     }
 
     private String trimRightSlash(String value) {

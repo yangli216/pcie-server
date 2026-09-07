@@ -19,5 +19,6 @@ public class ChatRequest {
     @NotEmpty(message = "messages 不能为空")
     private List<Map<String, Object>> messages;
     private Boolean stream;
+    private Boolean enableSearch;
     private Double temperature;
 }

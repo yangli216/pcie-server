@@ -124,12 +124,62 @@ class AiProxyServiceTest {
             Collections.<Map<String, Object>>emptyList(),
             Boolean.FALSE,
             null,
-            true
+            true,
+            false
         );
 
         assertThat(payload).containsEntry("enable_thinking", true);
         assertThat(payload).containsEntry("stream", false);
         assertThat(payload).containsEntry("model", "main-model");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void buildChatPayloadShouldIncludeSearchOnlyWhenEnabled() {
+        AiProxyService service = newService(mock(ConfigService.class), mock(AuditService.class));
+
+        Map<String, Object> enabledPayload = (Map<String, Object>) ReflectionTestUtils.invokeMethod(
+            service,
+            "buildChatPayload",
+            "main-model",
+            Collections.<Map<String, Object>>emptyList(),
+            Boolean.TRUE,
+            null,
+            false,
+            true
+        );
+        Map<String, Object> disabledPayload = (Map<String, Object>) ReflectionTestUtils.invokeMethod(
+            service,
+            "buildChatPayload",
+            "main-model",
+            Collections.<Map<String, Object>>emptyList(),
+            Boolean.TRUE,
+            null,
+            false,
+            false
+        );
+
+        assertThat(enabledPayload).containsEntry("enable_search", true);
+        assertThat(disabledPayload).doesNotContainKey("enable_search");
+    }
+
+    @Test
+    void shouldEnableWebSearchOnlyForAssistantStreamingRequests() {
+        AiProxyService service = newService(mock(ConfigService.class), mock(AuditService.class));
+        ChatRequest request = new ChatRequest();
+        request.setEnableSearch(Boolean.TRUE);
+        request.setStream(Boolean.TRUE);
+        request.setScene("chat-stream");
+        request.setSourceModule("chat_panel");
+
+        assertThat((Boolean) ReflectionTestUtils.invokeMethod(service, "shouldEnableWebSearch", request)).isTrue();
+
+        request.setScene("voice-intent-recognition");
+        assertThat((Boolean) ReflectionTestUtils.invokeMethod(service, "shouldEnableWebSearch", request)).isFalse();
+
+        request.setScene("chat-stream");
+        request.setStream(Boolean.FALSE);
+        assertThat((Boolean) ReflectionTestUtils.invokeMethod(service, "shouldEnableWebSearch", request)).isFalse();
     }
 
     @Test

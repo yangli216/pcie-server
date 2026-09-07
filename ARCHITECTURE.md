@@ -1,6 +1,6 @@
 # 全医慧助服务端（PCIE Server）架构说明
 
-> 更新日期：2026-08-28
+> 更新日期：2026-09-07
 
 ## 1. 项目定位
 
@@ -287,6 +287,8 @@ pcie-server/
 5. `reviewer.checkExaminationEnabled` 只控制桌面端是否触发 `check_examination` 场景的独立审查，不影响诊断、用药、病历一致性等其他 reviewer 场景；默认开启以兼容旧配置
 6. `/v1/ai/chat` 与 `/v1/client/bootstrap` 的实际生效模型、thinking 开关和检查项目独立审查开关以服务端当前解析到的配置为准；桌面端不应依赖本地缓存的 `model` 回传覆盖服务端配置，确保后台修改后下一次请求立即生效
 7. `/v1/ai/chat` 非流式、流式和 `configProfile=reviewer/fast/default` 都必须先通过出站安全门；流式 SSE 使用有界线程池转发上游事件，线程数与队列大小由 `floating-ball.ai.stream.*` 控制，线程池满时返回 SSE 错误帧而不是继续创建线程。
+8. 小助手可在签名请求中声明 `enableSearch=true`，但服务端只在 `stream=true`、`scene=chat-stream`、`sourceModule=chat_panel` 同时满足时向上游附加 `enable_search=true`；其他聊天代理调用即使误传也必须忽略该字段，避免普通语音问诊、病历生成、诊疗推荐、风险分析和审查请求被全局带入联网搜索。未开启时省略上游字段，以继续兼容不认识千问扩展参数的 OpenAI 兼容模型。
+9. 当前 Chat Completions 代理只转发模型回答正文，不提供 DashScope 原生 `search_info` 或引用角标；联网结果属于小助手补充信息，不得作为已经完成权威来源核验的结构化临床依据。
 
 语音代理补充约束：
 

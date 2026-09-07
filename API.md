@@ -1,6 +1,6 @@
 # 全医慧助服务端（PCIE Server）API 说明
 
-> 更新日期：2026-08-31
+> 更新日期：2026-09-07
 > 范围：全医慧助（PCIE）桌面端当前唯一远程业务契约 `/v1/*`；桌面端已取消本地/区域双模式
 >
 > 仓库与 Maven 工程已更名为 `pcie-server`；为兼容既有部署，`/v1/*`、`/admin/api/*`、`floating-ball.*` 配置键、`FB_*` 环境变量和数据库结构保持不变。
@@ -1338,7 +1338,10 @@ AI 调用类 `operation` 事件补充约束：
     { "role": "system", "content": "你是医生助手" },
     { "role": "user", "content": "患者咳嗽三天" }
   ],
-  "stream": false,
+  "stream": true,
+  "enableSearch": true,
+  "scene": "chat-stream",
+  "sourceModule": "chat_panel",
   "temperature": 0.2
 }
 ```
@@ -1349,6 +1352,7 @@ AI 调用类 `operation` 事件补充约束：
 - 当值为 `fast` 时，服务端优先使用当前设备可见 AI 配置中的 `fastModelName`；未配置时回退主模型配置
 - 当值为 `reviewer` 时，服务端优先使用当前设备可见 AI 配置中的独立审查模型地址 / 密钥 / 模型；缺失项回退主模型配置
 - `consultationId`：可选，当前问诊或病历生成运行的业务锚点；服务端会写入 `c_ai_op_log.consultation_id`，供调用排障和业务关联查询使用
+- `enableSearch`：可选，默认 `false`。只有 `stream=true`、`scene=chat-stream`、`sourceModule=chat_panel` 同时满足时，服务端才向上游 OpenAI 兼容载荷附加 `enable_search=true`；其他场景即使传 `true` 也忽略，确保语音问诊、病历生成、诊疗推荐、风险分析和审查链路不受影响。当前只转发回答正文，不返回 DashScope 原生搜索来源列表或引用角标
 - `enable_thinking` 是否开启由服务端当前 AI 配置统一决定；桌面端不单独透传该开关覆盖服务端配置
 
 非流式响应 `data`：
