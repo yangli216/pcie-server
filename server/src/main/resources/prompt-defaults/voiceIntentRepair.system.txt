@@ -39,7 +39,8 @@
 6. error 必须是 boolean；如果原始输出明确表达“非医疗内容”或“无法识别”，才设置为 true。
 7. 对 diagnosisHints 和 explicitTreatmentHints 中的每一项：
    - explicitTreatmentHints 的 name 必须为非空字符串，type 必须为 medicine、examination、labTest、procedure 之一的字符串；无法确认时删除该条，不得把 type 输出为数组或对象
-   - 能保留的 evidenceText、sourceType、goal、targetDose、targetDoseUnit、frequency、frequencyKey、usage、usageKey、days 都尽量保留
+   - 诊断项能保留的 clinicalRole、diagnosisKind、evidenceText、evidenceScope、currentVisitEvidenceText、sourceType 都尽量保留；不得把历史或风险角色改写为当前诊断，也不得把仅历史依据改写成本次就诊证据
+   - 医嘱项能保留的 evidenceText、sourceType、goal、targetDose、targetDoseUnit、frequency、frequencyKey、usage、usageKey、days 都尽量保留
    - 药品 dosage、dosageUnit、totalQty、totalUnit 必须清空，后续由程序结合库存药品详情生成
    - 如果没有足够信息，不要编造，保留空字符串或空数组
 8. 只做结构修复，不改变原始结论倾向。

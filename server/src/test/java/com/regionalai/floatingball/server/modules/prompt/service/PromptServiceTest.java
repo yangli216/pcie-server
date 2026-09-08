@@ -68,16 +68,25 @@ class PromptServiceTest {
             promptService.resolveEffectivePrompt("voiceIntentRecognitionStream", null, null);
 
         assertNotNull(prompt);
-        assertEquals("v1.1", prompt.getVersionNum());
+        assertEquals("v1.3", prompt.getVersionNum());
         assertTrue(prompt.getSysPrompt().contains("record_suggestions"));
         assertTrue(prompt.getSysPrompt().contains("recommendation_plan"));
+        assertTrue(prompt.getSysPrompt().contains("evidenceScope"));
+        assertTrue(prompt.getSysPrompt().contains("currentVisitEvidenceText"));
+        assertTrue(prompt.getSysPrompt().contains("clinicalRole"));
+        assertTrue(prompt.getSysPrompt().contains("diagnosisKind"));
+        assertTrue(prompt.getSysPrompt().contains("贫血等不得仅因历史已确诊"));
+        assertTrue(prompt.getSysPrompt().contains("symptom_working+formal"));
+        assertTrue(prompt.getSysPrompt().contains("历史已确诊而标为 high"));
         assertTrue(prompt.getSysPrompt().contains("type 必须为 medicine、examination、labTest、procedure 之一的字符串"));
 
         com.regionalai.floatingball.server.modules.prompt.dto.PromptView repairPrompt =
             promptService.resolveEffectivePrompt("voiceIntentRepair", null, null);
         assertNotNull(repairPrompt);
-        assertEquals("v1.1", repairPrompt.getVersionNum());
+        assertEquals("v1.3", repairPrompt.getVersionNum());
         assertTrue(repairPrompt.getSysPrompt().contains("无法确认时删除该条"));
+        assertTrue(repairPrompt.getSysPrompt().contains("currentVisitEvidenceText"));
+        assertTrue(repairPrompt.getSysPrompt().contains("clinicalRole、diagnosisKind"));
     }
 
     private AiPrompt buildPrompt(String idPrompt,

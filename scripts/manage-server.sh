@@ -38,7 +38,7 @@ Commands:
 
 Options:
   --env <env>         Environment profile (default: test)
-                      Supported: test (8080), development (8088), xiaoshan-test (9090), product (8080)
+                      Supported: test (8080), development (8088), xiaoshan-test (9090), product (8080), gaussdb (8080), gaussdb-development (8088)
   -b, --build-frontend Build frontend before starting (fast Vite build to resources/static/admin)
   -B, --build-all      Full Maven build before starting (includes frontend & jar packaging)
   -f, --foreground     Run server in foreground (output logs directly, Ctrl+C to stop)
@@ -46,6 +46,7 @@ Options:
 
 Examples:
   ./scripts/manage-server.sh start --env test
+  ./scripts/manage-server.sh start --env gaussdb
   ./scripts/manage-server.sh start -b --env test          # Build frontend then start backend daemon
   ./scripts/manage-server.sh dev --env development        # One-click dev mode (build frontend + foreground run)
   ./scripts/manage-server.sh dev-frontend                 # Start Vite dev server for admin UI
@@ -73,6 +74,14 @@ resolve_environment() {
     product|prod)
       PROFILE="product"
       PORT="8080"
+      ;;
+    gaussdb)
+      PROFILE="gaussdb"
+      PORT="8080"
+      ;;
+    gaussdb-development|gaussdb-dev)
+      PROFILE="gaussdb-development"
+      PORT="8088"
       ;;
     *)
       echo "Unsupported environment: ${ENVIRONMENT}" >&2
