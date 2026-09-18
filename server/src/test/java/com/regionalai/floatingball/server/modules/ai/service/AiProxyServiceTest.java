@@ -25,6 +25,8 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
@@ -34,6 +36,92 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class AiProxyServiceTest {
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void chatShouldPersistServerMeasuredLatencyAndBusinessContext() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer upstream = MockRestServiceServer.createServer(restTemplate);
+        ConfigService configService = mock(ConfigService.class);
+        AuditService auditService = mock(AuditService.class);
+        OutboundSecurityProperties properties = new OutboundSecurityProperties();
+        AiProxyService service = new AiProxyService(
+            configService,
+            auditService,
+            restTemplate,
+            new ObjectMapper(),
+            new OutboundSecurityService(properties),
+            Runnable::run
+        );
+        ResolvedAiConfig config = resolvedChatConfig();
+        when(configService.resolveByDevice(any(AiDevice.class))).thenReturn(config);
+        upstream.expect(requestTo("http://127.0.0.1:18080/chat/completions"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(withSuccess("{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}", MediaType.APPLICATION_JSON));
+
+        ChatRequest request = chatRequest(false);
+        String response = service.chat(new AiDevice(), request);
+
+        assertThat(response).isEqualTo("ok");
+        org.mockito.ArgumentCaptor<Object> payloadCaptor = org.mockito.ArgumentCaptor.forClass(Object.class);
+        verify(auditService).saveSystemLog(
+            any(AiDevice.class),
+            eq("ai_proxy"),
+            eq("ai"),
+            eq("assess_medication_with_current_information"),
+            payloadCaptor.capture(),
+            eq(true)
+        );
+        Map<String, Object> auditPayload = (Map<String, Object>) payloadCaptor.getValue();
+        assertThat(auditPayload).containsEntry("provider", "dashscope");
+        assertThat(auditPayload).containsEntry("model", "qwen-plus");
+        assertThat(auditPayload).containsEntry("action", "assess_medication_with_current_information");
+        assertThat(auditPayload).containsEntry("title", "医生主动基于现有信息评估用药");
+        assertThat((Long) auditPayload.get("durationMs")).isGreaterThanOrEqualTo(0L);
+        assertThat(auditPayload.get("firstTokenMs")).isNull();
+        upstream.verify();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void chatStreamShouldPersistFirstTokenAndTotalLatency() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer upstream = MockRestServiceServer.createServer(restTemplate);
+        ConfigService configService = mock(ConfigService.class);
+        AuditService auditService = mock(AuditService.class);
+        AiProxyService service = new AiProxyService(
+            configService,
+            auditService,
+            restTemplate,
+            new ObjectMapper(),
+            new OutboundSecurityService(new OutboundSecurityProperties()),
+            Runnable::run
+        );
+        when(configService.resolveByDevice(any(AiDevice.class))).thenReturn(resolvedChatConfig());
+        upstream.expect(requestTo("http://127.0.0.1:18080/chat/completions"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(withSuccess(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n",
+                MediaType.TEXT_EVENT_STREAM
+            ));
+
+        service.chatStream(new AiDevice(), chatRequest(true));
+
+        org.mockito.ArgumentCaptor<Object> payloadCaptor = org.mockito.ArgumentCaptor.forClass(Object.class);
+        verify(auditService).saveSystemLog(
+            any(AiDevice.class),
+            eq("ai_proxy"),
+            eq("ai"),
+            eq("assess_medication_with_current_information"),
+            payloadCaptor.capture(),
+            eq(true)
+        );
+        Map<String, Object> auditPayload = (Map<String, Object>) payloadCaptor.getValue();
+        assertThat((Long) auditPayload.get("firstTokenMs")).isGreaterThanOrEqualTo(0L);
+        assertThat((Long) auditPayload.get("durationMs"))
+            .isGreaterThanOrEqualTo((Long) auditPayload.get("firstTokenMs"));
+        upstream.verify();
+    }
 
     @Test
     void resolveChatConfigUsesReviewerOverrides() {
@@ -359,5 +447,28 @@ class AiProxyServiceTest {
             mock(OutboundSecurityService.class),
             Runnable::run
         );
+    }
+
+    private ResolvedAiConfig resolvedChatConfig() {
+        ResolvedAiConfig config = new ResolvedAiConfig();
+        config.setProvider("dashscope");
+        config.setBaseUrl("http://127.0.0.1:18080");
+        config.setApiKey("test-key");
+        config.setModel("qwen-plus");
+        return config;
+    }
+
+    private ChatRequest chatRequest(boolean stream) {
+        ChatRequest request = new ChatRequest();
+        request.setMessages(Collections.<Map<String, Object>>singletonList(
+            Collections.<String, Object>singletonMap("role", "user")
+        ));
+        request.setStream(stream);
+        request.setScene("current-information-medication");
+        request.setSourceModule("voice_treatment_recommendation");
+        request.setOperationAction("assess_medication_with_current_information");
+        request.setOperationTitle("医生主动基于现有信息评估用药");
+        request.setTraceId("trace-latency-test");
+        return request;
     }
 }

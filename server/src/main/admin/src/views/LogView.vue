@@ -140,6 +140,18 @@
           <div v-if="showRawSourceScene(row)" class="log-sub-text">{{ formatSourceScene(row.sourceModule, row.sceneCode) }}</div>
         </template>
       </el-table-column>
+      <el-table-column label="模型" min-width="150" show-overflow-tooltip>
+        <template slot-scope="{ row }">
+          <div class="log-main-text">{{ displayText(row.model) }}</div>
+          <div v-if="normalizeText(row.provider)" class="log-sub-text">{{ row.provider }}</div>
+        </template>
+      </el-table-column>
+      <el-table-column label="AI 耗时" width="128">
+        <template slot-scope="{ row }">
+          <div class="log-main-text">{{ formatDuration(row.durationMs) }}</div>
+          <div v-if="hasMetric(row.firstTokenMs)" class="log-sub-text">首包 {{ formatDuration(row.firstTokenMs) }}</div>
+        </template>
+      </el-table-column>
       <el-table-column label="结果" width="88">
         <template slot-scope="{ row }">
           <el-tag size="mini" :type="resultMeta(row.opResult).type">
@@ -218,6 +230,18 @@
         <div class="detail-card">
           <div class="detail-card__label">结果</div>
           <div class="detail-card__value">{{ resultMeta(payloadRecord.opResult).label }}</div>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card__label">服务提供方 / 模型</div>
+          <div class="detail-card__value">{{ formatProviderModel(payloadRecord) }}</div>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card__label">总耗时</div>
+          <div class="detail-card__value">{{ formatDuration(payloadRecord.durationMs) }}</div>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card__label">流式首包耗时</div>
+          <div class="detail-card__value">{{ formatDuration(payloadRecord.firstTokenMs) }}</div>
         </div>
         <div class="detail-card">
           <div class="detail-card__label">操作时间</div>
@@ -490,6 +514,24 @@ export default {
       }
       return text.replace('T', ' ').replace(/\.\d+$/, '')
     },
+    hasMetric(value) {
+      return value !== null && value !== undefined && Number.isFinite(Number(value)) && Number(value) >= 0
+    },
+    formatDuration(value) {
+      if (!this.hasMetric(value)) {
+        return '--'
+      }
+      const duration = Number(value)
+      if (duration < 1000) {
+        return `${Math.round(duration)} ms`
+      }
+      return `${(duration / 1000).toFixed(duration < 10000 ? 2 : 1)} s`
+    },
+    formatProviderModel(row) {
+      const provider = this.normalizeText(row && row.provider)
+      const model = this.normalizeText(row && row.model)
+      return [provider, model].filter(Boolean).join(' / ') || '--'
+    },
     logTypeMeta(value) {
       const text = this.normalizeText(value)
       const matched = this.logTypeOptions.find(item => item.value === text)
@@ -535,6 +577,7 @@ export default {
         const responsePayload = this.pickFirstPayload(details.responsePayload, payload.responsePayload, payload.responseBody)
         const responseText = this.normalizeText(payload.responseText || details.responseSummary || payload.responseSummary)
         const errorMessage = this.normalizeText(payload.errorMessage || details.errorMessage)
+        const durationMs = row && row.durationMs
         if (moduleName) {
           summaryParts.push(moduleName)
         }
@@ -548,6 +591,9 @@ export default {
         }
         if (sourceScene !== '--') {
           summaryParts.push(sourceScene)
+        }
+        if (this.hasMetric(durationMs)) {
+          summaryParts.push(`耗时 ${this.formatDuration(durationMs)}`)
         }
         if (errorMessage) {
           summaryParts.push(`失败: ${this.truncate(errorMessage, 40)}`)

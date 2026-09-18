@@ -290,6 +290,8 @@ pcie-server/
 7. `/v1/ai/chat` 非流式、流式和 `configProfile=reviewer/fast/default` 都必须先通过出站安全门；流式 SSE 使用有界线程池转发上游事件，线程数与队列大小由 `floating-ball.ai.stream.*` 控制，线程池满时返回 SSE 错误帧而不是继续创建线程。
 8. 小助手可在签名请求中声明 `enableSearch=true`，但服务端只在 `stream=true`、`scene=chat-stream`、`sourceModule=chat_panel` 同时满足时向上游附加 `enable_search=true`；其他聊天代理调用即使误传也必须忽略该字段，避免普通语音问诊、病历生成、诊疗推荐、风险分析和审查请求被全局带入联网搜索。未开启时省略上游字段，以继续兼容不认识千问扩展参数的 OpenAI 兼容模型。
 9. 当前 Chat Completions 代理只转发模型回答正文，不提供 DashScope 原生 `search_info` 或引用角标；联网结果属于小助手补充信息，不得作为已经完成权威来源核验的结构化临床依据。
+10. 每次文本 AI 代理调用都由服务端统一计时并写入对应 `ai_proxy` 审计 payload：非流式记录总耗时，流式同时记录首个有效 SSE 数据帧耗时和直到 `[DONE]` 的总耗时，失败记录截至失败时的耗时。计时使用单调时钟，客户端上报耗时只作链路补充，不能覆盖服务端实测值。
+11. 桌面端把 `aiTrace` 已有的业务动作与标题随 `/v1/ai/chat` 请求传入；服务端代理日志优先使用该业务动作/标题，旧客户端缺失时回退 `chat / chat_stream`，以便按“基于现有信息评估用药”等真实场景检索。
 
 语音代理补充约束：
 
@@ -316,6 +318,7 @@ pcie-server/
 8. 管理端提供分页查询，并支持按 `module/action/title/sourceModule/scene/traceId/consultationId/result` 结构化筛选；详情弹窗必须把完整入参、完整出参与原始 payload 分区展示，不能只展示摘要字段。JSON 默认使用可折叠的结构化视图，完整 JSON 字符串字段递归解析为对象或数组，普通长文本按真实换行折行展示；超大内容的结构化视图使用全树节点预算并在工具栏提示截断，原文仍保留完整内容供查看和复制。
 9. `c_ai_op_log` 是审计事实源，只回答“发生过哪些技术/业务操作、链路如何排障”，不得直接作为辅诊功能调用次数统计源
 10. 服务端自身产生的成功代理日志必须可靠落库；若成功调用上游后审计日志写入失败，接口最终返回业务失败。失败代理调用的补充审计日志写入失败时必须 error 级别记录完整异常，保留原始业务失败语义。
+11. `ai_proxy / speech_proxy` 的服务端实测 `provider/model/durationMs/firstTokenMs` 保存在现有 `payload_json`；日志查询响应把这些字段解析为只读展示字段。该方案兼容现有数据库结构，不新增对现场 schema 的部署前置要求。
 
 代理日志补充约束：
 

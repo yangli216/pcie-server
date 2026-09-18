@@ -285,6 +285,7 @@ public class ConfigService {
 
     private ResolvedAiConfig toResolved(AiConfig config) {
         ResolvedAiConfig resolved = new ResolvedAiConfig();
+        resolved.setProvider(config.getProvider());
         resolved.setBaseUrl(trimRightSlash(config.getApiBaseUrl()));
         String apiKey = aesUtils.decrypt(config.getApiKeyEncrypted());
         String audioApiKey = aesUtils.decrypt(config.getAudioApiKeyEncrypted());

@@ -1342,6 +1342,8 @@ AI 调用类 `operation` 事件补充约束：
   "enableSearch": true,
   "scene": "chat-stream",
   "sourceModule": "chat_panel",
+  "operationAction": "stream_reply",
+  "operationTitle": "生成医学助手回复",
   "temperature": 0.2
 }
 ```
@@ -1352,6 +1354,7 @@ AI 调用类 `operation` 事件补充约束：
 - 当值为 `fast` 时，服务端优先使用当前设备可见 AI 配置中的 `fastModelName`；未配置时回退主模型配置
 - 当值为 `reviewer` 时，服务端优先使用当前设备可见 AI 配置中的独立审查模型地址 / 密钥 / 模型；缺失项回退主模型配置
 - `consultationId`：可选，当前问诊或病历生成运行的业务锚点；服务端会写入 `c_ai_op_log.consultation_id`，供调用排障和业务关联查询使用
+- `operationAction` / `operationTitle`：可选，桌面端 AI trace 中的业务动作编码与展示标题；服务端代理日志优先使用这两个字段，缺失时兼容回退 `chat / chat_stream`
 - `enableSearch`：可选，默认 `false`。只有 `stream=true`、`scene=chat-stream`、`sourceModule=chat_panel` 同时满足时，服务端才向上游 OpenAI 兼容载荷附加 `enable_search=true`；其他场景即使传 `true` 也忽略，确保语音问诊、病历生成、诊疗推荐、风险分析和审查链路不受影响。当前只转发回答正文，不返回 DashScope 原生搜索来源列表或引用角标
 - `enable_thinking` 是否开启由服务端当前 AI 配置统一决定；桌面端不单独透传该开关覆盖服务端配置
 
@@ -2974,6 +2977,20 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 }
 ```
 
+`ai_proxy` 记录还会返回服务端实测字段，例如：
+
+```json
+{
+  "sdLogType": "ai_proxy",
+  "opAction": "assess_medication_with_current_information",
+  "opTitle": "医生主动基于现有信息评估用药",
+  "provider": "dashscope",
+  "model": "qwen-plus",
+  "durationMs": 1842,
+  "firstTokenMs": 436
+}
+```
+
 补充约束：
 
 1. `speech_proxy` 日志的 `payloadJson` 只保留录音元数据、请求摘要和上游回文，不再保存原始 base64 音频
@@ -2981,6 +2998,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 3. `desOp` 默认优先展示 `title`，缺失时回退 `action / operationName`
 4. `traceId` 默认从顶层 `traceId` 提取；若顶层缺失则回退 `details.traceId`
 5. `displayModule/displayAction/displayTitle/displaySourceModule/displayScene` 为服务端统一生成的中文展示字段；管理端应优先展示这些字段，同时保留 `naModule/opAction/opTitle/sourceModule/sceneCode` 原始码用于精准排障与复制检索
+6. `provider/model/durationMs/firstTokenMs` 是服务端从代理审计 payload 解析出的只读展示字段，仅 `ai_proxy / speech_proxy` 等具备上游调用计时的日志有值。`durationMs` 为服务端调用总耗时；流式文本调用的 `firstTokenMs` 为收到首个有效 SSE 数据帧的耗时，非流式和批量语音调用为空。失败调用同样记录截至失败的 `durationMs`
 
 ### 5.54 GET `/admin/api/user-logs/consultations`
 用途：分页查询运维用户日志列表。该模块是专门给运维人员使用的问诊轮次聚合日志，不替代原有操作日志页面。

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.nio.charset.StandardCharsets;
@@ -214,6 +215,20 @@ class AuditServiceTest {
 
         assertEquals("AUDIT-PERSIST-FAILED", ex.getCode());
         assertEquals(0L, countRegularFiles(tempDir.resolve("speech-audit")));
+    }
+
+    @Test
+    void shouldProjectAiCallMetricsFromExistingPayloadJson() {
+        AiOpLog opLog = new AiOpLog();
+        opLog.setIdLog("LOG-METRIC-001");
+        opLog.setPayloadJson("{\"provider\":\"dashscope\",\"model\":\"qwen-plus\",\"durationMs\":1842,\"firstTokenMs\":436}");
+
+        ReflectionTestUtils.invokeMethod(auditService, "enrichAiCallMetrics", opLog);
+
+        assertEquals("dashscope", opLog.getProvider());
+        assertEquals("qwen-plus", opLog.getModel());
+        assertEquals(1842L, opLog.getDurationMs());
+        assertEquals(436L, opLog.getFirstTokenMs());
     }
 
     private long countRegularFiles(Path root) throws Exception {

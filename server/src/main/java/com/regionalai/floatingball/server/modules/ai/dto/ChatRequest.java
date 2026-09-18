@@ -15,6 +15,8 @@ public class ChatRequest {
     private String traceId;
     private String scene;
     private String sourceModule;
+    private String operationAction;
+    private String operationTitle;
     private String sessionId;
     @NotEmpty(message = "messages 不能为空")
     private List<Map<String, Object>> messages;

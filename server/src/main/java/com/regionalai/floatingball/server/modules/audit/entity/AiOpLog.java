@@ -81,6 +81,18 @@ public class AiOpLog extends BaseEntity {
     @TableField("op_result")
     private String opResult;
 
+    @TableField(exist = false)
+    private String provider;
+
+    @TableField(exist = false)
+    private String model;
+
+    @TableField(exist = false)
+    private Long durationMs;
+
+    @TableField(exist = false)
+    private Long firstTokenMs;
+
     @TableField("operation_time")
     private LocalDateTime operationTime;
 }

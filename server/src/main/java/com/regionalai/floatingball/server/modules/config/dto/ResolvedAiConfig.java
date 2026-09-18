@@ -7,6 +7,7 @@ import java.util.Map;
 @Data
 public class ResolvedAiConfig {
 
+    private String provider;
     private String baseUrl;
     private String apiKey;
     private String model;

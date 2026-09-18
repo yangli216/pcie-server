@@ -36,6 +36,7 @@ import java.io.BufferedReader;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Collections;
@@ -86,7 +87,7 @@ public class AiProxyService {
     }
 
     public String testChatConnection(String baseUrl, String apiKey, String model, boolean enableThinking) {
-        UpstreamChatConfig upstreamConfig = new UpstreamChatConfig(trimRightSlash(baseUrl), apiKey, model, enableThinking);
+        UpstreamChatConfig upstreamConfig = new UpstreamChatConfig("manual-test", trimRightSlash(baseUrl), apiKey, model, enableThinking);
         Map<String, Object> userMessage = new LinkedHashMap<String, Object>();
         userMessage.put("role", "user");
         userMessage.put("content", "您好，这是一条连通性测试消息，请只回复“测试成功”。");
@@ -220,6 +221,7 @@ public class AiProxyService {
                             UpstreamChatConfig upstreamConfig,
                             List<Map<String, Object>> messages,
                             Double temperature) {
+        AiCallTiming timing = AiCallTiming.start();
         Map<String, Object> payload = buildChatPayload(
             upstreamConfig.getModel(),
             messages,
@@ -290,13 +292,14 @@ public class AiProxyService {
             String responseText = responseTextBuilder.toString();
             String rawLog = rawLogHolder[0] != null ? rawLogHolder[0] : responseText;
 
-            log.info("ai chat succeeded. model={}, responseLength={}", upstreamConfig.getModel(), responseText.length());
+            log.info("ai chat succeeded. model={}, responseLength={}, durationMs={}",
+                upstreamConfig.getModel(), responseText.length(), timing.durationMs());
             auditService.saveSystemLog(
                 device,
                 "ai_proxy",
                 "ai",
-                "chat",
-                buildChatLogPayload(request, upstreamConfig, payload, responseText, null, rawLog),
+                resolveChatAuditAction(request, "chat"),
+                buildChatLogPayload(request, upstreamConfig, payload, responseText, null, rawLog, "chat", timing),
                 true
             );
             return responseText;
@@ -307,8 +310,8 @@ public class AiProxyService {
                 device,
                 "ai_proxy",
                 "ai",
-                "chat",
-                buildChatLogPayload(request, upstreamConfig, payload, null, buildUpstreamErrorMessage("AI", ex), ex.getResponseBodyAsString()),
+                resolveChatAuditAction(request, "chat"),
+                buildChatLogPayload(request, upstreamConfig, payload, null, buildUpstreamErrorMessage("AI", ex), ex.getResponseBodyAsString(), "chat", timing),
                 false
             );
             throw new BusinessException(buildUpstreamErrorMessage("AI", ex));
@@ -319,8 +322,8 @@ public class AiProxyService {
                 device,
                 "ai_proxy",
                 "ai",
-                "chat",
-                buildChatLogPayload(request, upstreamConfig, payload, null, buildUpstreamRequestErrorMessage("AI", ex), null),
+                resolveChatAuditAction(request, "chat"),
+                buildChatLogPayload(request, upstreamConfig, payload, null, buildUpstreamRequestErrorMessage("AI", ex), null, "chat", timing),
                 false
             );
             throw new BusinessException(buildUpstreamRequestErrorMessage("AI", ex));
@@ -330,8 +333,8 @@ public class AiProxyService {
                 device,
                 "ai_proxy",
                 "ai",
-                "chat",
-                buildChatLogPayload(request, upstreamConfig, payload, null, ex.getMessage(), null),
+                resolveChatAuditAction(request, "chat"),
+                buildChatLogPayload(request, upstreamConfig, payload, null, ex.getMessage(), null, "chat", timing),
                 false
             );
             throw ex;
@@ -341,8 +344,8 @@ public class AiProxyService {
                 device,
                 "ai_proxy",
                 "ai",
-                "chat",
-                buildChatLogPayload(request, upstreamConfig, payload, null, ex.getMessage(), null),
+                resolveChatAuditAction(request, "chat"),
+                buildChatLogPayload(request, upstreamConfig, payload, null, ex.getMessage(), null, "chat", timing),
                 false
             );
             throw new BusinessException("AI调用失败：" + (StringUtils.hasText(ex.getMessage()) ? ex.getMessage() : "未知异常"));
@@ -352,16 +355,30 @@ public class AiProxyService {
     public SseEmitter chatStream(AiDevice device, ChatRequest request) {
         UpstreamChatConfig upstreamConfig = resolveChatConfig(device, request);
         SseEmitter emitter = new SseEmitter(120000L);
+        AiCallTiming timing = AiCallTiming.start();
         try {
-            aiStreamExecutor.execute(() -> streamChat(device, request, upstreamConfig, emitter));
+            aiStreamExecutor.execute(() -> streamChat(device, request, upstreamConfig, emitter, timing));
         } catch (RejectedExecutionException ex) {
             log.warn("ai chat stream rejected by bounded executor. model={}", upstreamConfig.getModel());
-            sendErrorFrame(emitter, "AI流式请求过多，请稍后重试");
+            String errorMessage = "AI流式请求过多，请稍后重试";
+            auditService.saveSystemLog(
+                device,
+                "ai_proxy",
+                "ai",
+                resolveChatAuditAction(request, "chat_stream"),
+                buildChatLogPayload(request, upstreamConfig, Collections.<String, Object>emptyMap(), null, errorMessage, null, "chat_stream", timing),
+                false
+            );
+            sendErrorFrame(emitter, errorMessage);
         }
         return emitter;
     }
 
-    private void streamChat(AiDevice device, ChatRequest request, UpstreamChatConfig upstreamConfig, SseEmitter emitter) {
+    private void streamChat(AiDevice device,
+                            ChatRequest request,
+                            UpstreamChatConfig upstreamConfig,
+                            SseEmitter emitter,
+                            AiCallTiming timing) {
         log.info("ai chat stream request. model={}, baseUrl={}", upstreamConfig.getModel(), upstreamConfig.getBaseUrl());
         Map<String, Object> payload = buildChatPayload(
             upstreamConfig.getModel(),
@@ -387,15 +404,16 @@ public class AiProxyService {
                     objectMapper.writeValue(requestCallback.getBody(), payload);
                 },
                 response -> {
-                    StreamForwardResult result = forwardSseBody(response.getBody(), emitter, responseTextBuilder);
-                    log.info("ai chat stream completed. model={}, responseLength={}", upstreamConfig.getModel(), result.responseText.length());
+                    StreamForwardResult result = forwardSseBody(response.getBody(), emitter, responseTextBuilder, timing);
+                    log.info("ai chat stream completed. model={}, responseLength={}, firstTokenMs={}, durationMs={}",
+                        upstreamConfig.getModel(), result.responseText.length(), timing.getFirstTokenMs(), timing.durationMs());
                     activeOutboundCall.success();
                     auditService.saveSystemLog(
                         device,
                         "ai_proxy",
                         "ai",
-                        "chat_stream",
-                        buildChatLogPayload(request, upstreamConfig, payload, result.responseText, result.errorMessage, null),
+                        resolveChatAuditAction(request, "chat_stream"),
+                        buildChatLogPayload(request, upstreamConfig, payload, result.responseText, result.errorMessage, null, "chat_stream", timing),
                         !StringUtils.hasText(result.errorMessage)
                     );
                     return null;
@@ -409,8 +427,8 @@ public class AiProxyService {
                 device,
                 "ai_proxy",
                 "ai",
-                "chat_stream",
-                buildChatLogPayload(request, upstreamConfig, payload, responseTextBuilder.toString(), errorMessage, ex.getResponseBodyAsString()),
+                resolveChatAuditAction(request, "chat_stream"),
+                buildChatLogPayload(request, upstreamConfig, payload, responseTextBuilder.toString(), errorMessage, ex.getResponseBodyAsString(), "chat_stream", timing),
                 false
             );
             sendErrorFrame(emitter, errorMessage);
@@ -422,8 +440,8 @@ public class AiProxyService {
                 device,
                 "ai_proxy",
                 "ai",
-                "chat_stream",
-                buildChatLogPayload(request, upstreamConfig, payload, responseTextBuilder.toString(), errorMessage, null),
+                resolveChatAuditAction(request, "chat_stream"),
+                buildChatLogPayload(request, upstreamConfig, payload, responseTextBuilder.toString(), errorMessage, null, "chat_stream", timing),
                 false
             );
             sendErrorFrame(emitter, errorMessage);
@@ -434,8 +452,8 @@ public class AiProxyService {
                 device,
                 "ai_proxy",
                 "ai",
-                "chat_stream",
-                buildChatLogPayload(request, upstreamConfig, payload, responseTextBuilder.toString(), ex.getMessage(), null),
+                resolveChatAuditAction(request, "chat_stream"),
+                buildChatLogPayload(request, upstreamConfig, payload, responseTextBuilder.toString(), ex.getMessage(), null, "chat_stream", timing),
                 false
             );
             sendErrorFrame(emitter, ex.getMessage());
@@ -447,8 +465,8 @@ public class AiProxyService {
                 device,
                 "ai_proxy",
                 "ai",
-                "chat_stream",
-                buildChatLogPayload(request, upstreamConfig, payload, responseTextBuilder.toString(), errorMessage, null),
+                resolveChatAuditAction(request, "chat_stream"),
+                buildChatLogPayload(request, upstreamConfig, payload, responseTextBuilder.toString(), errorMessage, null, "chat_stream", timing),
                 false
             );
             sendErrorFrame(emitter, errorMessage);
@@ -457,7 +475,8 @@ public class AiProxyService {
 
     private StreamForwardResult forwardSseBody(InputStream bodyStream,
                                                SseEmitter emitter,
-                                               StringBuilder responseTextBuilder) throws IOException {
+                                               StringBuilder responseTextBuilder,
+                                               AiCallTiming timing) throws IOException {
         if (bodyStream == null) {
             throw new BusinessException("AI 流式响应为空");
         }
@@ -475,6 +494,9 @@ public class AiProxyService {
                 continue;
             }
             String data = trimmed.substring(5).trim();
+            if (!"[DONE]".equals(data)) {
+                timing.markFirstToken();
+            }
             emitter.send(SseEmitter.event().data(data));
             String content = extractSseContent(data);
             if (content != null) {
@@ -543,6 +565,7 @@ public class AiProxyService {
                                                PreparedSpeechFile preparedFile,
                                                String audioModel,
                                                String audioApiKey) {
+        AiCallTiming timing = AiCallTiming.start();
         String endpoint = buildOpenAiSpeechEndpoint(config.getAudioBaseUrl());
         OutboundCall outboundCall = null;
         try {
@@ -580,7 +603,7 @@ public class AiProxyService {
                 "speech_proxy",
                 "speech",
                 action,
-                buildSpeechLogPayload(request, preparedFile, endpoint, audioModel, text, true, null, response.toString()),
+                buildSpeechLogPayload(request, preparedFile, config.getSpeechProvider(), endpoint, audioModel, text, true, null, response.toString(), timing),
                 true,
                 preparedFile.audioBytes,
                 preparedFile.fileName
@@ -594,7 +617,7 @@ public class AiProxyService {
                 "speech_proxy",
                 "speech",
                 action,
-                buildSpeechLogPayload(request, preparedFile, endpoint, audioModel, null, false, errorMessage, ex.getResponseBodyAsString()),
+                buildSpeechLogPayload(request, preparedFile, config.getSpeechProvider(), endpoint, audioModel, null, false, errorMessage, ex.getResponseBodyAsString(), timing),
                 false,
                 preparedFile.audioBytes,
                 preparedFile.fileName
@@ -608,7 +631,7 @@ public class AiProxyService {
                 "speech_proxy",
                 "speech",
                 action,
-                buildSpeechLogPayload(request, preparedFile, endpoint, audioModel, null, false, errorMessage, null),
+                buildSpeechLogPayload(request, preparedFile, config.getSpeechProvider(), endpoint, audioModel, null, false, errorMessage, null, timing),
                 false,
                 preparedFile.audioBytes,
                 preparedFile.fileName
@@ -621,7 +644,7 @@ public class AiProxyService {
                 "speech_proxy",
                 "speech",
                 action,
-                buildSpeechLogPayload(request, preparedFile, endpoint, audioModel, null, false, ex.getMessage(), null),
+                buildSpeechLogPayload(request, preparedFile, config.getSpeechProvider(), endpoint, audioModel, null, false, ex.getMessage(), null, timing),
                 false,
                 preparedFile.audioBytes,
                 preparedFile.fileName
@@ -634,7 +657,7 @@ public class AiProxyService {
                 "speech_proxy",
                 "speech",
                 action,
-                buildSpeechLogPayload(request, preparedFile, endpoint, audioModel, null, false, ex.getMessage(), null),
+                buildSpeechLogPayload(request, preparedFile, config.getSpeechProvider(), endpoint, audioModel, null, false, ex.getMessage(), null, timing),
                 false,
                 preparedFile.audioBytes,
                 preparedFile.fileName
@@ -650,6 +673,7 @@ public class AiProxyService {
                                         PreparedSpeechFile preparedFile,
                                         String audioModel,
                                         String audioApiKey) {
+        AiCallTiming timing = AiCallTiming.start();
         String endpoint = buildDashScopeSpeechEndpoint(config.getAudioBaseUrl());
         Map<String, Object> payload = buildDashScopeSpeechPayload(preparedFile, audioModel);
         OutboundCall outboundCall = null;
@@ -679,7 +703,7 @@ public class AiProxyService {
                 "speech_proxy",
                 "speech",
                 action,
-                buildSpeechLogPayload(request, preparedFile, endpoint, audioModel, text, true, null, response.toString()),
+                buildSpeechLogPayload(request, preparedFile, config.getSpeechProvider(), endpoint, audioModel, text, true, null, response.toString(), timing),
                 true,
                 preparedFile.audioBytes,
                 preparedFile.fileName
@@ -693,7 +717,7 @@ public class AiProxyService {
                 "speech_proxy",
                 "speech",
                 action,
-                buildSpeechLogPayload(request, preparedFile, endpoint, audioModel, null, false, errorMessage, ex.getResponseBodyAsString()),
+                buildSpeechLogPayload(request, preparedFile, config.getSpeechProvider(), endpoint, audioModel, null, false, errorMessage, ex.getResponseBodyAsString(), timing),
                 false,
                 preparedFile.audioBytes,
                 preparedFile.fileName
@@ -707,7 +731,7 @@ public class AiProxyService {
                 "speech_proxy",
                 "speech",
                 action,
-                buildSpeechLogPayload(request, preparedFile, endpoint, audioModel, null, false, errorMessage, null),
+                buildSpeechLogPayload(request, preparedFile, config.getSpeechProvider(), endpoint, audioModel, null, false, errorMessage, null, timing),
                 false,
                 preparedFile.audioBytes,
                 preparedFile.fileName
@@ -720,7 +744,7 @@ public class AiProxyService {
                 "speech_proxy",
                 "speech",
                 action,
-                buildSpeechLogPayload(request, preparedFile, endpoint, audioModel, null, false, ex.getMessage(), null),
+                buildSpeechLogPayload(request, preparedFile, config.getSpeechProvider(), endpoint, audioModel, null, false, ex.getMessage(), null, timing),
                 false,
                 preparedFile.audioBytes,
                 preparedFile.fileName
@@ -733,7 +757,7 @@ public class AiProxyService {
                 "speech_proxy",
                 "speech",
                 action,
-                buildSpeechLogPayload(request, preparedFile, endpoint, audioModel, null, false, ex.getMessage(), null),
+                buildSpeechLogPayload(request, preparedFile, config.getSpeechProvider(), endpoint, audioModel, null, false, ex.getMessage(), null, timing),
                 false,
                 preparedFile.audioBytes,
                 preparedFile.fileName
@@ -1022,22 +1046,36 @@ public class AiProxyService {
                                                     Map<String, Object> requestBody,
                                                     String responseText,
                                                     String errorMessage,
-                                                    String upstreamBody) {
+                                                    String upstreamBody,
+                                                    String proxyAction,
+                                                    AiCallTiming timing) {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("consultationId", request == null ? null : request.getConsultationId());
         payload.put("traceId", request == null ? null : request.getTraceId());
         payload.put("scene", request == null ? null : request.getScene());
         payload.put("sourceModule", request == null ? null : request.getSourceModule());
+        payload.put("action", request == null ? null : request.getOperationAction());
+        payload.put("title", request == null ? null : request.getOperationTitle());
+        payload.put("proxyAction", proxyAction);
         payload.put("sessionId", request == null ? null : request.getSessionId());
-        payload.put("consultationId", request == null ? null : request.getConsultationId());
         payload.put("configProfile", request == null ? null : request.getConfigProfile());
+        payload.put("provider", upstreamConfig.getProvider());
         payload.put("baseUrl", upstreamConfig.getBaseUrl());
         payload.put("model", upstreamConfig.getModel());
+        payload.put("startedAt", timing.getStartedAt());
+        payload.put("durationMs", timing.durationMs());
+        payload.put("firstTokenMs", timing.getFirstTokenMs());
         payload.put("requestBody", requestBody);
         payload.put("responseText", responseText);
         payload.put("upstreamBody", upstreamBody);
         payload.put("errorMessage", errorMessage);
         return payload;
+    }
+
+    private String resolveChatAuditAction(ChatRequest request, String fallback) {
+        return request != null && StringUtils.hasText(request.getOperationAction())
+            ? request.getOperationAction().trim()
+            : fallback;
     }
 
     private Map<String, Object> buildSpeechLogPayload(SpeechRequest request,
@@ -1048,6 +1086,30 @@ public class AiProxyService {
                                                       boolean success,
                                                       String errorMessage,
                                                       String upstreamBody) {
+        return buildSpeechLogPayload(
+            request,
+            preparedFile,
+            null,
+            audioBaseUrl,
+            audioModel,
+            responseText,
+            success,
+            errorMessage,
+            upstreamBody,
+            AiCallTiming.start()
+        );
+    }
+
+    private Map<String, Object> buildSpeechLogPayload(SpeechRequest request,
+                                                      PreparedSpeechFile preparedFile,
+                                                      String provider,
+                                                      String audioBaseUrl,
+                                                      String audioModel,
+                                                      String responseText,
+                                                      boolean success,
+                                                      String errorMessage,
+                                                      String upstreamBody,
+                                                      AiCallTiming timing) {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         Map<String, Object> requestBody = new LinkedHashMap<String, Object>();
         requestBody.put("traceId", request.getTraceId());
@@ -1062,10 +1124,14 @@ public class AiProxyService {
         payload.put("sourceModule", request.getSourceModule());
         payload.put("sessionId", request.getSessionId());
         payload.put("scene", request.getScene());
+        payload.put("provider", provider);
         payload.put("baseUrl", audioBaseUrl);
         payload.put("requestBody", requestBody);
         payload.put("preparedFile", buildPreparedFilePayload(preparedFile));
         payload.put("audioModel", audioModel);
+        payload.put("startedAt", timing.getStartedAt());
+        payload.put("durationMs", timing.durationMs());
+        payload.put("firstTokenMs", null);
         payload.put("responseText", responseText);
         payload.put("upstreamBody", upstreamBody);
         payload.put("success", success);
@@ -1139,6 +1205,7 @@ public class AiProxyService {
         String profile = request == null ? null : request.getConfigProfile();
         if ("fast".equalsIgnoreCase(profile)) {
             return new UpstreamChatConfig(
+                resolved.getProvider(),
                 resolved.getBaseUrl(),
                 resolved.getApiKey(),
                 StringUtils.hasText(resolved.getFastModel()) ? resolved.getFastModel() : resolved.getModel(),
@@ -1150,6 +1217,7 @@ public class AiProxyService {
                 throw new BusinessException("当前设备未开启独立审查 AI");
             }
             return new UpstreamChatConfig(
+                resolved.getProvider(),
                 StringUtils.hasText(resolved.getReviewerBaseUrl()) ? resolved.getReviewerBaseUrl() : resolved.getBaseUrl(),
                 StringUtils.hasText(resolved.getReviewerApiKey()) ? resolved.getReviewerApiKey() : resolved.getApiKey(),
                 StringUtils.hasText(resolved.getReviewerModel()) ? resolved.getReviewerModel() : resolved.getModel(),
@@ -1157,6 +1225,7 @@ public class AiProxyService {
             );
         }
         return new UpstreamChatConfig(
+            resolved.getProvider(),
             resolved.getBaseUrl(),
             resolved.getApiKey(),
             resolved.getModel(),
@@ -1166,12 +1235,13 @@ public class AiProxyService {
 
     private static class UpstreamChatConfig {
 
+        private final String provider;
         private final String baseUrl;
         private final String apiKey;
         private final String model;
         private final boolean enableThinking;
 
-        private UpstreamChatConfig(String baseUrl, String apiKey, String model, boolean enableThinking) {
+        private UpstreamChatConfig(String provider, String baseUrl, String apiKey, String model, boolean enableThinking) {
             if (!StringUtils.hasText(baseUrl)) {
                 throw new BusinessException("未配置 AI 服务地址");
             }
@@ -1181,6 +1251,7 @@ public class AiProxyService {
             if (!StringUtils.hasText(model)) {
                 throw new BusinessException("未配置 AI 模型");
             }
+            this.provider = provider;
             this.baseUrl = baseUrl;
             this.apiKey = apiKey;
             this.model = model;
@@ -1189,6 +1260,10 @@ public class AiProxyService {
 
         public String getBaseUrl() {
             return baseUrl;
+        }
+
+        public String getProvider() {
+            return provider;
         }
 
         public String getApiKey() {
@@ -1212,6 +1287,40 @@ public class AiProxyService {
         private StreamForwardResult(String responseText, String errorMessage) {
             this.responseText = responseText;
             this.errorMessage = errorMessage;
+        }
+    }
+
+    private static final class AiCallTiming {
+
+        private final long startedNanos;
+        private final String startedAt;
+        private Long firstTokenMs;
+
+        private AiCallTiming(long startedNanos, String startedAt) {
+            this.startedNanos = startedNanos;
+            this.startedAt = startedAt;
+        }
+
+        private static AiCallTiming start() {
+            return new AiCallTiming(System.nanoTime(), Instant.now().toString());
+        }
+
+        private long durationMs() {
+            return Math.max(0L, (System.nanoTime() - startedNanos) / 1_000_000L);
+        }
+
+        private synchronized void markFirstToken() {
+            if (firstTokenMs == null) {
+                firstTokenMs = durationMs();
+            }
+        }
+
+        private String getStartedAt() {
+            return startedAt;
+        }
+
+        private synchronized Long getFirstTokenMs() {
+            return firstTokenMs;
         }
     }
 

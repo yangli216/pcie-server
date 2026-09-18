@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.api.PageRequest;
@@ -422,7 +423,43 @@ public class AuditService {
         }
         for (AiOpLog record : records) {
             displayCatalog.enrich(record);
+            enrichAiCallMetrics(record);
         }
+    }
+
+    private void enrichAiCallMetrics(AiOpLog record) {
+        if (record == null || !StringUtils.hasText(record.getPayloadJson())) {
+            return;
+        }
+        try {
+            JsonNode payload = objectMapper.readTree(record.getPayloadJson());
+            record.setProvider(jsonText(payload, "provider"));
+            record.setModel(firstNonBlank(jsonText(payload, "model"), jsonText(payload, "audioModel")));
+            record.setDurationMs(jsonLong(payload, "durationMs"));
+            record.setFirstTokenMs(jsonLong(payload, "firstTokenMs"));
+        } catch (JsonProcessingException ex) {
+            log.debug("skip ai call metric projection for invalid payload. logId={}", record.getIdLog());
+        }
+    }
+
+    private String jsonText(JsonNode payload, String fieldName) {
+        if (payload == null || !payload.isObject()) {
+            return null;
+        }
+        JsonNode value = payload.get(fieldName);
+        return value == null || value.isNull() ? null : trimToNull(value.asText());
+    }
+
+    private Long jsonLong(JsonNode payload, String fieldName) {
+        if (payload == null || !payload.isObject()) {
+            return null;
+        }
+        JsonNode value = payload.get(fieldName);
+        if (value == null || value.isNull() || !value.canConvertToLong()) {
+            return null;
+        }
+        long result = value.asLong();
+        return result < 0 ? null : result;
     }
 
     private void applyAliasTextFilter(LambdaQueryWrapper<AiOpLog> wrapper,
