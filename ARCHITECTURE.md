@@ -101,12 +101,13 @@ pcie-server/
 6. 如部署环境需要收紧出站边界，应显式设置 `FB_OUTBOUND_ALLOW_ALL_HOSTS=false`、`FB_OUTBOUND_ALLOW_PRIVATE_NETWORK=false`、`FB_OUTBOUND_ALLOW_INSECURE_HTTP=false`，并通过 `FB_OUTBOUND_ALLOWED_HOSTS` 指定允许访问的上游 host。
 7. 出站安全门按 host 做本地限流和熔断；上游失败达到阈值后短暂拒绝同 host 后续出站，防止 AI / 语音 / PMPHAI 配置异常拖垮后台线程与连接资源。
 8. 连接使用 `ZHS16GBK` 等 Oracle 非 UTF 字符集的医院库时，发布包内必须包含与 `ojdbc8` 同版本的 `orai18n` 运行时依赖；否则服务可能在启动期读取初始化数据时因 `Non supported character set` 退出，导致 8080 端口未监听。
-9. 小山现场并行部署时，正式环境使用 `xiaoshan` profile，测试环境使用 `xiaoshan-test` profile；两者配置保持一致，测试环境仅把服务端口调整为 `9090`。
-10. 小山现场统一使用 `scripts/publish-xiaoshan.sh` 发布，命令必须显式指定 `testing` 或 `production`；脚本内固定环境目录、profile 和端口，不允许通过环境变量覆盖这些映射。每次发布都必须执行 Maven `clean package`，由 Maven 在资源阶段完成管理端 `npm ci` 与 `npm run build`，不得复用 `server/target` 中来源或时效不明的旧 JAR。
+9. 萧山现场并行部署时，正式环境使用 `xiaoshan` profile，测试环境使用 `xiaoshan-test` profile；两者配置保持一致，测试环境仅把服务端口调整为 `9090`。
+10. 萧山现场统一使用 `scripts/publish-xiaoshan.sh` 发布，命令必须显式指定 `testing` 或 `production`；脚本内固定环境目录、profile 和端口，不允许通过环境变量覆盖这些映射。每次发布都必须执行 Maven `clean package`，由 Maven 在资源阶段完成管理端 `npm ci` 与 `npm run build`，不得复用 `server/target` 中来源或时效不明的旧 JAR。
 11. 测试环境固定发布到 `/data/floating-ball-server-testing`，使用 `xiaoshan-test` profile 和 `9090` 端口；正式环境固定发布到 `/data/floating-ball-server-production`，使用目录内的 `floating-ball-server.jar`、`start.sh`、`xiaoshan` profile 和 `8080` 端口。首次切换时发布脚本允许受控停止旧 `/data/floating-ball-server.jar` 正式进程，失败时恢复旧正式服务；切换成功后后续正式发布只操作 production 目录。
 12. 发布脚本先构建并校验 JAR，再上传到目标环境的临时文件；本地校验必须确认管理端入口及入口引用的静态资源均已进入 JAR。远端校验摘要、profile 配置、当前进程归属和端口归属后才停止目标服务。切换失败或健康检查失败时自动恢复该环境的上一版 JAR 和启动脚本，不得操作另一环境的 PID、JAR 或启动脚本。
 13. 测试环境一键发布使用 `./scripts/publish-xiaoshan.sh testing`；正式环境使用 `./scripts/publish-xiaoshan.sh production --confirm-production`，必须携带显式正式发布确认参数；脚本会为单次发布复用临时 SSH 控制连接，密码认证场景正常只需输入一次远程服务器密码，已配置 SSH key 时无需输入密码。
 14. 管理端认证由 `floating-ball.admin.auth.mode` 选择 `local` 或 `bbp`。启用 `bbp` 时必须同时配置 `floating-ball.admin.auth.bbp.base-url`；可通过 `tenant-id` 固定租户，未固定时由登录者填写租户 ID。服务地址仅允许 HTTP/HTTPS，不能包含账号信息、query 或 fragment。
+15. 萧山现场访问 DashScope 时，由 AI 前置机 `172.17.2.6` 上的 Nginx `stream` 模块提供固定目标的 TCP 443 透传，配置基线为 `scripts/xiaoshan-ai-front-nginx.conf`；RHEL 7 的 SELinux PID 文件启动兼容配置为 `scripts/xiaoshan-ai-front-nginx.service.conf`。应用服务器 `192.168.204.122` 访问网络映射入口 `172.18.10.1:9443`，网络设备将其 DNAT 到前置机 `172.17.2.6:443`，前置机实测看到的 SNAT 来源为 `172.17.10.1`；Nginx 与主机防火墙只允许该 NAT 来源。前置机后端只连接 `dashscope.aliyuncs.com:443`，不终止 TLS、不读取 Authorization 或业务载荷，同时支持 HTTPS/SSE/WSS。应用服务器必须保持请求主机名为 `dashscope.aliyuncs.com` 并显式使用映射端口 `9443`；该入口解析不得同步到前置机，前置机必须继续把域名解析为阿里云公网地址，避免转发环路。测试与生产环境共用该出口，切换配置前必须先完成 `curl --resolve`、未鉴权 API 401、WebSocket 握手和测试环境业务验证。
 
 ### 3.1.1 BBP 统一账号认证边界
 

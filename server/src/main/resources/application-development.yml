@@ -19,7 +19,7 @@ spring:
 floating-ball:
   aes-key: ${FB_AES_KEY:FloatingBallKey!}
   admin:
-     auth:
+    auth:
       mode: bbp
       bbp:
         base-url: http://192.168.201.140:5680/rbmh-phis
