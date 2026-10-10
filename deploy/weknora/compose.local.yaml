@@ -1,0 +1,97 @@
+services:
+  frontend:
+    image: wechatopenai/weknora-ui:${WEKNORA_VERSION:?Run prepare-local.py first}
+    ports:
+      - "127.0.0.1:${WEKNORA_UI_PORT:-8091}:80"
+    environment:
+      APP_HOST: app
+      APP_PORT: "8080"
+      APP_SCHEME: http
+      MAX_FILE_SIZE_MB: "50"
+      DEFAULT_LOCALE: zh-CN
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+  app:
+    image: wechatopenai/weknora-app:${WEKNORA_VERSION:?Run prepare-local.py first}
+    env_file: .local/runtime.env
+    ports:
+      - "127.0.0.1:${WEKNORA_API_PORT:-8092}:8080"
+    volumes:
+      - data-files:/data/files
+      - docreader-tmp:/tmp/docreader:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      docreader:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+    restart: unless-stopped
+
+  docreader:
+    image: wechatopenai/weknora-docreader:${WEKNORA_VERSION:?Run prepare-local.py first}
+    environment:
+      TZ: Asia/Shanghai
+      LOG_LEVEL: info
+      MAX_FILE_SIZE_MB: "50"
+      DOCREADER_IMAGE_OUTPUT_DIR: /tmp/docreader
+      DOCREADER_GRPC_PORT: "50051"
+      DOCREADER_GRPC_MAX_WORKERS: "4"
+      DOCREADER_ODL_HYBRID: "off"
+    volumes:
+      - docreader-tmp:/tmp/docreader
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50051"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+    restart: unless-stopped
+
+  postgres:
+    image: paradedb/paradedb:v0.22.6-pg17
+    environment:
+      POSTGRES_USER: ${DB_USER:?Run prepare-local.py first}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Run prepare-local.py first}
+      POSTGRES_DB: ${DB_NAME:?Run prepare-local.py first}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    restart: unless-stopped
+    stop_grace_period: 1m
+
+  redis:
+    image: redis:7.0-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run prepare-local.py first}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+volumes:
+  data-files:
+  docreader-tmp:
+  postgres-data:
+  redis-data:

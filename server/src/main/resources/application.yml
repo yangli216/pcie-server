@@ -32,6 +32,15 @@ mybatis-plus:
       logic-not-delete-value: 1
 
 floating-ball:
+  knowledge-retrieval:
+    enabled: ${FB_KNOWLEDGE_RETRIEVAL_ENABLED:false}
+    catalog-file: ${FB_KNOWLEDGE_CATALOG_FILE:}
+    connect-timeout-ms: ${FB_WEKNORA_CONNECT_TIMEOUT_MS:10000}
+    read-timeout-ms: ${FB_WEKNORA_READ_TIMEOUT_MS:30000}
+    connections:
+      default:
+        base-url: ${FB_WEKNORA_BASE_URL:}
+        api-key: ${FB_WEKNORA_API_KEY:}
   aes-key: ${FB_AES_KEY:FloatingBallKey!}
   admin:
     auth:

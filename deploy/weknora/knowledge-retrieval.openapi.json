@@ -1,0 +1,398 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "PCIE governed knowledge retrieval",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/v1/knowledge/collections": {
+      "get": {
+        "operationId": "listKnowledgeCollections",
+        "security": [
+          {
+            "deviceToken": []
+          }
+        ],
+        "description": "Requires deviceToken plus ECDSA P-256 X-Timestamp/X-Nonce/X-Signature bound to method, path and actual UTF-8 body digest. The desktop also sends X-Body-SHA256; if present it must match actual body. Organization comes only from the authenticated device.",
+        "responses": {
+          "200": {
+            "description": "Success envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "message",
+                    "data",
+                    "requestId",
+                    "timestamp"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "0"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/KnowledgeCollections"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    },
+                    "timestamp": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation, missing approval, release/content drift"
+          },
+          "401": {
+            "description": "Missing token, invalid signature, replay or wrong signed path/body"
+          },
+          "503": {
+            "description": "WeKnora upstream unavailable or invalid response; catalog errors use 400 KNOWLEDGE_NOT_READY."
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Body-SHA256",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/knowledge/search": {
+      "post": {
+        "operationId": "searchKnowledge",
+        "security": [
+          {
+            "deviceToken": []
+          }
+        ],
+        "description": "Requires deviceToken plus ECDSA P-256 X-Timestamp/X-Nonce/X-Signature bound to method, path and actual UTF-8 body digest. The desktop also sends X-Body-SHA256; if present it must match actual body. Organization comes only from the authenticated device.",
+        "responses": {
+          "200": {
+            "description": "Success envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "message",
+                    "data",
+                    "requestId",
+                    "timestamp"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "0"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/KnowledgeSearchResponse"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    },
+                    "timestamp": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation, missing approval, release/content drift"
+          },
+          "401": {
+            "description": "Missing token, invalid signature, replay or wrong signed path/body"
+          },
+          "503": {
+            "description": "WeKnora upstream unavailable or invalid response; catalog errors use 400 KNOWLEDGE_NOT_READY."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeSearchRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Body-SHA256",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "deviceToken": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "KnowledgeCollection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "releaseVersion",
+          "retrievalVersion",
+          "documentCount"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "releaseVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "retrievalVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "documentCount": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "KnowledgeCollections": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "collections"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "collections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeCollection"
+            }
+          }
+        }
+      },
+      "KnowledgeSearchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "collectionId",
+          "query",
+          "releaseVersion"
+        ],
+        "properties": {
+          "collectionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "releaseVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "default": 5
+          }
+        }
+      },
+      "KnowledgeEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "chunkId",
+          "sourceId",
+          "title",
+          "sourceVersion",
+          "contentSha256",
+          "content",
+          "score",
+          "matchType"
+        ],
+        "properties": {
+          "chunkId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "sourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "sourceVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "contentSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "score": {
+            "type": "number"
+          },
+          "matchType": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "供应商匹配标签。WeKnora v0.8.2 整数枚举由服务端归一化：0=embedding、1=keywords、2=nearby_chunk、3=history、4=parent_chunk、5=relation_chunk、6=graph、7=web_search、8=direct_load、9=data_analysis。既有非空文本标识兼容；未知整数、非整数数字及非法类型返回脱敏上游错误。标签不改变批准范围、正文或得分。"
+          }
+        }
+      },
+      "KnowledgeSearchResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "collection",
+          "query",
+          "manifestSha256",
+          "retrievedAt",
+          "results"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "weknora"
+            ]
+          },
+          "collection": {
+            "$ref": "#/components/schemas/KnowledgeCollection"
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "manifestSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "retrievedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "results": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeEvidence"
+            }
+          }
+        }
+      }
+    }
+  }
+}

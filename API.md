@@ -1,5 +1,20 @@
 # 全医慧助服务端（PCIE Server）API 说明
 
+## 机构知识检索（2026-09-30）
+
+部署随附机器契约：[knowledge-retrieval.openapi.json](deploy/weknora/knowledge-retrieval.openapi.json)，与[工作区协同版本](../development-harness/contracts/knowledge-retrieval.openapi.json)逐字节同步。两接口必须经过DeviceAuthFilter的Bearer+ECDSA P-256，不新增鉴权豁免。
+
+- GET `/v1/knowledge/collections`：data=`{enabled,collections:[{id,name,releaseVersion,retrievalVersion,documentCount}]}`，仅当前设备机构、APPROVED及有效期内集合。默认关闭时返回false与空列表，无上游调用；批准清单损坏显式失败。
+- POST `/v1/knowledge/search`：`{collectionId,query,releaseVersion,limit?}`，query非空、≤2000字符；limit默认5、1–20；未知字段拒绝。不能传机构/URL/Key/KB或片段白名单。机构来自已鉴权设备，releaseVersion必须与当前批准集合一致。
+- data=`{provider:"weknora",collection,query,manifestSha256,retrievedAt,results}`；results包含chunkId/sourceId/title/sourceVersion/contentSha256/content/score/matchType。正文与批准hash严格一致，可信来源字段来自清单。成功零命中为[]，失败不冒充空结果。
+- 错误：KNOWLEDGE_NOT_READY（配置/批准/访问范围不足）、KNOWLEDGE_VERSION_CHANGED（列表版本过期）、KNOWLEDGE_CONTENT_CHANGED（片段越界/正文变更）沿用400；KNOWLEDGE_UPSTREAM_UNAVAILABLE为503；请求校验沿用VALIDATION-001/002。错误不含密钥、上游响应、服务器地址或文件路径。
+
+WeKnora根地址/Key/超时和批准清单配置见[知识服务设计](../development-harness/KNOWLEDGE_BASE_DESIGN.md)。hybrid-search请求固定skip_context_enrichment=true和批准knowledge_ids，不调用完整问答管线或替代公卫bge-reranker-large。客户端新入口在`features/knowledge`，本地`/api/*`无新增。
+
+`matchType` 保持最长64字符的字符串。WeKnora v0.8.2 的整数 `match_type` 由 Provider 转为官方枚举名称（0→`embedding`、1→`keywords`，完整映射见知识设计）；既有非空字符串标识原样保留。未知枚举、非整数数字或非法类型返回 `KNOWLEDGE_UPSTREAM_UNAVAILABLE`，不把实际命中误判为空结果，也不改变正文hash规则。
+
+
+
 > 更新日期：2026-09-07
 > 范围：全医慧助（PCIE）桌面端当前唯一远程业务契约 `/v1/*`；桌面端已取消本地/区域双模式
 >

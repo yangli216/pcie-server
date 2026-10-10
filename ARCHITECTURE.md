@@ -1,5 +1,15 @@
 # 全医慧助服务端（PCIE Server）架构说明
 
+## WeKnora 机构知识服务（2026-09-30）
+
+`modules/knowledge` 增加 KnowledgeCatalogService（批准清单/机构/有效期/版本）、KnowledgeRetrievalService（统一证据映射）及 WeKnoraKnowledgeProvider（v0.8.2独立hybrid-search）。只对服务端批准的文档/片段检索并校验原文UTF-8 SHA-256，禁止父块/邻块扩展；不依赖WeKnora生成回答或沙箱，不改变公卫生成与PMPHAI。KnowledgeRetrievalProperties托管连接配置，专用HTTP客户端固定超时、禁重定向/重试、复用出站限流熔断，响应有大小上限。配置与部署见 [知识服务设计](../development-harness/KNOWLEDGE_BASE_DESIGN.md) 和 [接入说明](deploy/weknora/README.md)，无新增业务表。
+
+`deploy/weknora/compose.local.yaml` 管理独立本机知识服务环境（固定 v0.8.2 UI/App/Docreader、ParadeDB 和 Redis），与 PCIE Server 的 Oracle/GaussDB/DM8 及启动流程分离。UI/API 仅绑定环回8091/8092，内部服务不发布端口；新数据使用本项目专用持久卷，随机密钥保存在Git忽略且权限0600的 `.local/runtime.env`。准备工具不修改现有服务配置，也不自动创建机构批准清单或启用检索；模型、资料和签名接入仍须分别配置验证。
+
+Provider 在供应商边界处理 v0.8.2 的整数匹配枚举，向桌面继续返回字符串 `matchType`；合法整数按官方枚举转换，既有文本标识兼容，未知或非法类型拒绝为脱敏上游错误。正文和批准清单校验不随标签转换改变。
+
+
+
 > 更新日期：2026-09-07
 
 ## 1. 项目定位

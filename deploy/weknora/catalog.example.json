@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "pcie-knowledge-catalog/v1",
+  "collections": [
+    {
+      "id": "institution-recipes",
+      "name": "机构食谱资料",
+      "connectionId": "default",
+      "knowledgeBaseId": "SYNTHETIC-KB-REPLACE",
+      "releaseVersion": "draft-20260930",
+      "retrievalVersion": "weknora-0.8.2-hybrid-rrf-REPLACE",
+      "reviewStatus": "DRAFT",
+      "organizationIds": ["SYNTHETIC-ORG-REPLACE"],
+      "documents": [
+        {
+          "knowledgeId": "SYNTHETIC-DOC-REPLACE",
+          "sourceId": "recipes-original-REPLACE",
+          "title": "原始资料标题（待核对）",
+          "sourceVersion": "source-version-REPLACE",
+          "chunks": []
+        }
+      ]
+    }
+  ]
+}
