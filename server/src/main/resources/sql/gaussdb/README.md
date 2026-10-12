@@ -75,3 +75,8 @@ FB_DB_PASSWORD=Rbmh_ai@123
 7. 服务启动与 Actuator `featureEventSchema` readiness 会只读验证功能事件完整列和 `feature_event_minimization_v1` 标记；缺表、缺列、缺标记或权限不足时拒绝启动。使用情况索引仍须由 DBA 单独确认。
 8. `init.sql` 默认角色包含 `SYSTEM_ADMIN`、仅管理所属 BBP 机构 AI 使用权限的 `ORG_ADMIN`，以及只读查看本机构统计的 `ORG_ANALYST`；新增 BBP 用户授权通过 `c_ai_bbp_admin_grant` 维护，既有本地 PCIE 用户角色映射继续作为兼容路径。
 9. 已存在门诊模板快照表的库执行 `gsql -v ON_ERROR_STOP=1 -f update_outpatient_emr_template_snapshot.sql`，把唯一键调整为 `id_org + template_id + template_hash`；脚本仅重建索引，不改变任何业务记录，执行期间须停止模板快照写入。
+
+
+## 公卫生成运行表（2026-09-29）
+
+初始化基线增加 `c_ai_ph_origin` 与 `c_ai_ph_run`，分别以机构+设备+originRequestId、机构+设备+requestId唯一约束。生成前短事务占位，完整结果/失败状态独立持久化；RUNNING超时不会自动重跑模型。此变更没有执行任何现场数据库更新；已有库由DBA核对当前init.sql生成一次性迁移，不新增常驻upgrade脚本。生产功能默认关闭，必须先部署schema及真实批准资产/Prompt后启用。

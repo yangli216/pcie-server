@@ -14,8 +14,11 @@ WeKnora根地址/Key/超时和批准清单配置见[知识服务设计](../devel
 `matchType` 保持最长64字符的字符串。WeKnora v0.8.2 的整数 `match_type` 由 Provider 转为官方枚举名称（0→`embedding`、1→`keywords`，完整映射见知识设计）；既有非空字符串标识原样保留。未知枚举、非整数数字或非法类型返回 `KNOWLEDGE_UPSTREAM_UNAVAILABLE`，不把实际命中误判为空结果，也不改变正文hash规则。
 
 
+> **公卫原生生成（2026-09-29，工程实现/合成验证）**：已新增签名 `POST /v1/public-health/generations`，按独立 `health_prescription / weight_management` 原生编排并以业务 SSE 返回进度、章节与完整结果。默认关闭，缺少批准规则、Prompt 或知识资产时结构化阻断；该正式接口的部署、真实模型/PHIS及医学验收仍待完成。字段见[公卫设计](deploy/public-health/PUBLIC_HEALTH_DESIGN.md)及[OpenAPI](deploy/public-health/contracts/public-health.openapi.json)。本地唤起/回执仍属于桌面 `/api/*`。
 
-> 更新日期：2026-09-07
+> **公卫工程验证（2026-10-12）**：独立功能/场景、编辑确认、食谱选择、失败恢复和源版本冲突已完成本机工程验证。生产相关定向回归为客户端204、隔离服务端139、Rust18项，共361项通过；类型与构建检查通过。正式公卫真实上游/数据库、机构医学批准及真实PHIS另验；本机调试代码和过程资料不纳入功能分支。
+
+> 更新日期：2026-10-12
 > 范围：全医慧助（PCIE）桌面端当前唯一远程业务契约 `/v1/*`；桌面端已取消本地/区域双模式
 >
 > 仓库与 Maven 工程已更名为 `pcie-server`；为兼容既有部署，`/v1/*`、`/admin/api/*`、`floating-ball.*` 配置键、`FB_*` 环境变量和数据库结构保持不变。
@@ -3853,3 +3856,247 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 - `401`：device token 或 ECDSA 签名无效
 - `409`：相同 `requestId` 已存在但患者/病种关键字段冲突
 - `500`：服务端保存失败；客户端保留表单现场并允许使用同一 `requestId` 重试
+
+
+## 公卫原生生成（public-health.v1，2026-09-29）
+
+食谱章节可返回 `options` 三项 `{id,title,content}`，首项为默认推荐，章节 `content` 与首项逐字相同。ID 非空且唯一（最多128码点），标题/正文最多100/16000码点；各 ID 必须属于本次批准召回来源，标题由来源派生。其他章节不携带选项。召回至少三份时以一次模型请求生成默认项和两备选，数量/源 ID/正文不合法则拒绝；来源不足三份时继续单份输出，不编造备选。客户端确认结构仍是当前采用的一份正文，选项列表和 ID 不进入 PHIS。设备签名、批准门禁与运行幂等不变。
+
+已实现 `POST /v1/public-health/generations`，字段以 [OpenAPI](deploy/public-health/contracts/public-health.openapi.json) 和 [跨仓设计](deploy/public-health/PUBLIC_HEALTH_DESIGN.md) 为准。桌面端调用，沿用设备 Bearer、`X-Timestamp/X-Nonce/X-Signature/X-Body-SHA256`，无鉴权豁免。本接口不实现 PHIS 保存、本地握手或 WS 权限。当前仅完成工程实现与合成验证；部署、真实资产/模型及 PHIS 联调另行验收。
+
+- 请求上限512KiB；严格字段/枚举/UUID/带时区日期校验。减重的 `heightObservationId/weightObservationId` 必须指向事实数组中 `height/cm`、`weight/kg` 的数值观察，并与 profile 相等；缺失返回 `MISSING_FACTS`，冲突返回 `INVALID_REQUEST`。手工来源 `PCIE_MANUAL` 的 recordId 为独立UUID，来源自述不是授权证据。
+- `originRequestId` 绑定可信机构/设备及患者、scene、业务记录、capability、recordVersion、目标映射、patient.name/ageYears；明确性别不可变，unknown补充须PCIE_MANUAL UUID sexSource并锁定；首次远端请求可能是桌面补充后的新 requestId，不能强制其等于 origin。远端请求幂等作用域为机构+设备+requestId，完整规范化JSON摘要冲突返回409。新生成新 requestId；既有完成/失败仅重放，不再调用模型；运行中返回 `GENERATION_IN_PROGRESS`。
+- 数字采用跨 JavaScript 边界的有限 IEEE-754 值；绝对值超过 `9007199254740991` 拒绝，字符串不转数字。规范化保留数组顺序、排序对象键，并把 `170.0/170`、`-0/0` 视为相同数值；整体数值的 `40.0` 满足整数字段要求，`40.5` 仍不满足。避免 PHIS→Rust→JavaScript 往返改变数字书写形式后误判快照冲突。
+- 成功只有 `text/event-stream`，每连接新 streamId，sequence从1计，SSE id为 `streamId:sequence`。事件为 accepted/progress/metrics/section/completed/failed；completed必须带完整result，section为整节快照。180秒截止、15秒保活。断连/本地取消不停止服务端模型调用，不保证停止计费。
+- 健康处方固定 check_plan/medication_guidance/lifestyle_guidance；减重固定 exercise_plan/meal_plan，另有一位小数BMI/BMR与公式版本。Prompt和知识版本来自实际使用配置，不允许模型自行填写。
+- 输出版本字段遵守 OpenAPI 的 128 字符上限，超长 Prompt code/version 或资产 assetId/version 在模型调用前阻断。确定性指标执行输出工程边界 `0 < bmi <= 1000`、`0 < bmrKcalPerDay <= 100000`；超出时拒绝生成，这些边界不代表临床适用性。
+- `legacy-bsoft-bmi-bmr.v1` 保留旧 Python 的双精度计算顺序：身高 cm 转 m 计算 BMI，再由 m 转 cm 计算旧版男女 BMR；按二进制浮点真实值执行十进制一位 HALF_EVEN，不能用 `Math.round(x*10)/10` 替代 Python `round`。合成对照覆盖 12.25→12.2、12.35→12.3 和 BMR 1609.85→1609.8 等边界，不引入新的临床公式。
+- 默认禁用：`floating-ball.public-health.enabled=false`（`FB_PUBLIC_HEALTH_ENABLED`）。资产根目录 `floating-ball.public-health.asset-directory`（`FB_PUBLIC_HEALTH_ASSET_DIR`）默认空；每机构通过服务端 `org-assets` 映射选择相对包目录，客户端不能传路径。无批准规则、Prompt或知识资产返回结构化 `POLICY_NOT_READY/KNOWLEDGE_NOT_READY`，不产生虚构成功。
+- 资产包使用 manifest.json、policy.json、recipes.json：manifest声明机构、版本、审核状态和文件SHA-256；规则包含检查白名单/最小间隔/异常复查间隔/准备事项、药物类别提醒和生活方式规则。食谱含原文分段ID与向量、embedding模型/维度、分段版本。工作区已保存真实食谱原文与85个原分段；向量构建产物仍需机构审核和绑定，不自动启用。
+- 减重检索使用本地余弦向量召回，再经机构现有模型网关 `/rerank` 调用 bge-reranker-large，Top4、无阈值、无元数据过滤；query含地区/季节/BMR。query向量通过同网关 `/embeddings` 取得。该网关必须支持对应协议；默认 `retrieval-enabled=false`。候选数通过服务端 `retrieval-candidates` 配置，默认20，原库候选数未核验，不能宣称排序等价；禁止静默退化关键词检索。
+- 复用已发布Prompt代码 `publicHealthHealthPrescription`、`publicHealthExercisePlan`、`publicHealthMealPlan`，缺失时阻断。模型输出必须通过结构和受控编码校验；这些检查不是医学安全或临床有效性证明。
+
+原生运行表在Oracle/GaussDB初始化基线交付；未自动升级任何现场库。结果包含临床文本，应沿用现有数据库访问与保留策略。新增测试仅使用合成资料和Fake上游，不调用真实模型或PHIS。
+
+内部检查计划输出保留 `priority/reason/evidenceObservationIds/intervalKind`，事实引用必须存在。异常复查只在规则包明确提供 `abnormalCriteria[{observationCode,unit,operator,threshold,maxEvidenceAgeDays}]` 且每条条件都有本次引用的数值证据满足时使用 `abnormalRetestIntervalDays`；否则不能由模型自行判异常或缩短普通间隔。编码与单位必须同时一致，服务端不自行换算；比较操作仅 gt/gte/lt/lte/eq，阈值与时效来自批准资产，不内置临床阈值。旧版真实异常判定字典尚未取得，因此不声称与旧输出等价；真实条件缺失会阻断该分支。优先级与自由文本仍需医生复核，工程校验不是临床审查。
+
+### 新增功能接入指南（2026-10-10）
+
+#### 功能与调用方
+
+两项能力面向公卫医生，生成供医生核对、编辑并形成健康教育处方的草案。PHIS 在居民随访/体检页面提供两个入口，通过本机 SDK 唤起助手；只有桌面端调用本节远端生成接口。PHIS 接入代码与保存回执示例见 [客户端接入指南第8节](../pcie/api.md)。
+
+| 界面入口 | `capability` | 固定生成章节 | 附加结果 |
+| --- | --- | --- | --- |
+| 随访健康处方 | `health_prescription` | `check_plan` 检查计划、`medication_guidance` 用药指导、`lifestyle_guidance` 生活方式建议 | 无减重指标 |
+| 智能减重助手 | `weight_management` | `exercise_plan` 运动建议、`meal_plan` 食谱推荐 | 只读 `metrics.bmi / bmrKcalPerDay / formulaVersion`；食谱可带默认方案及两份备选 |
+
+两项能力均支持 `scene=hypertension_followup / diabetes_followup / elderly_exam`。`scene` 表示原业务页面，不能用它代替 `capability`；运动与食谱属于同一次减重生成，没有另设单章节生成端点。BMI/BMR 不作为 PHIS 回写项，BMR 不等于每日摄入目标。
+
+| 接入阶段 | 地址/方法 | 调用方与返回 |
+| --- | --- | --- |
+| 本机配对 | `POST /api/public-health/handshake` | PHIS SDK → 本机 `127.0.0.1:8081`；取得实例令牌 |
+| 调入并唤起 | `POST /api/public-health/assist` | PHIS SDK → 本机 Bridge；HTTP 202 `accepted` 表示受理任务 |
+| 业务生成 | `POST /v1/public-health/generations` | 桌面 → PCIE Server；HTTP 200、业务 SSE |
+| 医生确认 | `public-health-result-confirmed` | 本机公卫专用 WS → PHIS SDK；携带冻结的允许回写字段 |
+| 保存回执 | `POST /api/public-health/writeback-feedback` | PHIS SDK → 本机 Bridge；报告真实保存终态 |
+
+本机配对令牌与远端设备鉴权是两套不同凭据。远端请求使用 `Authorization: Bearer {deviceToken}` 及 ECDSA P-256 的 `X-Timestamp / X-Nonce / X-Signature / X-Body-SHA256`，桌面复用 `regionalRequestResponse` 完成签名；PHIS 不获得设备私钥或供应商密钥。请求 Header 为 `Content-Type: application/json`、`Accept: text/event-stream`。
+
+#### 3.4.1 随访健康处方
+
+实现补充：用户确认多源资料由发起方直接传入，助手不主动查询外部系统。随访、就诊、体检、慢病档案归一到现有 `facts`，派生可核对的健康画像；已有风险等级用观察编码 `risk_level / hypertension_risk_level / diabetes_risk_level / cardiovascular_risk_level` 传入，必须带真实日期和来源。生活方式章节同时承载 AI 定性潜在风险、干预建议、疾病预防、饮食、运动和随访安排，风险引用只能来自当前画像证据；不输出概率、确诊或经校准分数。内部模型格式见 [HealthEducationDraft](deploy/public-health/contracts/public-health.health-education.schema.json)，PHIS 请求/确认字段和三章映射保持不变。
+
+服务端批准检查白名单可选 `eligibility={minAgeYears?,maxAgeYears?,sexes?,conditionCodes?,riskLevels?}`：年龄0–130整数、上下界包含边界且不能反转，性别为 `male/female`，列表非空且唯一；各条件同时满足，病种/风险列表任一匹配即可。风险只采用上述已有风险观察的非冲突最新值，不使用模型自行划分的关注级别。发起方不传检查规则；不适配项目在模型调用前排除并在输出时再次拒绝，原日期/最短间隔/异常证据约束继续执行。
+
+内部检查输出在原 `evidenceObservationIds` 外可带 `evidenceRefs`（1–16项唯一画像ref）；两类引用至少一类非空，引用均须存在于当前画像证据。基线缺失时可引用实际年龄/病种作为适配依据，并写明缺少本项目既往结果；这不能证明异常或缩短复查间隔。`abnormal_retest` 仍须实际观察 ID、数值、单位和批准阈值全部满足。PHIS 仍只接收原检查计划文本，不新增回写字段。
+
+内部模型输入另含程序派生 `checkScheduleConstraints`：每个适配项目有 `code / routineEarliestDate / routineAvailable / abnormalRetestAvailable`，全部异常条件满足时另带 `abnormalRetestEarliestDate`。最早日期按快照与同编码所有非未来观察的最晚实施日加批准间隔计算，本次测量和冲突结果日期亦计入；可安排窗口为快照后90天（含边界）。模型不能把近期随访测量当成未做过检查，最终输出仍复核日期与实际数值依据；此字段不由发起方传入、不回写 PHIS。
+
+随访教育内部草稿另拒绝 BMI/BMR、减重目标、目标体重、三餐参考食谱/备选食谱及 kcal/千卡/卡路里，防止混入减重内容。血压/血糖数值由程序按原证据展示，模型文本不重复 mmHg/mmol/L 单位或编造量化目标，不据单次测量判断正常/异常。以上是生成前置约束，不替代医生编辑、医学审核和确认，也不改变 PHIS 文本字段。
+
+在居民随访/体检页面点击“随访健康处方”，使用 `capability=health_prescription` 经本机 `assist` 唤起助手，再由桌面调用同一签名生成接口。完整需求见 [PRD 3.4.1](PRD.md#341-随访健康处方需求补充2026-10-10)。此能力面向医生核对与形成健康教育处方，下表逐项说明五项需求的接入方式与覆盖差距。
+
+| 需求 | 当前接入方式与输出 | 待补充或验收项 |
+| --- | --- | --- |
+| 发起方传入随访记录、历史就诊、体检报告、慢病档案，构建健康画像（按用户澄清） | 在当前 `facts` 快照派生健康画像；观察保留来源、时间，展示最新结果和历史来源，冲突结果不自动选值 | 不要求助手主动取数或画像持久化；现场传入事实与居民锚点仍需核对 |
+| 基于画像生成疾病预防、用药、饮食、运动健康教育 | 输出 `check_plan / medication_guidance / lifestyle_guidance`；用药指导单列，疾病预防、饮食与运动教育归入生活方式建议 | 批准 Prompt、规则、知识内容和医生审核另行验收；随访中的运动/饮食教育无需先调用减重能力 |
+| AI 分析慢病进展、并发症等潜在风险并给出干预建议 | 结构化 `HealthEducationDraft.risks` 校验画像证据、类型和关注状态，由程序拼入生活方式正文；已有风险原值单列 | 当前为定性潜在风险，非发病概率或诊断；若验收要求专门量化预测，其适用人群、预测周期、算法和临床校准另验 |
+| 根据年龄、性别、健康状况、风险等级推荐适配检查检验 | 批准规则可带 `eligibility`；模型调用前过滤不适配项目，输出再次校验，沿用事实引用、90天范围与最短间隔 | 现场批准字典和检查编码映射待验；检查 `priority` 为项目优先级，不代表居民风险等级 |
+| 与 PHIS/公卫随访系统对接，保持健康数据、随访记录和业务编码一致 | 用居民/记录/版本锚点绑定任务，目标字段白名单控制回写；医生确认后由 PHIS 校验版本、原子保存并发送真实回执 | 现场数据源、编码字典与字段映射待补充；真实 PHIS 联调另验，Mock 保存不能作为对接完成证据 |
+
+居民健康画像在当前接口中体现为一次有来源的事实快照，由 PHIS 接入适配器汇集，不由 PCIE Server 根据居民 ID 自行查询外部系统。各类资料映射如下：
+
+| 资料来源 | `PublicHealthRequest` 字段 | 映射要求 |
+| --- | --- | --- |
+| 当前/历史随访记录 | `facts.observations / lifestyle / nextFollowUpDate` | 测量按条保留，不能用 `snapshotAt` 替代 `observedAt`；下次随访日期为 `YYYY-MM-DD` |
+| 历史就诊数据 | `facts.conditions / medicationClasses / observations / historySummary` | 只提供已记录的病情和用药类别；就诊摘要保留原系统、记录 ID 和日期，缺失用药不能解释为未服药 |
+| 体检与检查检验报告 | `facts.observations`，必要摘要放 `historySummary` | 传与规则对齐的项目编码、原结果和单位、报告时间及 `source={system,recordId}`；源项目可由源记录追溯，本接口不接收附件或负责报告文件解析 |
+| 慢病管理档案 | `facts.conditions / lifestyle / observations / historySummary` | 病种/管理状态按字典对齐；已有风险分层用约定风险观察编码携带原结果、日期与来源，不视为本次模型预测 |
+| 人口学与本次业务锚点 | `patient / patientId / businessRecordId / recordVersion` | 使用实际居民标识及当前业务版本；跨系统患者关联由接入方完成，不按姓名自动合并 |
+
+`observations[].code` 应与服务端受控规则中的观察/检查编码对齐，`medicationClasses[].code` 应与批准用药类别字典对齐，`writebackTargets[].targetFieldId` 应对应 PHIS 实际可写字段。源系统编码不一致时由接入适配器显式转换，并保留可追溯的源记录。`conditions / medicationClasses / lifestyle` 当前没有逐项 `source` 字段，相关来源写入 `historySummary`；不能自行向严格对象追加字段。`riskLevel / riskPrediction / healthProfile / visitRecords / examReports` 不是当前请求字段，需扩展时先版本化跨端契约。
+
+以下为独立的随访健康处方合成请求，可用于首次本机调入或远端结构验证；无需 `weightProfile`。示例编码与目标字段仅用于说明映射，必须替换为现场字典/字段并配置批准资产后才能正式生成；示例不表示已查询真实外部数据源。
+
+```json
+{
+  "schemaVersion": "public-health.v1",
+  "originRequestId": "55555555-5555-4555-8555-555555555555",
+  "requestId": "55555555-5555-4555-8555-555555555555",
+  "capability": "health_prescription",
+  "scene": "hypertension_followup",
+  "patientId": "synthetic-resident-001",
+  "businessRecordId": "synthetic-followup-health-001",
+  "recordVersion": "7",
+  "snapshotAt": "2026-10-10T09:00:00+08:00",
+  "patient": { "name": "合成居民", "sex": "female", "ageYears": 65 },
+  "facts": {
+    "observations": [
+      { "id": "followup-sbp", "code": "systolic_bp", "value": 138, "unit": "mmHg", "observedAt": "2026-10-10T08:30:00+08:00", "source": { "system": "MOCK_PHIS", "recordId": "synthetic-followup-health-001" } },
+      { "id": "followup-dbp", "code": "diastolic_bp", "value": 86, "unit": "mmHg", "observedAt": "2026-10-10T08:30:00+08:00", "source": { "system": "MOCK_PHIS", "recordId": "synthetic-followup-health-001" } },
+      { "id": "visit-glucose", "code": "fasting_glucose", "value": 6.2, "unit": "mmol/L", "observedAt": "2026-09-20T08:00:00+08:00", "source": { "system": "MOCK_HIS", "recordId": "synthetic-lab-report-001" } },
+      { "id": "exam-height", "code": "height", "value": 160, "unit": "cm", "observedAt": "2026-09-15T09:00:00+08:00", "source": { "system": "MOCK_EXAM", "recordId": "synthetic-exam-report-001" } }
+    ],
+    "conditions": [{ "code": "SYNTHETIC_HTN", "name": "高血压（合成测试）", "status": "随访管理中（合成测试）" }],
+    "medicationClasses": [],
+    "lifestyle": { "exercise": "每周三次步行，每次20分钟（合成测试资料）", "diet": "偏好清淡家常菜（合成测试资料）" },
+    "historySummary": "合成资料：历史就诊 MOCK_HIS / synthetic-visit-001，日期2026-09-20；慢病档案 MOCK_ARCHIVE / synthetic-chronic-001，更新日期2026-10-01，记录高血压随访管理。用药类别和风险分层结果未提供。",
+    "nextFollowUpDate": "2026-11-10"
+  },
+  "writebackTargets": [
+    { "targetFieldId": "checkPlanEducation", "label": "检查检验计划", "sourceSections": ["check_plan"], "valueType": "string", "mode": "replace" },
+    { "targetFieldId": "medicationEducation", "label": "用药健康教育", "sourceSections": ["medication_guidance"], "valueType": "string", "mode": "replace" },
+    { "targetFieldId": "lifestyleEducation", "label": "疾病预防与生活方式教育", "sourceSections": ["lifestyle_guidance"], "valueType": "string", "mode": "replace" }
+  ]
+}
+```
+
+服务端读取批准的 `publicHealthHealthPrescription` Prompt 生成三个固定章节；不返回 BMI/BMR 或减重食谱选项。检查计划包含目录项目、计划日期、优先级、事实依据与准备事项；用药指导覆盖所有已提供类别及批准提醒；生活方式内部六分区草稿承载带证据的潜在风险、干预建议、疾病预防、饮食、运动及随访教育，再拼为纯文本。没有用药资料或适配检查时明确说明未生成，不能填入虚构药物或检查。AI 定性风险不能作为专门量化预测模型验收。
+
+医生核对并勾选三个章节后，PHIS SDK 收到以下确认 payload；正文为合成占位。`generationId` 来自实际生成结果，`writebackRequestId` 由桌面创建，接入方不能自己伪造生成/确认事件。若医生只选某一章节，回传仅包含该章节对应的独立目标；未回传字段保持原值。
+
+```json
+{
+  "schemaVersion": "public-health.v1",
+  "originRequestId": "55555555-5555-4555-8555-555555555555",
+  "requestId": "55555555-5555-4555-8555-555555555555",
+  "generationId": "66666666-6666-4666-8666-666666666666",
+  "writebackRequestId": "77777777-7777-4777-8777-777777777777",
+  "capability": "health_prescription",
+  "scene": "hypertension_followup",
+  "patientId": "synthetic-resident-001",
+  "businessRecordId": "synthetic-followup-health-001",
+  "recordVersion": "7",
+  "snapshotAt": "2026-10-10T09:00:00+08:00",
+  "items": [
+    { "targetFieldId": "checkPlanEducation", "sourceSections": ["check_plan"], "value": "医生核对后的合成检查计划正文" },
+    { "targetFieldId": "medicationEducation", "sourceSections": ["medication_guidance"], "value": "医生核对后的合成用药健康教育正文" },
+    { "targetFieldId": "lifestyleEducation", "sourceSections": ["lifestyle_guidance"], "value": "医生核对后的合成疾病预防、饮食与运动教育正文" }
+  ],
+  "confirmedAt": "2026-10-10T09:10:00+08:00"
+}
+```
+
+PHIS 按原调入绑定和真实 `recordVersion` 校验，按 `writebackRequestId` 幂等保存后，通过 `sendPublicHealthFeedback` 回传真实终态，具体 [SDK 接线与保存要求](../pcie/api.md#862-phis-sdk-接线与保存)。本机显式 AI 模式的随访三个章节已接签名模型调用，但居民与保存仍为合成；真实 AI 工程结果、正式批准规则/Prompt、医学审核及真实 PHIS 保存分别验收。资料由发起方直接传入，不要求助手自动取数。
+
+#### 调入与生成参数
+
+本机 `assist` 与远端 `generations` 共用 `PublicHealthRequest`。本机允许缺少减重资料时先进入补充页面；远端生成前必须满足完整性校验。客户端字段及所有长度上限以 [机器契约](deploy/public-health/contracts/public-health.openapi.json) 为准。
+
+| 字段 | 接入说明 |
+| --- | --- |
+| `schemaVersion` | 固定 `public-health.v1` |
+| `originRequestId / requestId` | UUID。首次调入相等；原调入关联 ID 保持不变，补充资料或新生成使用新 `requestId` |
+| `patientId / businessRecordId / recordVersion` | 原 PHIS 居民、当前随访/体检记录及版本；均为非空字符串，不使用门诊 `consultationId` |
+| `snapshotAt` | 本次资料快照的带时区 ISO 8601 时间；不能代替真实测量时间 |
+| `patient` | `{name,sex,ageYears,sexSource?}`；减重生成须明确 `male / female`，不能将 `unknown` 当作默认性别 |
+| `facts.observations` | 每项包含 `id,code,value,observedAt,source`，可含 `unit`；`source={system,recordId}`，ID 唯一 |
+| `facts.conditions / medicationClasses / lifestyle` | 必须传数组/对象；无已提供资料用 `[] / {}`，可选字段未知时省略，不传 `null` 或编造“无禁忌” |
+| `facts.weightProfile` | 减重生成需要身高、体重、地区、季节及测量引用；地区为七大地区枚举，季节为 `spring / summer / autumn / winter` |
+| `heightObservationId / weightObservationId` | 引用当前采用观察，分别要求 `code=height,unit=cm` 与 `code=weight,unit=kg`；数值须与 profile 相等 |
+| `activityDescription / dietPreferences / limitations` | 位于 `weightProfile`，分别提供活动习惯与能力、饮食偏好和已知活动限制；用于个体化草案 |
+| `writebackTargets` | PHIS 允许写入的实际字段映射；`valueType=string,mode=replace`，全部固定章节恰好覆盖一次，不能重叠 |
+
+以下为减重的完整合成请求，既可作为首次本机调入 body，也满足远端资料结构。字段名 `exerciseEducation / mealEducation` 仅作示例，接入方必须替换为实际 PHIS 允许字段；示例居民、测量及来源不用于正式记录。
+
+```json
+{
+  "schemaVersion": "public-health.v1",
+  "originRequestId": "11111111-1111-4111-8111-111111111111",
+  "requestId": "11111111-1111-4111-8111-111111111111",
+  "capability": "weight_management",
+  "scene": "hypertension_followup",
+  "patientId": "synthetic-resident-001",
+  "businessRecordId": "synthetic-followup-001",
+  "recordVersion": "7",
+  "snapshotAt": "2026-10-10T09:00:00+08:00",
+  "patient": { "name": "合成居民", "sex": "female", "ageYears": 65 },
+  "facts": {
+    "observations": [
+      { "id": "height-current", "code": "height", "value": 160, "unit": "cm", "observedAt": "2026-10-10T08:30:00+08:00", "source": { "system": "MOCK_PHIS", "recordId": "synthetic-measurement-001" } },
+      { "id": "weight-current", "code": "weight", "value": 66.56, "unit": "kg", "observedAt": "2026-10-10T08:30:00+08:00", "source": { "system": "MOCK_PHIS", "recordId": "synthetic-measurement-001" } }
+    ],
+    "conditions": [],
+    "medicationClasses": [],
+    "lifestyle": {},
+    "weightProfile": {
+      "heightCm": 160,
+      "weightKg": 66.56,
+      "heightObservationId": "height-current",
+      "weightObservationId": "weight-current",
+      "region": "华东",
+      "season": "autumn",
+      "contextSource": { "system": "MOCK_PHIS", "recordId": "synthetic-followup-001" },
+      "activityDescription": "每周三次步行，每次20分钟（合成测试资料）",
+      "dietPreferences": "偏好清淡家常菜（合成测试资料）"
+    }
+  },
+  "writebackTargets": [
+    { "targetFieldId": "exerciseEducation", "label": "运动健康教育", "sourceSections": ["exercise_plan"], "valueType": "string", "mode": "replace" },
+    { "targetFieldId": "mealEducation", "label": "饮食健康教育", "sourceSections": ["meal_plan"], "valueType": "string", "mode": "replace" }
+  ]
+}
+```
+
+接入健康处方时创建新的 `originRequestId=requestId`，改为 `capability=health_prescription`，将目标映射换成 `check_plan / medication_guidance / lifestyle_guidance` 各一次；按本次 PHIS 事实提供观察、病史、用药类别和生活方式，无需减重 profile。若只允许写一个健康教育字段，可以用一个目标的 `sourceSections` 合并该能力的全部固定章节，顺序须与功能表一致；医生须全选其组成章节后才能回写该合并字段。body 不能追加 `prompt / model / apiKey / orgId / assetPath` 等配置，机构、批准资产、Prompt 和模型由服务端决定。
+
+#### 流式结果与食谱方案
+
+HTTP 200 只是建立业务 SSE，不能视为生成成功。事件为 `accepted → progress / metrics / section → completed`，失败终态为 `failed`；`metrics` 仅用于减重。每条业务事件 data 携带完整请求身份以及 `generationId / streamId / sequence`，SSE `id=streamId:sequence`。首条为 sequence 1 的 `accepted`；章节是整节临时快照、带 `provisional=true`，仅校验通过的 `completed.result` 才能开放编辑和确认。不能按 OpenAI `choices / [DONE]` 解析，也不将 SSE 直接交给 PHIS 保存。
+
+`completed.result` 包含完整业务身份、`generationId,generatedAt,sections,promptVersions,knowledgeVersions,warnings`，减重另有 `metrics`。健康处方的 `sections` 按功能表三章排序，减重按运动、食谱排序。下例仅展示食谱 `Section` 的合成结构，同一结构出现在 `section.data.section` 与 `completed.data.result.sections` 中：
+
+```json
+{
+  "id": "meal_plan",
+  "title": "食谱推荐",
+  "content": "三餐参考食谱\n合成方案A正文",
+  "options": [
+    { "id": "synthetic-recipe-a", "title": "合成食谱A", "content": "三餐参考食谱\n合成方案A正文" },
+    { "id": "synthetic-recipe-b", "title": "合成食谱B", "content": "三餐参考食谱\n合成方案B正文" },
+    { "id": "synthetic-recipe-c", "title": "合成食谱C", "content": "三餐参考食谱\n合成方案C正文" }
+  ]
+}
+```
+
+`options[0]` 是默认推荐，页面直接展示并选中；另两项默认收起，展开后可互斥选择，当前正文随选择切换。医生对各项的编辑保留在当前生成内，新生成/新任务清空；保存等待及终态不允许切换。默认推荐不是医学适用性确认。`options` 只用于食谱展示，PHIS 确认事件仅包含当前采用的一份编辑正文，不包含方案列表或选中 ID。具体来源、数量、长度及单份兼容规则见本节开头。
+
+#### 失败、重试与正式启用
+
+| 情况 | 接入处理 |
+| --- | --- |
+| HTTP 400 `INVALID_REQUEST / MISSING_FACTS` | 核对字段、测量引用和缺失资料；错误体可含 `missingFields` |
+| HTTP 401、签名/设备认证失败 | 经现有设备鉴权链路处理，不能改为无签名调用 |
+| HTTP 409 `REQUEST_ID_CONFLICT` | 同一 `requestId` 的冻结输入变化；明确新生成须使用新 ID |
+| HTTP 409 `GENERATION_IN_PROGRESS` | 同一次生成尚在处理，保留原 ID 和 body，稍后手动重新连接 |
+| `POLICY_NOT_READY / KNOWLEDGE_NOT_READY` | 核对功能开关、批准规则、Prompt 和机构知识资产，不填入占位医疗正文 |
+| SSE `failed` | 本次生成已失败，不使用临时章节回写；明确重生成才新建 `requestId` |
+| SSE 无 `completed` 而断流 | 使用同一冻结请求重新连接，已有终态只重放，不重复调用模型 |
+| PHIS 版本冲突 | PHIS 返回 `status=failed,errorCode=RECORD_VERSION_CONFLICT`；保留草稿并重新调入最新业务版本 |
+
+流开始前的业务拒绝使用 JSON `{schemaVersion,code,message,timestamp,requestId?,originRequestId?,missingFields?}`；流内失败使用 `failed.data.errorCode / message / retryable=false / failedAt`。本地 Bridge 错误字段为 `errorCode`，不要混用两段错误 envelope。关闭本页等待不等于停止服务端模型执行或计费。
+
+正式启用需要部署运行表、配置设备签名、绑定机构 APPROVED 规则/食谱资产，并发布对应 Prompt：健康处方 `publicHealthHealthPrescription`，减重 `publicHealthExercisePlan / publicHealthMealPlan`。服务端默认 `FB_PUBLIC_HEALTH_ENABLED=false`；打开开关不代替资产和医学审核。
+
+生产生成使用本节的签名公卫接口；Prompt 与机构规则按正式审核流程配置，不将本机调试版本或合成参考资产发布为正式内容。

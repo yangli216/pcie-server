@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "public-health.health-education.schema.json",
+  "title": "HealthEducationDraft",
+  "description": "Internal AI draft for lifestyle_guidance; rendered to the existing public-health.v1 text section, never sent as a new PHIS field. Risk concern is qualitative and pending physician review, not a calibrated risk probability.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["risks", "prevention", "diet", "exercise", "followup", "missingFacts"],
+  "properties": {
+    "risks": {
+      "type": "array", "maxItems": 6,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["type", "name", "concern", "evidenceRefs", "intervention"],
+        "properties": {
+          "type": { "enum": ["progression", "complication"] },
+          "name": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "\\S", "allOf": [{ "$ref": "#/definitions/modelTextBoundary" }] },
+          "concern": { "enum": ["attention", "needs_assessment"] },
+          "evidenceRefs": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "\\S" } },
+          "intervention": { "type": "string", "minLength": 1, "maxLength": 1000, "pattern": "\\S", "allOf": [{ "$ref": "#/definitions/modelTextBoundary" }] }
+        }
+      }
+    },
+    "prevention": { "$ref": "#/definitions/advice" },
+    "diet": { "$ref": "#/definitions/advice" },
+    "exercise": { "$ref": "#/definitions/advice" },
+    "followup": { "$ref": "#/definitions/advice" },
+    "missingFacts": { "$ref": "#/definitions/advice" }
+  },
+  "definitions": {
+    "advice": { "type": "array", "maxItems": 8, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 1000, "pattern": "\\S", "allOf": [{ "$ref": "#/definitions/modelTextBoundary" }] } },
+    "modelTextBoundary": {
+      "description": "Applies to model text only, not the renderer's original evidence values. Keeps weight-management content and clinical units out of this independent follow-up draft; not a medical review.",
+      "not": { "pattern": "[bB][mM][iI]|[bB][mM][rR]|[kK][cC][aA][lL]|[mM][mM]\\s*[hH][gG]|[mM][mM][oO][lL]\\s*[/／]\\s*[lL]|减重目标|目标体重|三餐参考食谱|备选食谱|千卡|卡路里" }
+    }
+  }
+}

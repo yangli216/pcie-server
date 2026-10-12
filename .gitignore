@@ -7,3 +7,9 @@ server/src/main/admin/dist/
 server/src/main/resources/static/admin/
 
 .DS_STORE
+
+# Local public-health source capture / test evidence is not production delivery.
+/deploy/public-health/contracts/public-health-assets/
+/deploy/public-health/contracts/public-health.source-prompts.json
+/deploy/public-health/contracts/public-health.retrieval-queries.json
+/deploy/public-health/contracts/public-health.validation.json

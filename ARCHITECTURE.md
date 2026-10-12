@@ -9,6 +9,7 @@
 Provider 在供应商边界处理 v0.8.2 的整数匹配枚举，向桌面继续返回字符串 `matchType`；合法整数按官方枚举转换，既有文本标识兼容，未知或非法类型拒绝为脱敏上游错误。正文和批准清单校验不随标签转换改变。
 
 
+> **公卫原生生成（2026-09-29，工程实现/合成验证）**：`modules/publichealth` 已承载健康处方与减重编排，复用模型代理与版本化 Prompt，并维护生成幂等、指标计算、独立知识资产检索和结果校验。运行表已加入 Oracle/GaussDB 初始化基线，未执行现场升级；默认关闭，缺批准资产不调用模型兜底。真实资产对照、部署、模型与 PHIS 联调仍待验收，详见[公卫设计](deploy/public-health/PUBLIC_HEALTH_DESIGN.md)。
 
 > 更新日期：2026-09-07
 
@@ -648,3 +649,22 @@ GaussDB/openGauss 初始化：
 7. `POST /v1/client/chronic-disease/artifact-snapshots` 保存健康处方或年度评估打印前快照；DTO 使用固定字段和强类型确认项，服务端序列化确认项但不接受任意业务 payload，`requestId` 在机构内幂等。
 8. `c_ai_chronic_artifact` 固化患者锚点、病种集合、数据截至时间、模板/路径/依据/规则版本、年度指标、医生确认项及打印医生。
 9. 一期不增加管理端页面；正式模板与临床路径由代码仓库受审清单发布，AI 和医生均无规则发布权限。
+
+
+## 11. 公卫原生生成模块（2026-09-29）
+
+食谱召回至少三份时，`PublicHealthOrchestrator` 为同一模型调用请求三份结构化 `options`，首项为默认推荐。服务端按本次来源 ID 校验唯一性并派生标题，每份正文校验非空与16000码点上限；SSE/result 的章节 content 与首项相同。来源不足三份时保持单份正文；不改批准资产/Prompt 发布与启用门禁，不由模型决定版本信息。客户端只确认当前选中的一份，PHIS 接口不增加字段。
+
+`modules/publichealth` 独立承载健康处方与减重的输入校验、原生编排、机构资产、确定性计算、运行幂等和SSE；复用 `AiProxyService.chat`、`PromptService.resolveEffectivePrompt`、`ConfigService` 与出站安全，不修改Benchmark已有改动，不依赖BsoftGPT，不引入通用工作流引擎。
+
+随访三节点从发起方直接传入的 facts 派生 `PublicHealthHealthProfile`；未来及最新冲突观察不作为生成证据，已有风险等级保留原值/时间/来源。`PublicHealthCheckEligibility` 按批准规则过滤年龄、性别、病种与已有风险，输出再次验证；已做但结果冲突的检查仍计入最短间隔。`PublicHealthHealthEducation` 校验六分区内部草稿、定性风险及证据引用，再拼入原 lifestyle_guidance 文本。健康画像、风险和检查规则只属于随访，减重仍独立输出两节和只读指标；无主动取数、画像持久化、新接口或新表。
+
+`c_ai_ph_origin` 在机构+设备+originRequestId范围绑定患者/scene/业务记录/capability、recordVersion、writebackTargets、患者姓名和年龄；明确性别固定，unknown 仅允许带 PCIE_MANUAL UUID 来源补充一次并原子锁定；`c_ai_ph_run` 在机构+设备+requestId范围记录输入摘要、generationId、状态和完整结果/失败码。独立短事务创建origin/run，模型调用不持数据库事务；唯一键竞争在事务外重新读取。已有RUNNING超时视为未知失败，不自动抢占重跑。模型调用完成后以RUNNING条件更新终态，迟到返回不能覆盖已终止运行。
+
+配置默认关闭且缺资产即阻断。机构资产根目录和org-assets映射仅来自服务端配置，校验路径包含关系、大小、SHA-256、批准状态和机构范围；不从请求接受资产URL或密钥。真实食谱原文及85个原分段已导出，运行向量包与规则仍须独立验收。原生食谱检索保持向量召回+rerank两阶段，METS资料不消费；候选数与原库未核验的差异必须在真实资产验收时对照。
+
+`PublicHealthAssetTool`是独立Java资产工具入口，复用公卫嵌入客户端、校验与生产召回实现，不启动Spring应用/数据库，不注册HTTP接口。`build`保留原分段生成待审核的recipes索引及hash报告，`retrieve`以合成查询验证真实索引。批量和在线单条嵌入共用响应index/数量/model/维度校验；失败不输出可加载成品。工具只接受显式服务端环境配置，不读取浏览器凭据或自动改线上org-assets/启用状态。
+
+公卫SSE使用自己的streamId与局部sequence，每次连接重放重新编号；客户端断连只停止该连接投递，业务运行继续并记录结果。180秒业务截止后不启动后续节点，既有外部请求可能继续执行/计费。这里不提供远端取消、PHIS写入、Bridge会话或浏览器广播。
+
+数据库交付同步Oracle/GaussDB init.sql与README，DM8按现有Oracle兼容基线由现场验证；新增表不执行线上迁移。

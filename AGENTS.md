@@ -95,6 +95,12 @@
 
 ## 关键联调清单
 
+公卫`/v1/public-health/generations`变更须补对应JUnit并运行Maven验证，覆盖签名、数值规范化、运行幂等、资产校验、指标公式、知识检索和业务SSE；不在默认测试调用真实模型或PHIS。客户端停止等待与服务端取消语义分开，真实数据库、资产召回和医学审核独立验收，详见工作区`TESTING_STRATEGY.md`。
+
+随访画像与健康教育变更补当前/历史来源、未来及冲突证据、定性风险结构/引用、检查 eligibility 的调用前过滤与输出二次验证，冲突检查及同编码当前测量仍限制最短间隔。最早日期/窗口约束须补空适用目录与90天边界；教育模型文本边界拒绝与程序证据原值保留分别验证；只用发起方已传事实。随访与减重的固定章节/任务身份/确认范围分别回归，不用内部 AI 草稿扩展 PHIS 字段。
+
+公卫离线索引工具不启动服务或数据库，独立使用服务端环境变量配置模型连接；必须与在线查询共享嵌入响应校验和检索实现。批量构建、文件发布和检索映射补JUnit；默认Fake、真实重建另记证据，不自动创建批准manifest或修改org-assets。调用方法见`HARNESS.md`。
+
 1. `POST /v1/client/register` 返回的 `deviceToken` 能被 `floating-ball` 缓存并复用
 2. `GET /v1/client/bootstrap` 返回结构兼容 `floating-ball/src/services/regionalClient.ts`
 3. `GET /v1/client/prompts/delta` 返回结构兼容 `promptOverride.ts`
@@ -102,3 +108,5 @@
 5. `GET /v1/client/mappings/delta` 返回结构兼容 `medicalData.ts`
 6. `POST /v1/client/audit/events/batch` 能接收 `auditUploader.ts` 当前上传结构
 7. `POST /v1/ai/chat` 非流式和流式响应都能被 `llm.ts` 正常消费
+
+公卫生产交付随附服务端 `deploy/public-health` 的机器契约，提交前与工作区协同契约比较原始字节。公卫调试入口、调试标识及过程资产只留本地，不进入功能分支；生产单元测试保留 Fake 上游隔离。

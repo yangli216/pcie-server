@@ -1,0 +1,3343 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "全医慧助（PCIE）公卫助手接口候选契约",
+    "version": "public-health.v1-implementation.1",
+    "description": "原生迁移实施契约，2026-10-10 补充随访健康画像及 AI 定性教育；资料由发起方直接传入，不主动查询。健康处方与减重分别调入、生成和确认，保持三个/两个独立章节范围；由pcie-server执行，运行不依赖BsoftGPT。未部署或真实PHIS验收，六组合仅证明结构可表达，不证明医学适用性。"
+  },
+  "tags": [
+    {
+      "name": "Local Bridge"
+    },
+    {
+      "name": "Signed Server"
+    }
+  ],
+  "paths": {
+    "/api/public-health/assist": {
+      "post": {
+        "operationId": "assistPublicHealth",
+        "tags": [
+          "Local Bridge"
+        ],
+        "summary": "唤起并受理公卫任务，不代表生成/保存成功。（候选）",
+        "servers": [
+          {
+            "url": "http://127.0.0.1:8081"
+          }
+        ],
+        "security": [
+          {
+            "bridgeSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "description": "必须与受控白名单及bridge token绑定一致；缺失/null/未配置拒绝。SDK/握手上下文必须独立核验。"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicHealthRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "唤起并受理公卫任务，不代表生成/保存成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST/MISSING_FACTS；映射或事实不合法，不调用模型。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "设备/桥接会话/签名无效；远端过滤器错误可用现有错误包。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin、SDK实例、可信身份或能力范围不允许。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "REQUEST_ID_CONFLICT/GENERATION_IN_PROGRESS/WRITEBACK_ID_CONFLICT/TASK_CONTEXT_MISMATCH。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "请求超过候选512KiB。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "受控并发/配额超限，不自动重试。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "POLICY_NOT_READY/KNOWLEDGE_NOT_READY；禁止虚构资产或生成结果。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          }
+        },
+        "description": "首次调入必须originRequestId=requestId，绑定可信会话/SDK实例及患者/scene/businessRecordId/capability。后续桌面补充或再生成沿用originRequestId并使用新requestId；不同业务/能力新origin。受理不表示生成/保存成功。"
+      }
+    },
+    "/api/public-health/writeback-feedback": {
+      "post": {
+        "operationId": "receivePublicHealthWritebackFeedback",
+        "tags": [
+          "Local Bridge"
+        ],
+        "summary": "接收真实PHIS保存终态回执。（候选）",
+        "servers": [
+          {
+            "url": "http://127.0.0.1:8081"
+          }
+        ],
+        "security": [
+          {
+            "bridgeSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "description": "必须与受控白名单及bridge token绑定一致；缺失/null/未配置拒绝。SDK/握手上下文必须独立核验。"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WritebackFeedback"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "接收真实PHIS保存终态回执。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WritebackFeedbackAcknowledged"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST/MISSING_FACTS；映射或事实不合法，不调用模型。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "设备/桥接会话/签名无效；远端过滤器错误可用现有错误包。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin、SDK实例、可信身份或能力范围不允许。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "REQUEST_ID_CONFLICT/GENERATION_IN_PROGRESS/WRITEBACK_ID_CONFLICT/TASK_CONTEXT_MISMATCH。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "请求超过候选512KiB。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "受控并发/配额超限，不自动重试。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "POLICY_NOT_READY/KNOWLEDGE_NOT_READY；禁止虚构资产或生成结果。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/public-health/generations": {
+      "post": {
+        "operationId": "generatePublicHealth",
+        "tags": [
+          "Signed Server"
+        ],
+        "summary": "原生公卫生成，仅SSE（候选）",
+        "description": "PCIE调用，PHIS不直连模型。同requestId同快照恢复原generationId；已完成重放accepted(mode=replayed)+completed；执行中409；已失败重放原失败，不重复调用模型。新生成需新requestId。 originRequestId保持最初PHIS关联。断连或本地取消不改变服务端运行状态，不保证停止执行/计费。",
+        "servers": [
+          {
+            "url": "https://pcie-server.example.invalid",
+            "description": "示例占位，部署时替换。"
+          }
+        ],
+        "security": [
+          {
+            "deviceBearer": [],
+            "p256Timestamp": [],
+            "p256Nonce": [],
+            "p256Signature": [],
+            "p256BodySha256": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicHealthGenerationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SSE已建立，completed完整结果才证明成功，failed为失败终态。",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-cache"
+                }
+              }
+            },
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-event-schema": {
+                  "$ref": "#/components/schemas/SseEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST/MISSING_FACTS；映射或事实不合法，不调用模型。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "设备/桥接会话/签名无效；远端过滤器错误可用现有错误包。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ExistingDeviceAuthError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin、SDK实例、可信身份或能力范围不允许。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "REQUEST_ID_CONFLICT/GENERATION_IN_PROGRESS/WRITEBACK_ID_CONFLICT/TASK_CONTEXT_MISMATCH。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "请求超过候选512KiB。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "受控并发/配额超限，不自动重试。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "POLICY_NOT_READY/KNOWLEDGE_NOT_READY；禁止虚构资产或生成结果。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-sse-events": {
+          "accepted": {
+            "dataSchema": {
+              "$ref": "#/components/schemas/SseAcceptedData"
+            }
+          },
+          "progress": {
+            "dataSchema": {
+              "$ref": "#/components/schemas/SseProgressData"
+            }
+          },
+          "section": {
+            "dataSchema": {
+              "$ref": "#/components/schemas/SseSectionData"
+            }
+          },
+          "metrics": {
+            "dataSchema": {
+              "$ref": "#/components/schemas/SseMetricsData"
+            }
+          },
+          "completed": {
+            "dataSchema": {
+              "$ref": "#/components/schemas/SseCompletedData"
+            }
+          },
+          "failed": {
+            "dataSchema": {
+              "$ref": "#/components/schemas/SseFailedData"
+            }
+          }
+        },
+        "x-sse-invariants": [
+          "每个新连接或重放分配新streamId；sequence从1按stream严格递增；SSE id=streamId:sequence。",
+          "本地以当前连接run-token接纳首帧accepted并绑定streamId；旧连接所有帧（含accepted）丢弃，不得重绑当前stream。",
+          "只在同一stream内按sequence去重/判乱序，不跨stream比较sequence；新stream序号1/2可以重放同generation。",
+          "accepted首帧；至多一个completed或failed终态，终态后无业务帧。",
+          "section为整节替换快照，metrics仅减重；completed前禁止编辑/回写。",
+          "completed必须完整result；originRequestId/requestId/generationId/业务identity在外层、内层、请求逐字段一致。",
+          "断连不改变服务端终态；无终态时结果未知，不能自动重跑模型。恢复同requestId沿用原run；医生显式新生成才用新requestId，origin不变。",
+          "一期取消仅停止本地等待/放弃当前显示，当前页丢弃迟到帧；不取消服务端执行，不保证停止计费。",
+          "[DONE]或连接关闭不替代completed；不提供JSON成功、HTTP轮询或远端取消接口。",
+          "SSE心跳15秒，仅保活不计sequence；总生成上限180秒。"
+        ],
+        "x-signature-canonical-string": "METHOD + \"\\n\" + PATH + \"\\n\" + X-Timestamp + \"\\n\" + X-Nonce + \"\\n\" + SHA256(actual body bytes) + \"\\n\""
+      }
+    },
+    "/api/public-health/handshake": {
+      "post": {
+        "operationId": "handshakePublicHealth",
+        "tags": [
+          "Local Bridge"
+        ],
+        "summary": "公卫集成实例握手与会话续期",
+        "servers": [
+          {
+            "url": "http://127.0.0.1:8081"
+          }
+        ],
+        "security": [
+          {
+            "pairingKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-PCIE-Bridge-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "提供resumeSessionId时必填；续期必须提供原token，宽限30分钟内保留原会话/任务去重归属，仅轮换token。"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BridgeHandshakeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "内存会话令牌30分钟，到期旧WS关闭。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeHandshakeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "配对或续期凭据不匹配",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin不允许或SDK实例不匹配",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "部署配对/来源尚未配置，默认拒绝",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bridgeSession": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-PCIE-Bridge-Token",
+        "description": "候选待实现。合法handshake扩展返回publicHealthBridgeToken，至少256bit随机，内存30分钟，绑定允许Origin+SDK实例+桌面设备/机构+握手上下文，不进URL/日志/持久化。仅非空EMR token不等于身份认证；白名单未配置默认拒绝。"
+      },
+      "deviceBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "deviceToken",
+        "description": "现有有效设备令牌，必须同时通过P-256四签名头。"
+      },
+      "p256Timestamp": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Timestamp",
+        "description": "毫秒时间戳；现有服务默认容许5分钟时钟偏移。"
+      },
+      "p256Nonce": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Nonce",
+        "description": "每次传输唯一随机数，业务requestId复用不允许复用nonce。"
+      },
+      "p256Signature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Signature",
+        "description": "ECDSA P-256/SHA-256签名，base64编码。"
+      },
+      "p256BodySha256": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Body-SHA256",
+        "description": "实际body字节SHA-256 hex；POST有body，必须提供。"
+      },
+      "pairingKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-PCIE-Pairing-Key",
+        "description": "部署端独立配置的至少32随机字节base64配对密钥；只认证允许Origin上的集成实例，不认证医生账号。"
+      }
+    },
+    "schemas": {
+      "SchemaVersion": {
+        "type": "string",
+        "const": "public-health.v1"
+      },
+      "Uuid": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+      },
+      "ZonedDateTime": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "(Z|[+-][0-9]{2}:[0-9]{2})$",
+        "description": "必须含 UTC Z 或显式时区偏移。"
+      },
+      "Capability": {
+        "type": "string",
+        "enum": [
+          "health_prescription",
+          "weight_management"
+        ]
+      },
+      "Scene": {
+        "type": "string",
+        "enum": [
+          "hypertension_followup",
+          "diabetes_followup",
+          "elderly_exam"
+        ]
+      },
+      "SectionId": {
+        "type": "string",
+        "enum": [
+          "check_plan",
+          "medication_guidance",
+          "lifestyle_guidance",
+          "exercise_plan",
+          "meal_plan"
+        ]
+      },
+      "BusinessIdentity": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          }
+        },
+        "required": [
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "originRequestId"
+        ],
+        "additionalProperties": false
+      },
+      "Patient": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "sex": {
+            "type": "string",
+            "enum": [
+              "male",
+              "female",
+              "unknown"
+            ]
+          },
+          "ageYears": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 150
+          },
+          "sexSource": {
+            "$ref": "#/components/schemas/FactSource",
+            "description": "桌面将unknown补充为明确性别时，system必须PCIE_MANUAL，recordId独立UUID。不作为身份认证。"
+          }
+        },
+        "required": [
+          "name",
+          "sex",
+          "ageYears"
+        ],
+        "additionalProperties": false
+      },
+      "FactSource": {
+        "type": "object",
+        "properties": {
+          "system": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "recordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "system",
+          "recordId"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "system": {
+                  "const": "PCIE_MANUAL"
+                }
+              },
+              "required": [
+                "system"
+              ]
+            },
+            "then": {
+              "properties": {
+                "recordId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        ],
+        "description": "人工补充的system=PCIE_MANUAL，recordId必须是独立UUID；其余来源由PHIS给出可追溯标识。"
+      },
+      "Observation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "value": {
+            "oneOf": [
+              {
+                "type": "number",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              }
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "observedAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FactSource"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "value",
+          "observedAt",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "Condition": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "调用方事实状态；未知状态不得推断为确诊。"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "MedicationClass": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "code",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "Lifestyle": {
+        "type": "object",
+        "properties": {
+          "smoking": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "alcohol": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "exercise": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "diet": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "exerciseAbility": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "occupation": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "WeightProfile": {
+        "type": "object",
+        "properties": {
+          "heightCm": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 300
+          },
+          "weightKg": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1000
+          },
+          "region": {
+            "type": "string",
+            "enum": [
+              "东北",
+              "华北",
+              "华东",
+              "华中",
+              "华南",
+              "西南",
+              "西北"
+            ]
+          },
+          "season": {
+            "type": "string",
+            "enum": [
+              "spring",
+              "summer",
+              "autumn",
+              "winter"
+            ]
+          },
+          "activityDescription": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "dietPreferences": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "limitations": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "heightObservationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "远端减重生成必填，引用facts.observations中同id、code=height、unit=cm的数值事实；必须与profile数值一致。"
+          },
+          "weightObservationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "远端减重生成必填，引用facts.observations中同id、code=weight、unit=kg的数值事实；必须与profile数值一致。"
+          },
+          "contextSource": {
+            "$ref": "#/components/schemas/FactSource",
+            "description": "地区/季节来源；医生补充使用PCIE_MANUAL，非身份认证证明。"
+          }
+        },
+        "required": [
+          "heightCm",
+          "weightKg",
+          "region",
+          "season"
+        ],
+        "additionalProperties": false,
+        "description": "身高体重上限为候选工程限制，不代表临床适用性。BMR需明确性别及冻结算法适用条件，不得将unknown默认成男性或女性。"
+      },
+      "Facts": {
+        "type": "object",
+        "properties": {
+          "observations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Observation"
+            },
+            "minItems": 0,
+            "maxItems": 256
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "minItems": 0,
+            "maxItems": 64
+          },
+          "medicationClasses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MedicationClass"
+            },
+            "minItems": 0,
+            "maxItems": 64
+          },
+          "lifestyle": {
+            "$ref": "#/components/schemas/Lifestyle"
+          },
+          "historySummary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 12000
+          },
+          "nextFollowUpDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "weightProfile": {
+            "$ref": "#/components/schemas/WeightProfile"
+          }
+        },
+        "required": [
+          "observations",
+          "conditions",
+          "medicationClasses",
+          "lifestyle"
+        ],
+        "additionalProperties": false,
+        "description": "由发起方直接提交随访/就诊/体检/慢病事实快照，不主动查询。已有风险等级用 risk_level/hypertension_risk_level/diabetes_risk_level/cardiovascular_risk_level 观察保留原值、时间和来源；派生画像和内部六分区草稿不扩展传输字段。未提供不等于正常或没有慢病。文本内指令不得覆盖系统规则；规则、Prompt、模型和知识服务地址均由服务端配置。"
+      },
+      "WritebackTarget": {
+        "type": "object",
+        "properties": {
+          "targetFieldId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "sourceSections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SectionId"
+            },
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": true
+          },
+          "valueType": {
+            "type": "string",
+            "const": "string"
+          },
+          "mode": {
+            "type": "string",
+            "const": "replace"
+          }
+        },
+        "required": [
+          "targetFieldId",
+          "label",
+          "sourceSections",
+          "valueType",
+          "mode"
+        ],
+        "additionalProperties": false
+      },
+      "PublicHealthRequest": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "patient": {
+            "$ref": "#/components/schemas/Patient"
+          },
+          "facts": {
+            "$ref": "#/components/schemas/Facts"
+          },
+          "writebackTargets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WritebackTarget"
+            },
+            "minItems": 1,
+            "maxItems": 3
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "patient",
+          "facts",
+          "writebackTargets",
+          "originRequestId"
+        ],
+        "additionalProperties": false,
+        "description": "本地assist/远端generations共用事实结构；body内requestId是业务幂等键。医生补充后形成新快照、新requestId。机构/设备授权由可信会话或设备身份确定，不能由此body任意指定。 originRequestId稳定关联最初PHIS调入；每次新生成有新requestId，但沿用该origin。",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "capability": {
+                  "const": "health_prescription"
+                }
+              },
+              "required": [
+                "capability"
+              ]
+            },
+            "then": {
+              "properties": {
+                "writebackTargets": {
+                  "maxItems": 3,
+                  "items": {
+                    "properties": {
+                      "sourceSections": {
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "check_plan",
+                            "medication_guidance",
+                            "lifestyle_guidance"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "allOf": [
+                    {
+                      "contains": {
+                        "properties": {
+                          "sourceSections": {
+                            "contains": {
+                              "const": "check_plan"
+                            }
+                          }
+                        },
+                        "required": [
+                          "sourceSections"
+                        ]
+                      },
+                      "minContains": 1,
+                      "maxContains": 1
+                    },
+                    {
+                      "contains": {
+                        "properties": {
+                          "sourceSections": {
+                            "contains": {
+                              "const": "medication_guidance"
+                            }
+                          }
+                        },
+                        "required": [
+                          "sourceSections"
+                        ]
+                      },
+                      "minContains": 1,
+                      "maxContains": 1
+                    },
+                    {
+                      "contains": {
+                        "properties": {
+                          "sourceSections": {
+                            "contains": {
+                              "const": "lifestyle_guidance"
+                            }
+                          }
+                        },
+                        "required": [
+                          "sourceSections"
+                        ]
+                      },
+                      "minContains": 1,
+                      "maxContains": 1
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "capability": {
+                  "const": "weight_management"
+                }
+              },
+              "required": [
+                "capability"
+              ]
+            },
+            "then": {
+              "properties": {
+                "writebackTargets": {
+                  "maxItems": 2,
+                  "items": {
+                    "properties": {
+                      "sourceSections": {
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "exercise_plan",
+                            "meal_plan"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "allOf": [
+                    {
+                      "contains": {
+                        "properties": {
+                          "sourceSections": {
+                            "contains": {
+                              "const": "exercise_plan"
+                            }
+                          }
+                        },
+                        "required": [
+                          "sourceSections"
+                        ]
+                      },
+                      "minContains": 1,
+                      "maxContains": 1
+                    },
+                    {
+                      "contains": {
+                        "properties": {
+                          "sourceSections": {
+                            "contains": {
+                              "const": "meal_plan"
+                            }
+                          }
+                        },
+                        "required": [
+                          "sourceSections"
+                        ]
+                      },
+                      "minContains": 1,
+                      "maxContains": 1
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "x-runtime-invariants": [
+          "targetFieldId唯一；sourceSections并集恰好为该能力章节集，跨目标不重复；顺序为固定章节顺序。",
+          "observations.id唯一；缺失事实不能由模型猜测。",
+          "同requestId规范化快照不同返回REQUEST_ID_CONFLICT；数组顺序保留，不静默修正事实。",
+          "机构规则字典、Prompt、模型、API key、知识包由服务端上下文选取，PHIS不得传入。",
+          "本地assist可受理缺weightProfile或sex=unknown，先在桌面补充；此时不得进入远端生成。补充后新快照使用新requestId。",
+          "首次assist必须originRequestId=requestId；桌面补充/再次生成新requestId，但originRequestId不变。",
+          "同origin继承原可信bridge会话/SDK实例、patientId、scene、businessRecordId、capability；不同业务/能力必须新origin，不能把originRequestId本身当作授权凭证。",
+          "PHIS按originRequestId关联最初调入；再结合requestId/generationId/writebackRequestId及完整业务身份核对本次结果/回执。"
+        ]
+      },
+      "Section": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/SectionId"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16000
+          },
+          "options": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/MealOption"
+            },
+            "description": "仅meal_plan可带；首项默认推荐，ID唯一，章节content必须与首项逐字一致。"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "content"
+        ],
+        "additionalProperties": false,
+        "description": "非空完整分节文本；纯空白亦须运行时拒绝。不得借空串清空目标字段。 食谱可提供默认推荐与两备选；正文绑定及ID唯一性由运行时校验。",
+        "anyOf": [
+          {
+            "properties": {
+              "id": {
+                "enum": [
+                  "meal_plan"
+                ]
+              }
+            }
+          },
+          {
+            "not": {
+              "required": [
+                "options"
+              ]
+            }
+          }
+        ]
+      },
+      "Metrics": {
+        "type": "object",
+        "properties": {
+          "bmi": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1000
+          },
+          "bmrKcalPerDay": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 100000
+          },
+          "formulaVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "bmi",
+          "bmrKcalPerDay",
+          "formulaVersion"
+        ],
+        "additionalProperties": false,
+        "description": "仅减重结果，服务端确定性计算，非医生可编辑字段；算法版本不代表临床验证。METS不在一期链路。"
+      },
+      "PromptVersion": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "code",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "KnowledgeVersion": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "assetId",
+          "version",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "description": "仅记录本次实际使用的规则/知识资产；不能伪造未检索的METS版本。"
+      },
+      "Warning": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "sectionId": {
+            "$ref": "#/components/schemas/SectionId"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "GenerationResult": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "generationId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Section"
+            },
+            "minItems": 2,
+            "maxItems": 3
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/Metrics"
+          },
+          "promptVersions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PromptVersion"
+            },
+            "minItems": 1,
+            "maxItems": 16
+          },
+          "knowledgeVersions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeVersion"
+            },
+            "minItems": 0,
+            "maxItems": 16
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Warning"
+            },
+            "minItems": 0,
+            "maxItems": 32
+          },
+          "generatedAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "generationId",
+          "requestId",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "sections",
+          "promptVersions",
+          "knowledgeVersions",
+          "warnings",
+          "generatedAt",
+          "originRequestId"
+        ],
+        "additionalProperties": false,
+        "description": "completed完整权威结果；生成成功不等于医生确认或PHIS保存成功。",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "capability": {
+                  "const": "health_prescription"
+                }
+              },
+              "required": [
+                "capability"
+              ]
+            },
+            "then": {
+              "properties": {
+                "sections": {
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": {
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "enum": [
+                          "check_plan",
+                          "medication_guidance",
+                          "lifestyle_guidance"
+                        ]
+                      }
+                    }
+                  },
+                  "allOf": [
+                    {
+                      "contains": {
+                        "properties": {
+                          "id": {
+                            "const": "check_plan"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "minContains": 1,
+                      "maxContains": 1
+                    },
+                    {
+                      "contains": {
+                        "properties": {
+                          "id": {
+                            "const": "medication_guidance"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "minContains": 1,
+                      "maxContains": 1
+                    },
+                    {
+                      "contains": {
+                        "properties": {
+                          "id": {
+                            "const": "lifestyle_guidance"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "minContains": 1,
+                      "maxContains": 1
+                    }
+                  ]
+                }
+              },
+              "not": {
+                "required": [
+                  "metrics"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "capability": {
+                  "const": "weight_management"
+                }
+              },
+              "required": [
+                "capability"
+              ]
+            },
+            "then": {
+              "properties": {
+                "sections": {
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "enum": [
+                          "exercise_plan",
+                          "meal_plan"
+                        ]
+                      }
+                    }
+                  },
+                  "allOf": [
+                    {
+                      "contains": {
+                        "properties": {
+                          "id": {
+                            "const": "exercise_plan"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "minContains": 1,
+                      "maxContains": 1
+                    },
+                    {
+                      "contains": {
+                        "properties": {
+                          "id": {
+                            "const": "meal_plan"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "minContains": 1,
+                      "maxContains": 1
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "metrics"
+              ]
+            }
+          }
+        ],
+        "x-runtime-invariants": [
+          "identity与已受理请求逐字段相等；sections恰好覆盖能力章节，id唯一且使用固定顺序。",
+          "所有内容合计不超过64000字符，不能静默截断。",
+          "promptVersions/knowledgeVersions为实际使用版本，缺资产不得伪造内容或版本。",
+          "originRequestId与已受理请求一致；它关联最初PHIS调入，不会随再次生成而改成新requestId。"
+        ]
+      },
+      "AssistAccepted": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "accepted"
+          },
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "bridgeSessionId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "acceptedAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          }
+        },
+        "required": [
+          "status",
+          "schemaVersion",
+          "requestId",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "bridgeSessionId",
+          "acceptedAt",
+          "originRequestId"
+        ],
+        "additionalProperties": false,
+        "description": "HTTP202仅表示本地任务受理/唤起，不证明生成或保存成功。"
+      },
+      "WritebackItem": {
+        "type": "object",
+        "properties": {
+          "targetFieldId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "sourceSections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SectionId"
+            },
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": true
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64000
+          }
+        },
+        "required": [
+          "targetFieldId",
+          "sourceSections",
+          "value"
+        ],
+        "additionalProperties": false,
+        "description": "只返回所选目标；每个目标唯一，sourceSections必须与启动映射完全一致，value非空；未返回目标保持原值。64000字符容纳固定章节合并，不能按单节16000上限错误截断合并值。",
+        "x-merged-value-bound": {
+          "unit": "Unicode code points",
+          "maxSourceSections": 3,
+          "maxSectionTitleCharacters": 100,
+          "maxSectionContentCharacters": 16000,
+          "format": "每章 title + LF + content，章间 LF + LF",
+          "maxGeneratedMergedCharacters": 48307,
+          "formula": "3 * (100 + 1 + 16000) + 2 * 2 = 48307",
+          "valueMaxLength": 64000,
+          "note": "64000足够容纳三章最大生成正文与标题分隔符；医生编辑后仍需按value.maxLength和PHIS真实字段限制校验，超限拒绝、不静默截断。"
+        }
+      },
+      "PublicHealthResultConfirmed": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "generationId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "writebackRequestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WritebackItem"
+            },
+            "minItems": 1,
+            "maxItems": 3
+          },
+          "confirmedAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "generationId",
+          "writebackRequestId",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "items",
+          "confirmedAt",
+          "originRequestId"
+        ],
+        "additionalProperties": false,
+        "description": "医生确认的待保存内容，非已保存。仅尚未获得终态的awaiting保存尝试在网络重传时复用writebackRequestId。明确failed后即使正文相同，医生再次确认/重试保存也必须创建新writebackRequestId；修改冻结内容同样必须新ID。",
+        "x-runtime-invariants": [
+          "items.targetFieldId唯一，是启动时writebackTargets的非空子集。 originRequestId用于定位最初PHIS调入任务。",
+          "每个item.sourceSections与对应冻结target.sourceSections完全一致，不允许合并目标缺章。",
+          "合并顺序采用该能力固定章节顺序，标题+换行+医生确认内容，章间两次换行；不按随意输入数组重排。",
+          "未返回目标保持原值，空白value禁止，第一版不支持清空/追加。",
+          "PHIS按原recordVersion原子保存整批所选items，部分保存不能报告success。",
+          "identity必须与生成和会话任务相同；仅医生确认触发回写，completed不可自动保存。",
+          "writebackRequestId标识一次保存尝试。明确success或failed后该尝试终止；终态不可转换。",
+          "同failedID再次投递只重放原failed结果，绝不再次执行保存或将failed变成success。",
+          "收到明确failed后，医生再次确认/重试保存（即使items正文完全相同）必须新writebackRequestId；requestId/generationId在生成内容和业务快照未变时保持不变。",
+          "只有尚未获终态的awaiting网络重传复用同writebackRequestId及冻结内容；等待超时本身不授权创建重复保存尝试。",
+          "RECORD_VERSION_CONFLICT需先重新调入最新业务记录，不能只换writebackRequestId绕过recordVersion检查。"
+        ]
+      },
+      "PublicHealthResultConfirmedEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "type": {
+            "type": "string",
+            "const": "public-health-result-confirmed"
+          },
+          "bridgeSessionId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "timestamp": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload": {
+            "$ref": "#/components/schemas/PublicHealthResultConfirmed"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "bridgeSessionId",
+          "timestamp",
+          "payload"
+        ],
+        "additionalProperties": false,
+        "description": "复用/api/consultation/events/ws；公卫envelope新增bridgeSessionId，不伪造consultationId。须实现会话级订阅、实时发送、缓存/after补发隔离后启用，现有广播不视为已隔离。"
+      },
+      "WritebackFeedback": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "generationId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "writebackRequestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failed"
+            ]
+          },
+          "savedRecordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "errorCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "feedbackAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "generationId",
+          "writebackRequestId",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "status",
+          "feedbackAt",
+          "originRequestId"
+        ],
+        "additionalProperties": false,
+        "description": "真实PHIS保存回执，status只接受success/failed，二者均为该writebackRequestId保存尝试的终态。pending/timeout仅桌面等待状态。明确failed后再次确认保存必须使用新writebackRequestId，不能使旧failed尝试变成success。",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "success"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "required": [
+                "savedRecordVersion"
+              ],
+              "not": {
+                "required": [
+                  "errorCode"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "failed"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "required": [
+                "errorCode",
+                "message"
+              ],
+              "not": {
+                "required": [
+                  "savedRecordVersion"
+                ]
+              }
+            }
+          }
+        ],
+        "x-runtime-invariants": [
+          "originRequestId/requestId/generationId/writebackRequestId及完整identity匹配同一受信会话已发送的确认意图，否则409/TASK_CONTEXT_MISMATCH。",
+          "success仅由真实持久化成功产生，savedRecordVersion为PHIS保存后返回版本。",
+          "相同终态重复回执幂等接受；矛盾终态拒绝409/WRITEBACK_ID_CONFLICT。success与failed均不可转换；同failedID的再次投递重放原failed且不得再次执行保存。",
+          "RECORD_VERSION_CONFLICT是failed回执的errorCode，保留草稿重新调入，不盲目覆盖。",
+          "本地等待超时仍非终态，允许匹配的真实迟到回执；不自动重复保存。",
+          "明确failed后的医生重试是新保存尝试，即使正文相同也必须新writebackRequestId；未获终态的awaiting网络重传才复用原ID。"
+        ]
+      },
+      "WritebackFeedbackAcknowledged": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "accepted"
+          },
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "generationId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "writebackRequestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "feedbackStatus": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failed"
+            ]
+          },
+          "receivedAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          }
+        },
+        "required": [
+          "status",
+          "schemaVersion",
+          "requestId",
+          "generationId",
+          "writebackRequestId",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "feedbackStatus",
+          "receivedAt",
+          "originRequestId"
+        ],
+        "additionalProperties": false,
+        "description": "Bridge接受回执，不单独构成保存成功证据；需结合经过校验的feedbackStatus。"
+      },
+      "LocalWritebackWaitState": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "generationId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "writebackRequestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "state": {
+            "type": "string",
+            "const": "awaiting_receipt"
+          },
+          "timedOut": {
+            "type": "boolean"
+          },
+          "terminal": {
+            "type": "boolean",
+            "const": false
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "generationId",
+          "writebackRequestId",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "state",
+          "timedOut",
+          "terminal",
+          "message",
+          "originRequestId"
+        ],
+        "additionalProperties": false,
+        "description": "仅桌面等待状态/验收用，不能提交为writeback-feedback。超时表示结果未知且仍无终态，只能沿用原writebackRequestId重传同一保存意图，不能据超时新建重复保存尝试。本协议不新增HTTP轮询接口。"
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "missingFields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "minItems": 0,
+            "maxItems": 64
+          },
+          "traceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "timestamp": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "code",
+          "message"
+        ],
+        "additionalProperties": false,
+        "description": "公卫新增接口候选错误包，不回传密钥、原始患者内容或堆栈。"
+      },
+      "ExistingDeviceAuthError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "timestamp": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "data": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false,
+        "description": "进入公卫Controller前仍使用既有设备鉴权ApiResponse；不强加schemaVersion。"
+      },
+      "SseAcceptedData": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "generationId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "new",
+              "replayed"
+            ]
+          },
+          "acceptedAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          },
+          "streamId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "本次SSE连接标识；每次连接/重放新ID，sequence在该stream内从1递增。"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "generationId",
+          "requestId",
+          "sequence",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "mode",
+          "acceptedAt",
+          "originRequestId",
+          "streamId"
+        ],
+        "additionalProperties": false,
+        "description": "当前HTTP连接首帧，绑定本连接streamId；每次连接/重放新streamId且sequence=1。通过本地run-token丢弃旧连接accepted/后续帧，不能让旧连接重新绑定当前流。"
+      },
+      "SseProgressData": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "generationId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "validating_input",
+              "calculating_metrics",
+              "retrieving_knowledge",
+              "generating_sections",
+              "validating_output"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          },
+          "streamId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "本次SSE连接标识；每次连接/重放新ID，sequence在该stream内从1递增。"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "generationId",
+          "requestId",
+          "sequence",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "stage",
+          "message",
+          "originRequestId",
+          "streamId"
+        ],
+        "additionalProperties": false
+      },
+      "SseSectionData": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "generationId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "section": {
+            "$ref": "#/components/schemas/Section"
+          },
+          "provisional": {
+            "type": "boolean",
+            "const": true
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          },
+          "streamId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "本次SSE连接标识；每次连接/重放新ID，sequence在该stream内从1递增。"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "generationId",
+          "requestId",
+          "sequence",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "section",
+          "provisional",
+          "originRequestId",
+          "streamId"
+        ],
+        "additionalProperties": false,
+        "description": "整节快照，同id更新替换，不累计重复文本；completed前不可编辑或回写。"
+      },
+      "SseMetricsData": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "generationId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/Metrics"
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          },
+          "streamId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "本次SSE连接标识；每次连接/重放新ID，sequence在该stream内从1递增。"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "generationId",
+          "requestId",
+          "sequence",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "metrics",
+          "originRequestId",
+          "streamId"
+        ],
+        "additionalProperties": false
+      },
+      "SseCompletedData": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "generationId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "result": {
+            "$ref": "#/components/schemas/GenerationResult"
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          },
+          "streamId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "本次SSE连接标识；每次连接/重放新ID，sequence在该stream内从1递增。"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "generationId",
+          "requestId",
+          "sequence",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "result",
+          "originRequestId",
+          "streamId"
+        ],
+        "additionalProperties": false,
+        "description": "唯一成功终态，包含完整result；requestId/originRequestId/generationId/业务identity与外层及请求一致。result不包含streamId，重放不创建新generation。"
+      },
+      "SseFailedData": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "generationId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "errorCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "retryable": {
+            "type": "boolean",
+            "const": false
+          },
+          "failedAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          },
+          "streamId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "本次SSE连接标识；每次连接/重放新ID，sequence在该stream内从1递增。"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "generationId",
+          "requestId",
+          "sequence",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "errorCode",
+          "message",
+          "retryable",
+          "failedAt",
+          "originRequestId",
+          "streamId"
+        ],
+        "additionalProperties": false,
+        "description": "失败终态，无后台自动重试；再次生成需新requestId。"
+      },
+      "SseEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "event": {
+                "type": "string",
+                "const": "accepted"
+              },
+              "data": {
+                "$ref": "#/components/schemas/SseAcceptedData"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "event": {
+                "type": "string",
+                "const": "progress"
+              },
+              "data": {
+                "$ref": "#/components/schemas/SseProgressData"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "event": {
+                "type": "string",
+                "const": "section"
+              },
+              "data": {
+                "$ref": "#/components/schemas/SseSectionData"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "event": {
+                "type": "string",
+                "const": "metrics"
+              },
+              "data": {
+                "$ref": "#/components/schemas/SseMetricsData"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "event": {
+                "type": "string",
+                "const": "completed"
+              },
+              "data": {
+                "$ref": "#/components/schemas/SseCompletedData"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "event": {
+                "type": "string",
+                "const": "failed"
+              },
+              "data": {
+                "$ref": "#/components/schemas/SseFailedData"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "description": "SSE逻辑帧；wire为event行、id=streamId:sequence、data单行JSON，空行结束。streamId标识连接，generationId标识生成产物，两者不可混用。"
+      },
+      "PublicHealthGenerationRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PublicHealthRequest"
+          },
+          {
+            "if": {
+              "properties": {
+                "capability": {
+                  "const": "weight_management"
+                }
+              },
+              "required": [
+                "capability"
+              ]
+            },
+            "then": {
+              "properties": {
+                "facts": {
+                  "required": [
+                    "weightProfile"
+                  ],
+                  "properties": {
+                    "weightProfile": {
+                      "required": [
+                        "heightObservationId",
+                        "weightObservationId"
+                      ]
+                    }
+                  }
+                },
+                "patient": {
+                  "properties": {
+                    "sex": {
+                      "enum": [
+                        "male",
+                        "female"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "与本地assist同一字段结构；远端生成阶段额外要求减重资料完整，unknown性别或缺weightProfile以MISSING_FACTS拒绝；本地允许进入补充流程。",
+        "x-runtime-invariants": [
+          "减重引用的两个observation必须存在、code为height/weight、unit为cm/kg、数值分别等于heightCm/weightKg，observedAt为测量时间。缺引用MISSING_FACTS；冲突INVALID_REQUEST。不同日期的历史测量不自动参与替换。",
+          "手工测量记录source.system=PCIE_MANUAL，recordId独立UUID；不把录入时间当作测量时间，不把来源自述当身份认证。"
+        ]
+      },
+      "PublicHealthWsMessage": {
+        "type": "object",
+        "required": [
+          "state",
+          "traceId",
+          "event"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "ready"
+          },
+          "traceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "event": {
+            "$ref": "#/components/schemas/PublicHealthResultConfirmedEvent"
+          }
+        },
+        "description": "公卫候选WS消息复用现有state/traceId/event外层，内部event使用公卫专用身份，不能伪造consultationId。源实现consultation_events_ws调用build_event_poll_response包装后发送；会话认证和隔离仍待实现。"
+      },
+      "LocalGenerationAbandonedState": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "originRequestId": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "首次PHIS assist的稳定关联ID；首次等于requestId，桌面补充/再生成时保持不变。"
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "generationId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "streamId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          },
+          "patientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "businessRecordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "recordVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "PHIS不透明原记录版本，回写前必须用于并发检查。"
+          },
+          "snapshotAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "state": {
+            "type": "string",
+            "const": "abandoned"
+          },
+          "serverExecutionCancelled": {
+            "type": "boolean",
+            "const": false
+          },
+          "billingMayContinue": {
+            "type": "boolean",
+            "const": true
+          },
+          "ignoreLateFrames": {
+            "type": "boolean",
+            "const": true
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "description": "仅本地显示/验收状态，非远端取消接口或服务端终态。停止等待或放弃显示后当前页丢弃迟到帧；服务端可继续执行及计费。同requestId恢复原run，新生成需新requestId。",
+        "required": [
+          "schemaVersion",
+          "originRequestId",
+          "requestId",
+          "generationId",
+          "streamId",
+          "capability",
+          "scene",
+          "patientId",
+          "businessRecordId",
+          "recordVersion",
+          "snapshotAt",
+          "state",
+          "serverExecutionCancelled",
+          "billingMayContinue",
+          "ignoreLateFrames",
+          "message"
+        ]
+      },
+      "BridgeHandshakeRequest": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "sdkInstanceId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "resumeSessionId": {
+            "$ref": "#/components/schemas/Uuid"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "sdkInstanceId"
+        ],
+        "additionalProperties": false
+      },
+      "BridgeHandshakeResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "const": "ready"
+          },
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "bridgeSessionId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "publicHealthBridgeToken": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 128
+          },
+          "expiresAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          },
+          "renewUntil": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          }
+        },
+        "required": [
+          "status",
+          "schemaVersion",
+          "bridgeSessionId",
+          "publicHealthBridgeToken",
+          "expiresAt",
+          "renewUntil"
+        ],
+        "additionalProperties": false
+      },
+      "BridgeError": {
+        "type": "object",
+        "properties": {
+          "errorCode": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "errorCode",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "PublicHealthSubscribe": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "public-health-subscribe"
+          },
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "bridgeSessionId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "publicHealthBridgeToken": {
+            "type": "string"
+          },
+          "after": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "type",
+          "schemaVersion",
+          "bridgeSessionId",
+          "publicHealthBridgeToken"
+        ],
+        "additionalProperties": false
+      },
+      "PublicHealthSubscribed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "public-health-subscribed"
+          },
+          "schemaVersion": {
+            "$ref": "#/components/schemas/SchemaVersion"
+          },
+          "bridgeSessionId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "expiresAt": {
+            "$ref": "#/components/schemas/ZonedDateTime"
+          }
+        },
+        "required": [
+          "type",
+          "schemaVersion",
+          "bridgeSessionId",
+          "expiresAt"
+        ],
+        "additionalProperties": false
+      },
+      "PublicHealthSocketError": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "public-health-error"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "errorCode",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "MealOption": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16000
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "content"
+        ],
+        "additionalProperties": false,
+        "description": "源食谱ID及标题、单份完整正文；ID必须属于本次来源，空白运行时拒绝。"
+      }
+    }
+  },
+  "x-contract-status": {
+    "phase": "candidate",
+    "productionImplemented": false,
+    "phisIntegrationVerified": false,
+    "clinicalValidated": false
+  },
+  "x-candidate-limits": {
+    "requestBodyBytes": 524288,
+    "totalGenerationSeconds": 180,
+    "sseHeartbeatSeconds": 15,
+    "sectionContentCharacters": 16000,
+    "totalResultCharacters": 64000,
+    "bridgeSessionTtlSeconds": 1800,
+    "observations": 256,
+    "conditions": 64,
+    "medicationClasses": 64,
+    "writebackTargets": 3,
+    "note": "候选工程上限，非临床判定阈值。超限明确拒绝，不能静默截断。"
+  },
+  "x-idempotency": {
+    "remoteScope": [
+      "trustedOrganizationId",
+      "trustedDeviceId",
+      "requestId"
+    ],
+    "inputHashIncludes": [
+      "schemaVersion",
+      "originRequestId",
+      "capability",
+      "scene",
+      "patientId",
+      "businessRecordId",
+      "recordVersion",
+      "snapshotAt",
+      "patient",
+      "facts",
+      "writebackTargets"
+    ],
+    "canonicalization": "JSON对象键排序、忽略传输空白、保留数组顺序。数值使用跨JavaScript边界的有限IEEE-754数值；安全整数范围内170.0/170及负零/零视为相同值；绝对值大于9007199254740991的数值拒绝，避免大整数在桌面往返时无声改变。字符串不会被转成数字。",
+    "writebackScope": [
+      "trustedBridgeBinding",
+      "writebackRequestId"
+    ],
+    "note": "模型调用前通过独立短事务持久化并发占位；崩溃RUNNING标未知/过期，不自动抢占重跑。验证范围以交付记录为准。",
+    "writebackAttemptLifecycle": {
+      "awaiting": "无终态时网络重传复用同writebackRequestId和冻结内容；超时保持未知。",
+      "success": "保存尝试终止，重复投递只重放success，不再次保存。",
+      "failed": "保存尝试终止，重复投递只重放相同failed，不再次保存且不能转success。",
+      "explicitRetryAfterFailed": "医生再次确认/重试保存必须新writebackRequestId，即使正文相同；版本冲突仍必须先重新调入。"
+    },
+    "originBinding": [
+      "trustedBridgeSession",
+      "trustedSdkInstance",
+      "patientId",
+      "scene",
+      "businessRecordId",
+      "capability",
+      "recordVersion",
+      "writebackTargets",
+      "patient.name",
+      "patient.ageYears"
+    ],
+    "originLifecycle": "首次assist originRequestId=requestId；后续新requestId继承origin及原绑定。不同业务、能力、来源版本或目标映射必须新origin。明确性别不得修改；unknown可凭PCIE_MANUAL来源补充为明确性别。PHIS用origin关联启动，用完整生成/保存身份校验结果。",
+    "pendingRedelivery": "尚无终态时显式重传确认内容使用新transport event.id，保存writebackRequestId、confirmedAt及全部payload保持完全一致。PHIS按writebackRequestId进行保存幂等，不按event.id创建保存尝试。终态原ID重传只向桌面重放原回执，不产生新的PHIS保存事件。每次投递计入既有会话队列上限。"
+  },
+  "x-websocket-events": {
+    "path": "/api/consultation/events/ws?channel=public-health",
+    "event": "public-health-result-confirmed",
+    "schema": {
+      "$ref": "#/components/schemas/PublicHealthResultConfirmedEvent"
+    },
+    "authentication": "独立公卫socket在同一WS路径使用channel=public-health分支。第一条文本帧必须是PublicHealthSubscribe，验证Origin及handshake绑定的bridgeSessionId/token/sdkInstanceId后返回PublicHealthSubscribed；失败返回PublicHealthSocketError并关闭。认证前不发送业务帧。令牌不进入URL。",
+    "isolation": "实时投递、事件队列和after补发均按受信会话隔离；不能广播后靠SDK过滤，bridgeSessionId字段自身不替代授权。 origin归属也必须服务端/Bridge验证，不能仅按客户端传入origin路由。",
+    "messageSchema": {
+      "$ref": "#/components/schemas/PublicHealthWsMessage"
+    },
+    "wireNote": "schema为event对象，messageSchema为完整WS文本JSON消息。公卫SDK独立握手/订阅，不要求初始化诊疗会话。"
+  },
+  "x-source-evidence": {
+    "design": "../PUBLIC_HEALTH_DESIGN.md",
+    "remoteSignature": "pcie-server/API.md §2.3; DeviceAuthFilter.java",
+    "localSocket": "pcie/api.md，唯一/api/consultation/events/ws",
+    "handshakeExtension": "独立POST /api/public-health/handshake；Origin白名单+配对密钥绑定SDK实例，再签发短期内存token。旧/api/handshake保持兼容。详见pcie/api.md §8。"
+  },
+  "x-knowledge-boundary": {
+    "assets": [
+      "regional_recipes",
+      "mets_table"
+    ],
+    "consumedInPhase1": [
+      "regional_recipes"
+    ],
+    "metsConsumed": false,
+    "notes": [
+      "只有一个METS库及一个地区食谱库。",
+      "缺真实语料、受控临床字典或算法版本则未就绪，不把合成样例作为生产资产。",
+      "METS未被实际输出消费，一期不迁移推测链或编造能耗结论。"
+    ]
+  },
+  "x-cancellation": {
+    "phase1": "local_only",
+    "serverCancellationSupported": false,
+    "billingStopGuaranteed": false,
+    "lateFrames": "当前页通过本地run-token丢弃放弃或旧连接帧。",
+    "resume": "同requestId恢复原run；新生成新requestId，originRequestId稳定。",
+    "stateBoundary": "断连/本地取消不改服务端终态，也不产生failed回执。"
+  },
+  "x-public-health-bridge": {
+    "configuration": {
+      "PCIE_PUBLIC_HEALTH_ALLOWED_ORIGINS": "完整Origin逗号分隔；默认空=拒绝",
+      "PCIE_PUBLIC_HEALTH_PAIRING_SECRET": "至少32随机字节base64；默认空=拒绝，不进入URL/日志"
+    },
+    "websocket": {
+      "url": "ws://127.0.0.1:8081/api/consultation/events/ws?channel=public-health",
+      "firstFrameSchema": {
+        "$ref": "#/components/schemas/PublicHealthSubscribe"
+      },
+      "ackSchema": {
+        "$ref": "#/components/schemas/PublicHealthSubscribed"
+      },
+      "errorSchema": {
+        "$ref": "#/components/schemas/PublicHealthSocketError"
+      },
+      "messageSchema": {
+        "$ref": "#/components/schemas/PublicHealthWsMessage"
+      },
+      "invariants": [
+        "认证前无数据推送，按session定向分发，after只允许本session已知事件ID",
+        "令牌过期关闭连接；续期必须旧token+配对key+相同Origin/sdkInstanceId",
+        "过期宽限30分钟，sessionId稳定；不自动将旧任务迁移给新会话",
+        "取消/关闭页面不假定PHIS未保存；保留冻结意图以匹配迟到回执"
+      ]
+    },
+    "limits": {
+      "sessions": 32,
+      "tasks": 128,
+      "snapshotsPerTask": 16,
+      "writebacksPerTask": 32,
+      "eventsPerSession": 128
+    },
+    "trustBoundary": "只验证PHIS集成实例和受控Origin，不将非空EMR token或来源标签当作医生账号验证。",
+    "renewalRetry": "旋转后保留上一token的hash和原renewUntil；同配对密钥/Origin/sdkInstanceId在其有效续期窗口重试时幂等返回同一当前token，不再次旋转。上一token不能用于业务或WS，仅保留两代有界内存凭据。",
+    "expiredState": "会话超过renewUntil后按需回收其任务、正文、队列及关联索引。旧凭据和旧任务不能由新会话prepare/confirm；PHIS必须使用新origin。无永久UUID墓碑：若过期清理后违规复用UUID assist，仅建新任务，不恢复任何旧状态。"
+  }
+}

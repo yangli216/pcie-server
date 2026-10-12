@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "public-health.check-plan.v1",
+  "title": "Internal Health Check Plan Draft",
+  "description": "内部 AI 检查草稿，不是 PHIS 传输对象。引用另需按当前画像、批准目录、适配、计划日期及间隔校验；通过后拼接为原 check_plan 纯文本。",
+  "type": "object",
+  "required": ["checks"],
+  "additionalProperties": false,
+  "properties": {
+    "checks": {
+      "type": "array", "maxItems": 100,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["code", "plannedDate", "priority", "reason", "evidenceObservationIds", "intervalKind"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "\\S" },
+          "plannedDate": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "priority": { "enum": ["low", "medium", "high"] },
+          "reason": { "type": "string", "minLength": 1, "maxLength": 2000, "pattern": "\\S" },
+          "evidenceObservationIds": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "\\S" } },
+          "evidenceRefs": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "\\S" } },
+          "intervalKind": { "enum": ["routine", "abnormal_retest"] }
+        },
+        "anyOf": [
+          { "properties": { "evidenceObservationIds": { "minItems": 1 } } },
+          { "required": ["evidenceRefs"] }
+        ],
+        "allOf": [{
+          "if": { "properties": { "intervalKind": { "const": "abnormal_retest" } } },
+          "then": { "properties": { "evidenceObservationIds": { "minItems": 1 } } }
+        }]
+      }
+    }
+  }
+}

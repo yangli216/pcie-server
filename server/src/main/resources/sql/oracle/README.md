@@ -121,3 +121,8 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 4. 直接用 `SYSTEM` 执行 `init.sql`
 
 但这只适合临时开发联调，不建议作为正式部署方案。
+
+
+## 公卫生成运行表（2026-09-29）
+
+初始化基线增加 `c_ai_ph_origin` 与 `c_ai_ph_run`，分别以机构+设备+originRequestId、机构+设备+requestId唯一约束。生成前短事务占位，完整结果/失败状态独立持久化；RUNNING超时不会自动重跑模型。此变更没有执行任何现场数据库更新；已有库由DBA核对当前init.sql生成一次性迁移，不新增常驻upgrade脚本。生产功能默认关闭，必须先部署schema及真实批准资产/Prompt后启用。

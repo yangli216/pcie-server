@@ -1690,4 +1690,45 @@ VALUES ('USER001', 'admin', '系统管理员', '240be518fabd2724ddb6f04eeb1da596
 INSERT INTO c_ai_user_role (id_user_role, id_user, id_role, fg_active)
 VALUES ('USERROLE001', 'USER001', 'ROLE001', '1');
 
+
+-- 公卫原生生成：origin绑定与生成前幂等占位，不存模型密钥。
+CREATE TABLE c_ai_ph_origin (
+    id_origin VARCHAR2(36) PRIMARY KEY,
+    id_org VARCHAR2(64) NOT NULL,
+    id_device VARCHAR2(64) NOT NULL,
+    origin_request_id VARCHAR2(36) NOT NULL,
+    binding_hash VARCHAR2(64) NOT NULL,
+    patient_sex VARCHAR2(8) NOT NULL,
+    fg_active CHAR(1) DEFAULT '1' NOT NULL,
+    insert_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+CREATE UNIQUE INDEX uk_c_ai_ph_origin ON c_ai_ph_origin (id_org, id_device, origin_request_id);
+COMMENT ON TABLE c_ai_ph_origin IS '公卫任务最初调入与可信设备业务身份绑定';
+COMMENT ON COLUMN c_ai_ph_origin.binding_hash IS '患者/场景/业务记录/能力/原版本/映射/姓名年龄的规范化摘要';
+
+CREATE TABLE c_ai_ph_run (
+    generation_id VARCHAR2(36) PRIMARY KEY,
+    id_org VARCHAR2(64) NOT NULL,
+    id_device VARCHAR2(64) NOT NULL,
+    origin_request_id VARCHAR2(36) NOT NULL,
+    request_id VARCHAR2(36) NOT NULL,
+    input_hash VARCHAR2(64) NOT NULL,
+    status VARCHAR2(16) NOT NULL,
+    result_json CLOB,
+    error_code VARCHAR2(128),
+    error_message VARCHAR2(2000),
+    expires_at_ms NUMBER(19) NOT NULL,
+    finished_at VARCHAR2(64),
+    fg_active CHAR(1) DEFAULT '1' NOT NULL,
+    insert_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT ck_c_ai_ph_run_status CHECK (status IN ('RUNNING','COMPLETED','FAILED'))
+);
+CREATE UNIQUE INDEX uk_c_ai_ph_run_request ON c_ai_ph_run (id_org, id_device, request_id);
+CREATE INDEX idx_c_ai_ph_run_origin ON c_ai_ph_run (id_org, id_device, origin_request_id);
+COMMENT ON TABLE c_ai_ph_run IS '公卫原生生成运行；生成前占位，终态只写一次，重复请求重放';
+COMMENT ON COLUMN c_ai_ph_run.result_json IS '完整生成结果含Prompt、规则、知识与算法版本，不含密钥';
+COMMENT ON COLUMN c_ai_ph_run.expires_at_ms IS '运行截止毫秒时间戳；过期未知不自动重跑';
+
 COMMIT;
