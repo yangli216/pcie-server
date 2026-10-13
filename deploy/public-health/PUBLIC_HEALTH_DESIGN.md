@@ -1,5 +1,17 @@
 # 全医慧助（PCIE）公卫健康处方与减重助手设计
 
+## 患者处方正文与医生提醒分离（2026-10-13）
+
+医生使用助手生成可直接交给患者的健康教育处方。`sections[].content`、`options[].content` 和最终 `items[].value` 只包含患者可执行的检查安排、用药执行、饮食和运动内容；不包含制定依据、事实证据、来源/版本、AI/工程说明、待医生审核/核实、缺资料清单或机构批准提示。患者应遵循的具体安全动作（例如不适时停止运动、及时就诊）保留在正文，不以泛化删除“提醒”或“医生”字样处理。
+
+内部模型草稿可选 `doctorNotes` 数组（0至8条、每条非空且最多1000 Unicode码点）；食谱每份也可独立返回该数组。程序先严格校验并移入既有 `result.warnings`（按章节标记、食谱注明方案名），绝不拼接到章节或确认正文。检查理由/证据/优先级与需机构核对的准备说明、风险分类/定性分析/原值证据、`missingFacts` 和用药规则提醒均进入医生区。来源原值、时间和哈希保留工程核验，不因患者正文精简丢失证据。根 `warnings` 复用原协议，不新增 PHIS 回写字段。
+
+客户端用独立“医生提醒（不回写）”区域显示这些信息。处方编辑和食谱切换只处理患者正文；确认、合并字段、失败恢复和重传均不能纳入医生提醒。生成内容若混入明确的内部说明标题或来源/证据标签，拒绝应用，不靠事后截断或宽泛正则删除医疗内容；确认前也校验此边界，旧草稿需由医生调整后保存。随访某章确实无可用患者建议时保留固定章节、content为空，原因仅在医生区；默认不选空章，医生补充非空正文后可选。有其他患者正文时仍可确认对应字段，合并字段仍须全部对应章节有正文且选中。三章全空才报生成未完成；减重和每份食谱必须非空。不能用“请医生核对资料”等诊断说明充当处方正文。
+
+运动生成必须按1至3编号输出恰好3条，合计250至450 Unicode码点，每条最多2句。中文句末“。！？”、英文问号/叹号和非小数的英文句号计句；小数和条目编号不计句。程序拒绝超限/额外标题/条目及污染正文，不自动截断、改标点或重试模型。医生后续手工编辑不受这项生成风格上限限制，仍遵守正文/医生提醒分离和原长度门禁。
+
+两个功能保持独立：随访只回写检查/用药/生活方式三章，减重只回写运动/当前食谱两章。自动化补真实模型形态、三选一、提醒展示与确认隔离、患者安全提醒保留、句数/编号/Unicode边界及缺建议拒绝；本机 Mock 调试代码仍不提交，真实 AI/模拟保存/真实 PHIS/医学审核分别记录。
+
 更新日期：2026-10-10。协议：`public-health.v1`。状态：**原生迁移实施中；生产实现、工程验证与真实 PHIS/医学验收分别记录**。
 
 用户已确认：两个能力原生迁入 `pcie-server`，交付不依赖 BsoftGPT；PHIS 侧交付接入接口与约定。本文将“只给出接口”落实为 PCIE 定义调入、回传和回执协议，PHIS 团队负责本系统取数、字段映射与最终保存。
@@ -60,11 +72,11 @@
 
 - 画像 Builder 派生 `patient / snapshotAt / conditions / medicationClasses / lifestyle / historySummary / nextFollowUpDate / latestObservations / knownRiskAssessments / sources / evidence / excludedObservationIds / conflicts`。仅采用 `observedAt <= snapshotAt` 的观察；同项目同最新时间、不同结果/单位作为冲突保留，不能选择一个当正常值。证据引用为 `patient:ageYears / patient:sex / observation:<id> / condition:<index> / medication:<index> / lifestyle:<key> / historySummary`，不由模型创建来源。缺失资料保持待补充。
 - 已有风险分层通过普通观察传入，约定编码为 `risk_level / hypertension_risk_level / diabetes_risk_level / cardiovascular_risk_level`，保留原值、日期和来源；不增加请求对象的 `riskLevel` 字段。AI 生成慢病进展/并发症的**定性潜在风险提示和干预建议**，不生成概率、确诊或经校准的风险分数；没有证据可以返回空风险项。它与发起方已有风险等级分开展示。
-- 健康处方仍为三个固定章节。`lifestyle_guidance` 内部模型响应改用 [HealthEducationDraft](contracts/public-health.health-education.schema.json)：`risks[{type,name,concern,evidenceRefs,intervention}],prevention[],diet[],exercise[],followup[],missingFacts[]`。`type=progression/complication`；`concern=attention/needs_assessment` 只表示 AI 关注/待评估。风险最多6项，必须引用画像已有证据；六个字段全部必传，拒绝未知字段、虚构证据、概率字段及超长正文。程序拼接为风险提示、疾病预防、饮食、运动、随访与待补充内容，沿用原章节选择和纯文本回写。模型建议供医生审核，不冒充量化预测模型验收。
-- 随访教育草稿所有模型文本拒绝 `BMI / BMR`、减重目标、目标体重、三餐参考食谱/备选食谱及 `kcal / 千卡 / 卡路里`；健康教育不生成减重计算或方案。血压/血糖原值由程序证据行展示，模型正文不写 `mmHg / mmol/L` 等数值单位，不产生新的量化目标/停练阈值或把单次观察判为正常/异常；正文内容仍需医生审核，关键词校验不是医学效果验收。医生后续明确编辑不受该模型草稿检查替代。
+- 健康处方仍为三个固定章节。`lifestyle_guidance` 内部模型响应改用 [HealthEducationDraft](contracts/public-health.health-education.schema.json)：`risks[{type,name,concern,evidenceRefs,intervention}],prevention[],diet[],exercise[],followup[],missingFacts[]`。`type=progression/complication`；`concern=attention/needs_assessment` 只表示 AI 关注/待评估。风险最多6项，必须引用画像已有证据；六个字段全部必传，拒绝未知字段、虚构证据、概率字段及超长正文。患者正文只拼接风险干预动作、疾病预防、饮食、运动和随访安排；风险分类、原值证据和待补资料移至 warnings，沿用原章节选择和纯文本回写。可选 doctorNotes 仅供医生区，空章处理按2026-10-13新边界。模型建议供医生审核，不冒充量化预测模型验收。
+- 随访教育草稿所有模型文本拒绝 `BMI / BMR`、减重目标、目标体重、三餐参考食谱/备选食谱及 `kcal / 千卡 / 卡路里`；健康教育不生成减重计算或方案。血压/血糖原值只由程序在医生提醒区的证据行展示，模型正文不写 `mmHg / mmol/L` 等数值单位，不产生新的量化目标/停练阈值或把单次观察判为正常/异常；正文内容仍需医生审核，关键词校验不是医学效果验收。医生后续明确编辑不受该模型草稿检查替代。
 - 检查仍由批准白名单控制。白名单可选 `eligibility={minAgeYears?,maxAgeYears?,sexes?,conditionCodes?,riskLevels?}`；条件按 AND，病种/风险列表各自为任一匹配。`riskLevels` 仅匹配上述已有风险观察的非冲突最新值，不能用 AI 关注级别代替。无适配项允许空清单；正式最短间隔、异常复查和准备字典保持服务端控制。
 - 程序在内部模型输入生成 `checkScheduleConstraints[{code,routineEarliestDate,routineAvailable,abnormalRetestAvailable,abnormalRetestEarliestDate?}]`。取快照日与全部同编码非未来观察的最晚日期加批准间隔的较晚值；本次测量、各来源和冲突结果的实施日期都计入间隔。可安排窗口为快照日到其后90天（含边界）。异常复查须当前有效数值证据满足全部批准阈值才计算候选日期；无条件或不满足时 `abnormalRetestAvailable=false` 且省略异常日期。模型按可用模式及最早日期安排，输出再独立验证，不能引用年龄绕过日期约束。此派生日期清单不进入 PHIS 契约。
-- 内部 [checks 草稿](contracts/public-health.check-plan.schema.json) 保留 `evidenceObservationIds`，新增可选 `evidenceRefs`（1–16项唯一画像ref，沿用风险证据字典）；至少一类引用非空，未知或未来/冲突观察均拒绝。缺少本项目基线时可以引用真实年龄/已提供病种作为规则适配依据，正文明确“尚未提供本项目既往结果”，不能冒充已有异常。异常短期复查仍必须由 `evidenceObservationIds` 的实际数值支持；引用年龄不能缩短间隔。这只改变内部模型校验，不改变 PHIS 请求/结果/确认纯文本契约。
+- 内部 [checks 草稿](contracts/public-health.check-plan.schema.json) 保留 `evidenceObservationIds`，新增可选 `evidenceRefs`（1–16项唯一画像ref，沿用风险证据字典）；至少一类引用非空，未知或未来/冲突观察均拒绝。缺少本项目基线时可以引用真实年龄/已提供病种作为规则适配依据，医生区明确“尚未提供本项目既往结果”，患者正文不包含该资料说明，不能冒充已有异常。异常短期复查仍必须由 `evidenceObservationIds` 的实际数值支持；引用年龄不能缩短间隔。这只改变内部模型校验，不改变 PHIS 请求/结果/确认纯文本契约。
 - 正式编排与本机真实 AI 入口均执行画像和结构校验。测试入口的随访三个章节经原签名 `/v1/ai/chat` 生成，不再替换为 Mock；测试检查目录采用独立、注明公开规范来源与待医学复核的参考清单，不能发布为正式批准资产。正式服务继续默认关闭并使用本机构批准规则/Prompt。
 
 组件边界：`PublicHealthHealthProfile.vue` 只展示派生画像；`publicHealthHealthProfile.ts` 负责事实和证据投影；`publicHealthHealthEducation.ts` 负责内部草稿校验与确定性正文；现有页面/控制器仍管理医生编辑、选择、冻结和回执。服务端独立画像/教育纯规则接入现有编排，不新增全局状态或数据库表。

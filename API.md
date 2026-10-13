@@ -1,5 +1,13 @@
 # 全医慧助服务端（PCIE Server）API 说明
 
+## 公卫处方正文边界（2026-10-13）
+
+公卫生成结果的 `sections[].content`、`options[].content` 为医生提供给患者的处方正文；最终确认 `items[].value` 只组合已选正文。制定依据、事实证据、AI/工程说明、来源、待医生核实和缺资料清单在既有 `warnings` 中按章节显示于“医生提醒（不回写）”，不进入 PHIS 字段。内部 AI 草稿可选 `doctorNotes`（0至8条、每条1至1000 Unicode码点）由生成器严格验证并转换为 warnings，不能下传到可编辑 content。患者需执行的具体安全动作保留。旧草稿或生成正文混入明确的内部说明标签时拒绝确认/生成，须调整后再保存；不自动删改医疗正文。
+
+随访固定三章，某章确无患者建议时允许 content 为空并仅在 warnings 说明，默认不选该章；补非空正文后可选，有其他正文时可单独确认，三章全空拒绝生成。减重及所有食谱仍非空，确认 items[].value 始终非空；合并字段须对应章全部选中且非空。
+
+减重运动生成固定3条、250至450 Unicode码点、每条最多2句，程序强校验；手工编辑沿用原长度及身份门禁。随访三章和减重两章的业务身份、签名、SSE、三选一和回执幂等契约保持独立。
+
 ## 机构知识检索（2026-09-30）
 
 部署随附机器契约：[knowledge-retrieval.openapi.json](deploy/weknora/knowledge-retrieval.openapi.json)，与[工作区协同版本](../development-harness/contracts/knowledge-retrieval.openapi.json)逐字节同步。两接口必须经过DeviceAuthFilter的Bearer+ECDSA P-256，不新增鉴权豁免。
@@ -3990,9 +3998,9 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
   "recordVersion": "7",
   "snapshotAt": "2026-10-10T09:00:00+08:00",
   "items": [
-    { "targetFieldId": "checkPlanEducation", "sourceSections": ["check_plan"], "value": "医生核对后的合成检查计划正文" },
-    { "targetFieldId": "medicationEducation", "sourceSections": ["medication_guidance"], "value": "医生核对后的合成用药健康教育正文" },
-    { "targetFieldId": "lifestyleEducation", "sourceSections": ["lifestyle_guidance"], "value": "医生核对后的合成疾病预防、饮食与运动教育正文" }
+    { "targetFieldId": "checkPlanEducation", "sourceSections": ["check_plan"], "value": "血常规 · 2026-11-08" },
+    { "targetFieldId": "medicationEducation", "sourceSections": ["medication_guidance"], "value": "随访时携带当前使用的药物清单。" },
+    { "targetFieldId": "lifestyleEducation", "sourceSections": ["lifestyle_guidance"], "value": "保持规律进餐，按现有安排活动，随访时携带近期记录。" }
   ],
   "confirmedAt": "2026-10-10T09:10:00+08:00"
 }

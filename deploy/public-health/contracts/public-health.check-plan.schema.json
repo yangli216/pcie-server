@@ -2,11 +2,12 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "public-health.check-plan.v1",
   "title": "Internal Health Check Plan Draft",
-  "description": "内部 AI 检查草稿，不是 PHIS 传输对象。引用另需按当前画像、批准目录、适配、计划日期及间隔校验；通过后拼接为原 check_plan 纯文本。",
+  "description": "内部 AI 检查草稿，不是 PHIS 传输对象。引用另需按当前画像、批准目录、适配、计划日期及间隔校验；通过后仅项目名、计划日期及患者准备事项进入原 check_plan 患者纯文本；理由、优先级、证据与 doctorNotes 进入 result.warnings 医生区。",
   "type": "object",
   "required": ["checks"],
   "additionalProperties": false,
   "properties": {
+    "doctorNotes": { "type": "array", "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 1000, "pattern": "\\S" }, "description": "内部医生提醒；校验后移入 result.warnings，仅医生区展示，不进入患者章节或 PHIS 确认正文。" },
     "checks": {
       "type": "array", "maxItems": 100,
       "items": {

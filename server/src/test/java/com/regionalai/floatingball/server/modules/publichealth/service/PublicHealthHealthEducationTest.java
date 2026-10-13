@@ -24,18 +24,24 @@ class PublicHealthHealthEducationTest {
     private ObjectNode valid() {
         ObjectNode draft = PublicHealthTestFixture.healthEducation();
         ObjectNode risk = draft.withArray("risks").addObject();
-        risk.put("type", "progression").put("name", "合成进展关注").put("concern", "needs_assessment").put("intervention", PublicHealthTestFixture.NOTICE);
+        risk.put("type", "progression").put("name", "合成进展关注").put("concern", "needs_assessment").put("intervention", PublicHealthTestFixture.PATIENT_CONTENT);
         risk.putArray("evidenceRefs").add("observation:SYNTHETIC-E").add("patient:ageYears");
-        for (String field : Arrays.asList("prevention", "exercise", "followup", "missingFacts")) draft.withArray(field).add(PublicHealthTestFixture.NOTICE);
+        for (String field : Arrays.asList("prevention", "exercise", "followup", "missingFacts")) draft.withArray(field).add(PublicHealthTestFixture.PATIENT_CONTENT);
         return draft;
     }
 
-    @Test void rendersFixedDoctorSectionsAndCitationsFromProfileNotModel() {
+    @Test void keepsPatientActionsAndMovesRiskCitationsAndMissingFactsIntoDoctorWarnings() {
         ObjectNode draft = valid();
         draft.withArray("risks").add(draft.path("risks").get(0).deepCopy());
         ((ObjectNode) draft.path("risks").get(1)).put("type", "complication").put("concern", "attention").put("name", "合成并发症关注");
-        String text = PublicHealthHealthEducation.render(draft, profile);
-        for (String expected : Arrays.asList("AI 定性分析", "不表示概率或诊断", "慢病进展；待评估", "并发症；关注", "SYNTHETIC-RESULT", "10 synthetic-unit", "2026-09-28T09:00:00+08:00", "SYNTHETIC-FACT", "疾病预防", "饮食建议", "运动建议", "随访安排", "待补充资料")) assertTrue(text.contains(expected), expected);
+        ArrayNode warnings = PublicHealthTestFixture.M.createArrayNode();
+        String text = PublicHealthHealthEducation.render(draft, profile, warnings);
+        for (String expected : Arrays.asList("AI 定性分析", "不表示概率或诊断", "慢病进展；待评估", "并发症；关注", "SYNTHETIC-RESULT", "10 synthetic-unit", "2026-09-28T09:00:00+08:00", "SYNTHETIC-FACT", "待补充资料")) {
+            assertTrue(warnings.toString().contains(expected), expected);
+            assertFalse(text.contains(expected), expected);
+        }
+        for (String expected : Arrays.asList("疾病预防", "饮食建议", "运动建议", "随访安排", PublicHealthTestFixture.PATIENT_CONTENT)) assertTrue(text.contains(expected), expected);
+        assertEquals(3, warnings.size());
         assertEquals(text, PublicHealthHealthEducation.render(draft, profile));
         assertFalse(text.contains("制定依据"));
     }
@@ -43,13 +49,17 @@ class PublicHealthHealthEducationTest {
     @Test void permitsEmptyArraysWithoutMakingUpRecommendationsOrProbability() {
         ObjectNode draft = PublicHealthTestFixture.healthEducation();
         draft.withArray("diet").removeAll();
-        assertEquals("本次资料不足以生成健康教育条目，请医生核对并补充资料。", PublicHealthHealthEducation.render(draft, profile));
+        ArrayNode warnings = PublicHealthTestFixture.M.createArrayNode();
+        assertEquals("", PublicHealthHealthEducation.render(draft, profile, warnings));
+        assertTrue(warnings.toString().contains("本次资料不足"));
     }
 
     @Test void emptyRiskListWithOtherAdviceDoesNotImplyNoRisk() {
-        String text = PublicHealthHealthEducation.render(PublicHealthTestFixture.healthEducation(), profile);
-        assertTrue(text.startsWith("潜在风险提示（AI 定性分析，待医生审核；不表示概率或诊断）"));
-        assertTrue(text.contains("不能据此判断无风险"));
+        ArrayNode warnings = PublicHealthTestFixture.M.createArrayNode();
+        String text = PublicHealthHealthEducation.render(PublicHealthTestFixture.healthEducation(), profile, warnings);
+        assertFalse(text.contains("AI 定性分析"));
+        assertFalse(text.contains("不能据此判断无风险"));
+        assertTrue(warnings.toString().contains("不能据此判断无风险"));
         assertTrue(text.contains("饮食建议"));
         assertFalse(text.contains("疾病预防"));
     }
@@ -80,23 +90,51 @@ class PublicHealthHealthEducationTest {
                 .parse(PublicHealthTestFixture.M.writeValueAsBytes(input)).request, PublicHealthTestFixture.M);
         ObjectNode draft = valid();
         ((ObjectNode) draft.path("risks").get(0)).putArray("evidenceRefs").add("observation:SYNTHETIC-BMI").add("observation:SYNTHETIC-BMR");
-        String text = PublicHealthHealthEducation.render(draft, metricProfile);
-        assertTrue(text.contains("138 mmHg"));
-        assertTrue(text.contains("6.2 mmol/L"));
-        assertTrue(text.contains("来源：SYNTHETIC / 记录：SYNTHETIC-FACT"));
+        ArrayNode warnings = PublicHealthTestFixture.M.createArrayNode();
+        String text = PublicHealthHealthEducation.render(draft, metricProfile, warnings);
+        assertTrue(warnings.toString().contains("138 mmHg"));
+        assertTrue(warnings.toString().contains("6.2 mmol/L"));
+        assertTrue(warnings.toString().contains("来源：SYNTHETIC / 记录：SYNTHETIC-FACT"));
+        assertFalse(text.contains("mmHg"));
+        assertFalse(text.contains("mmol/L"));
         assertFalse(text.contains("observation:SYNTHETIC-BMI"));
         assertFalse(text.contains("observation:SYNTHETIC-BMR"));
     }
 
     @Test void permitsActionableDurationsAndFrequenciesWithoutBroaderMedicalTextFiltering() {
         ObjectNode draft = valid();
-        String exercise = PublicHealthTestFixture.NOTICE + "：平地步行每周3次，每次20分钟，安排由医生核定。";
-        String diet = PublicHealthTestFixture.NOTICE + "：清淡饮食并结合既有随访管理计划核对。";
+        String exercise = "按医生指导平地步行每周3次，每次20分钟，出现胸闷或头晕立即停止运动并及时就诊。";
+        String diet = "按已确认的管理计划清淡饮食，出现不适时联系医生。";
         draft.withArray("exercise").removeAll().add(exercise);
         draft.withArray("diet").removeAll().add(diet);
         String text = PublicHealthHealthEducation.render(draft, profile);
         assertTrue(text.contains(exercise));
         assertTrue(text.contains(diet));
+    }
+
+    @Test void separatesOptionalDoctorNotesWithoutTreatingTheirMetricUnitsAsPatientModelAdvice() {
+        ObjectNode draft = valid();
+        draft.putArray("doctorNotes").add("请医生核对传入的138 mmHg资料及来源。");
+        ArrayNode warnings = PublicHealthTestFixture.M.createArrayNode();
+        String text = PublicHealthHealthEducation.render(draft, profile, warnings);
+        assertFalse(text.contains("请医生")); assertFalse(text.contains("138 mmHg"));
+        assertTrue(warnings.toString().contains("请医生核对传入的138 mmHg资料及来源"));
+        assertTrue(draft.has("doctorNotes"));
+        draft.put("extra", true);
+        assertThrows(PublicHealthException.class, () -> PublicHealthHealthEducation.render(draft, profile));
+    }
+
+    @Test void rejectsDoctorExplanationInsideAnyPatientAdviceFieldWhileAllowingItInMissingFacts() {
+        for (String field : Arrays.asList("intervention", "prevention", "diet", "exercise", "followup")) {
+            ObjectNode draft = valid();
+            if ("intervention".equals(field)) ((ObjectNode) draft.path("risks").get(0)).put(field, "待医生核实活动能力。");
+            else draft.withArray(field).removeAll().add("待医生核实活动能力。");
+            assertThrows(PublicHealthException.class, () -> PublicHealthHealthEducation.render(draft, profile), field);
+        }
+        ObjectNode draft = valid(); draft.withArray("missingFacts").removeAll().add("待医生核实活动能力。");
+        ArrayNode warnings = PublicHealthTestFixture.M.createArrayNode();
+        assertFalse(PublicHealthHealthEducation.render(draft, profile, warnings).contains("待医生核实"));
+        assertTrue(warnings.toString().contains("待医生核实活动能力"));
     }
 
     @Test void rejectsUnknownFieldsTypesProbabilityFieldsAndUnboundOrDuplicatedEvidence() {
@@ -114,7 +152,7 @@ class PublicHealthHealthEducationTest {
                 draft -> ((ArrayNode) draft.path("risks").get(0).path("evidenceRefs")).add("invented:ref"),
                 draft -> ((ArrayNode) draft.path("risks").get(0).path("evidenceRefs")).add("observation:SYNTHETIC-E"),
                 draft -> ((ArrayNode) draft.path("risks").get(0).path("evidenceRefs")).add(1),
-                draft -> draft.withArray("prevention").add(PublicHealthTestFixture.NOTICE),
+                draft -> draft.withArray("prevention").add(PublicHealthTestFixture.PATIENT_CONTENT),
                 draft -> draft.withArray("diet").add("\u00a0"),
                 draft -> draft.withArray("exercise").addObject().put("content", "unsupported")
         );

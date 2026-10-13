@@ -9,6 +9,10 @@ import java.util.*;
 final class PublicHealthTestFixture {
     static final ObjectMapper M = new ObjectMapper();
     static final String NOTICE = "合成展示，不构成医疗建议";
+    static final String PATIENT_CONTENT = "按既有健康管理安排记录变化，有不适时及时就诊。";
+    static final String EXERCISE = "1. 平地步行：按既有运动安排选择平坦路面、穿防滑鞋，先做热身再进入步行，行走时保持呼吸均匀，以能正常交谈的程度安排节奏，结束时逐步放慢步速。记录每次步行的时长与身体感受，按已确认的随访安排持续执行，避免憋气、突然加速或过度疲劳。\n"
+            + "2. 坐姿抬腿：选择稳固座椅坐好，保持躯干平稳，双手轻扶椅面，交替缓慢抬起和放下小腿，按现有活动能力控制幅度，在日常步行之外安排短时练习。动作轻缓、不要惯性甩腿，出现关节疼痛时停止该练习。\n"
+            + "3. 运动安全：运动前检查路面与鞋履，随身携带需要的联系信息，按原有安排分段活动并留出休息时间，避免快速转身及突然改变体位。出现胸闷、头晕、心悸或明显不适时立即停止运动，持续不适应及时就诊。";
     static ObjectNode request(String capability) {
         ObjectNode r = M.createObjectNode();
         r.put("schemaVersion","public-health.v1");
@@ -72,8 +76,8 @@ final class PublicHealthTestFixture {
         ObjectNode p = M.createObjectNode();
         ObjectNode c = p.putArray("checkWhitelist").addObject();
         c.put("code","SYNTHETIC-CHECK");
-        c.put("name", NOTICE);
-        c.put("prep", NOTICE);
+        c.put("name", "合成检查项目");
+        c.put("prep", "按检查安排携带已有记录。");
         c.put("minIntervalDays", 30);
         c.put("abnormalRetestIntervalDays", 7);
         p.putObject("medicationReminders").put("SYNTHETIC-CLASS", NOTICE);
@@ -83,7 +87,7 @@ final class PublicHealthTestFixture {
     static ObjectNode healthEducation() {
         ObjectNode draft = M.createObjectNode();
         for (String field : Arrays.asList("risks", "prevention", "diet", "exercise", "followup", "missingFacts")) draft.putArray(field);
-        draft.withArray("diet").add(NOTICE);
+        draft.withArray("diet").add(PATIENT_CONTENT);
         return draft;
     }
     static ObjectNode recipes() {

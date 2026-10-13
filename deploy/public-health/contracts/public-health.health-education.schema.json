@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "public-health.health-education.schema.json",
   "title": "HealthEducationDraft",
-  "description": "Internal AI draft for lifestyle_guidance; rendered to the existing public-health.v1 text section, never sent as a new PHIS field. Risk concern is qualitative and pending physician review, not a calibrated risk probability.",
+  "description": "Internal AI draft for lifestyle_guidance; patient advice is rendered to the existing public-health.v1 text section, while risk analysis, evidence, missingFacts and doctorNotes become result.warnings in a separate physician-only panel. No new PHIS field. Risk concern is qualitative, not a calibrated risk probability.",
   "type": "object",
   "additionalProperties": false,
   "required": ["risks", "prevention", "diet", "exercise", "followup", "missingFacts"],
@@ -25,7 +25,8 @@
     "diet": { "$ref": "#/definitions/advice" },
     "exercise": { "$ref": "#/definitions/advice" },
     "followup": { "$ref": "#/definitions/advice" },
-    "missingFacts": { "$ref": "#/definitions/advice" }
+    "missingFacts": { "$ref": "#/definitions/advice", "description": "缺失资料说明，仅医生区展示，不进入患者章节正文。" },
+    "doctorNotes": { "type": "array", "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 1000, "pattern": "\\S" }, "description": "内部医生提醒；校验后移入 result.warnings，仅医生区展示，不进入患者章节或 PHIS 确认正文。" }
   },
   "definitions": {
     "advice": { "type": "array", "maxItems": 8, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 1000, "pattern": "\\S", "allOf": [{ "$ref": "#/definitions/modelTextBoundary" }] } },

@@ -81,7 +81,7 @@ public class PublicHealthOrchestrator {
         ArrayNode sections = result.putArray("sections"), versions = result.putArray("promptVersions");
         Set<String> promptIds = new HashSet<String>();
         result.set("knowledgeVersions", prepared.pack.versions.deepCopy());
-        result.putArray("warnings");
+        ArrayNode warnings = result.putArray("warnings");
         ObjectNode context = mapper.valueToTree(request);
         context.remove("writebackTargets");
         ObjectNode healthProfile = null;
@@ -119,7 +119,7 @@ public class PublicHealthOrchestrator {
             if ("check_plan".equals(id)) {
                 shape = CHECK_OUTPUT_SHAPE;
             } else if ("medication_guidance".equals(id)) {
-                shape = "{\"medicationGuidance\":[{\"classCode\":\"已提供类别编码\",\"content\":\"仅该类别的指导\"}]}";
+                shape = "{\"medicationGuidance\":[{\"classCode\":\"已提供类别编码\",\"content\":\"仅该类别供患者执行的指导\"}]}";
             } else if ("lifestyle_guidance".equals(id)) {
                 shape = PublicHealthHealthEducation.OUTPUT_SHAPE;
             } else if ("meal_plan".equals(id) && context.path("recipeReferences").size() >= 3) {
@@ -128,21 +128,24 @@ public class PublicHealthOrchestrator {
                 shape = "{\"content\":\"本章节非空正文\"}";
             }
             JsonNode raw = model.generate(device, prompt, context, generationId, id, shape);
+            raw = PublicHealthPatientText.separateDoctorNotes(raw, warnings, id, "");
             ObjectNode section = mapper.createObjectNode();
             section.put("id", id);
             section.put("title", title(id));
             if ("meal_plan".equals(id) && context.path("recipeReferences").size() >= 3) {
-                section.set("options", mealOptions(raw, context.path("recipeReferences")));
+                section.set("options", mealOptions(raw, context.path("recipeReferences"), warnings));
             }
             String text;
-            if ("check_plan".equals(id)) text = checks(raw, prepared.pack.policy, request, healthProfile);
-            else if ("medication_guidance".equals(id)) text = medications(raw, prepared.pack.policy, request);
-            else if ("lifestyle_guidance".equals(id)) text = PublicHealthHealthEducation.render(raw, healthProfile);
+            if ("check_plan".equals(id)) text = checks(raw, prepared.pack.policy, request, healthProfile, warnings);
+            else if ("medication_guidance".equals(id)) text = medications(raw, prepared.pack.policy, request, warnings);
+            else if ("lifestyle_guidance".equals(id)) text = PublicHealthHealthEducation.render(raw, healthProfile, warnings);
             else if (section.has("options")) text = section.path("options").get(0).path("content").asText();
             else text = content(raw);
-            if (text.trim().isEmpty() || text.codePointCount(0, text.length())>16000) {
+            if ((text.trim().isEmpty() && !"health_prescription".equals(request.getCapability())) || text.codePointCount(0, text.length())>16000) {
                 throw PublicHealthModelService.invalid();
             }
+            PublicHealthPatientText.requirePatientText(text);
+            if ("exercise_plan".equals(id)) PublicHealthPatientText.requireExercise(text);
             if (section.has("options")) {
                 for (JsonNode option:section.path("options")) {
                     String optionText = option.path("content").asText();
@@ -167,12 +170,13 @@ public class PublicHealthOrchestrator {
                 pv.put("version", prompt.getVersionNum());
             }
         }
+        if (length == 0) throw PublicHealthModelService.invalid();
         listener.progress("validating_output");
         result.put("generatedAt", OffsetDateTime.now().toString());
         return result;
     }
 
-    private String checks(JsonNode raw, JsonNode policy, PublicHealthRequest request, JsonNode profile) {
+    private String checks(JsonNode raw, JsonNode policy, PublicHealthRequest request, JsonNode profile, ArrayNode warnings) {
         only(raw,"checks");
         JsonNode checks = raw.path("checks");
         if (!checks.isArray() || checks.size()>100) {
@@ -187,6 +191,7 @@ public class PublicHealthOrchestrator {
         for (JsonNode entry : profile.path("evidence")) availableRefs.put(entry.path("ref").asText(), entry);
         Set<String> seen = new HashSet<String>();
         StringBuilder text = new StringBuilder();
+        StringBuilder doctorText = new StringBuilder();
         LocalDate day = OffsetDateTime.parse(request.getSnapshotAt()).toLocalDate();
         for (JsonNode item:checks) {
             if (item.has("evidenceRefs")) only(item,"code","plannedDate","priority","reason","evidenceObservationIds","intervalKind","evidenceRefs");
@@ -267,24 +272,35 @@ public class PublicHealthOrchestrator {
             if (text.length()>0) {
                 text.append("\n\n");
             }
-            text.append(rule.path("name").asText()).append(" · ").append(plan).append("\n优先级：").append("high".equals(priority)?"高":("medium".equals(priority)?"中":"低"));
-            text.append("\n依据：").append(reason).append("\n证据：");
+            text.append(rule.path("name").asText()).append(" · ").append(plan);
+            StringBuilder doctor = new StringBuilder(rule.path("name").asText()).append(" · ").append(plan)
+                    .append("\n优先级：").append("high".equals(priority)?"高":("medium".equals(priority)?"中":"低"));
+            doctor.append("\n依据：").append(reason).append("\n证据：");
             for (int i = 0; i<citations.size(); i++) {
                 if (i>0) {
-                    text.append("；");
+                    doctor.append("；");
                 }
-                text.append(PublicHealthHealthEducation.describe(citations.get(i), request.getSnapshotAt()));
+                doctor.append(PublicHealthHealthEducation.describe(citations.get(i), request.getSnapshotAt()));
             }
-            if (!hasHistoricalResult) text.append("\n既往结果：尚未提供本项目既往结果。");
+            if (!hasHistoricalResult) doctor.append("\n既往结果：尚未提供本项目既往结果。");
             else for (JsonNode conflict : profile.path("conflicts")) {
-                if (code.equals(conflict.path("code").asText())) text.append("\n既往结果：本项目最新结果存在冲突，请医生核对。");
+                if (code.equals(conflict.path("code").asText())) doctor.append("\n既往结果：本项目最新结果存在冲突，请医生核对。");
             }
-            text.append("\n准备事项：").append(rule.path("prep").asText());
+            String prep = rule.path("prep").asText();
+            List<String> doctorPrep = new ArrayList<String>();
+            String patientPrep = PublicHealthPatientText.patientPreparation(prep, doctorPrep);
+            if (!patientPrep.isEmpty()) text.append("\n准备事项：").append(patientPrep);
+            for (String block : doctorPrep) doctor.append("\n准备事项：").append(block);
+            if (doctorText.length() > 0) doctorText.append("\n\n");
+            doctorText.append(doctor);
         }
-        return text.length() == 0?"本次未生成检查计划，请医生核对资料。":text.toString();
+        if (doctorText.length() > 0) PublicHealthPatientText.warning(warnings, "CHECK_RATIONALE", "check_plan", doctorText.toString());
+        if (text.length() == 0) PublicHealthPatientText.warning(warnings, "NO_PATIENT_ADVICE", "check_plan",
+                "本次未生成可回写的检查计划，请医生核对资料、适用目录及检查间隔。");
+        return text.toString();
     }
 
-    private String medications(JsonNode raw, JsonNode policy, PublicHealthRequest request) {
+    private String medications(JsonNode raw, JsonNode policy, PublicHealthRequest request, ArrayNode warnings) {
         only(raw,"medicationGuidance");
         JsonNode list = raw.path("medicationGuidance");
         if (!list.isArray() || list.size()>64) {
@@ -296,6 +312,7 @@ public class PublicHealthOrchestrator {
         }
         Set<String> seen = new HashSet<String>();
         StringBuilder text = new StringBuilder();
+        StringBuilder doctorText = new StringBuilder();
         for (JsonNode item:list) {
             only(item,"classCode","content");
             String code = item.path("classCode").asText();
@@ -306,12 +323,17 @@ public class PublicHealthOrchestrator {
             if (text.length()>0) {
                 text.append("\n\n");
             }
-            text.append(allowed.get(code)).append("\n").append(content).append("\n").append(policy.path("medicationReminders").path(code).asText());
+            text.append(allowed.get(code)).append("\n").append(content);
+            if (doctorText.length() > 0) doctorText.append("\n\n");
+            doctorText.append(allowed.get(code)).append("：").append(policy.path("medicationReminders").path(code).asText());
         }
         if (!seen.equals(allowed.keySet())) {
             throw PublicHealthModelService.invalid();
         }
-        return text.length() == 0?"未提供用药类别资料，请先核对用药信息。":text.toString();
+        if (doctorText.length() > 0) PublicHealthPatientText.warning(warnings, "MEDICATION_REMINDER", "medication_guidance", doctorText.toString());
+        if (text.length() == 0) PublicHealthPatientText.warning(warnings, "NO_PATIENT_ADVICE", "medication_guidance",
+                "未提供用药类别资料，本次没有可回写的用药指导，请先核对用药信息。");
+        return text.toString();
     }
 
     private String content(JsonNode raw) {
@@ -319,14 +341,14 @@ public class PublicHealthOrchestrator {
         return readContent(raw);
     }
 
-    private ArrayNode mealOptions(JsonNode raw, JsonNode references) {
+    private ArrayNode mealOptions(JsonNode raw, JsonNode references, ArrayNode warnings) {
         only(raw, "options");
         JsonNode options = raw.path("options");
         if (!options.isArray() || options.size() != 3) throw PublicHealthModelService.invalid();
         Set<String> seen = new HashSet<String>();
         ArrayNode result = mapper.createArrayNode();
         for (JsonNode option:options) {
-            only(option, "recipeId", "content");
+            if (!option.isObject()) throw PublicHealthModelService.invalid();
             if (!option.path("recipeId").isTextual()) throw PublicHealthModelService.invalid();
             String id = option.path("recipeId").asText();
             if (id.trim().isEmpty() || id.codePointCount(0, id.length()) > 128 || !seen.add(id)) throw PublicHealthModelService.invalid();
@@ -337,7 +359,9 @@ public class PublicHealthOrchestrator {
             if (source == null) throw PublicHealthModelService.invalid();
             String sourceTitle = source.path("text").asText().split("\\r?\\n", 2)[0].trim();
             if (sourceTitle.isEmpty()) sourceTitle = source.path("title").asText();
-            String text = readContent(option);
+            JsonNode patientOption = PublicHealthPatientText.separateDoctorNotes(option, warnings, "meal_plan", sourceTitle + "：");
+            only(patientOption, "recipeId", "content");
+            String text = readContent(patientOption);
             if (sourceTitle.trim().isEmpty() || sourceTitle.codePointCount(0, sourceTitle.length()) > 100 || text.codePointCount(0, text.length()) > 16000) throw PublicHealthModelService.invalid();
             result.addObject().put("id", id).put("title", sourceTitle).put("content", text);
         }
@@ -349,7 +373,7 @@ public class PublicHealthOrchestrator {
         if (!c.isTextual() || c.asText().trim().isEmpty()) {
             throw PublicHealthModelService.invalid();
         }
-        return c.asText();
+        return PublicHealthPatientText.requirePatientText(c.asText());
     }
 
     private void only(JsonNode raw, String... fields) {

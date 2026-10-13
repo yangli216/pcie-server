@@ -38,3 +38,7 @@ java -Dloader.main=com.regionalai.floatingball.server.modules.publichealth.tool.
 JAR版本取`server/pom.xml`，不要依赖过期产物。把`--help`替换为`build --input <候选JSON> --output <新目录>`或`retrieve --recipes <索引目录>/recipes.json --queries <查询JSON> --output <新目录>`。`--batch-size`默认16，范围1–64；`--candidates`默认20，范围4–100。查询文件为`[{"id":"唯一标识","query":"地区/季节/合成BMR查询"}]`，1–60项；每条两次模型调用，保持在现有120次/分钟出站限额内。
 
 `FB_PH_INDEX_BASE_URL`须为实际支持`/embeddings`和`/rerank`的根地址（必要时含`/v1`），两项环境变量均无默认值；密钥不能作为CLI参数。工具只访问该显式host，连接超时10秒、读取超时60秒、禁用重定向，无自动重试；不修改常驻服务的出站配置。成功退出0，失败退出1且不发布完成目录；详细结果在`build-report.json`或`retrieval-report.json`，均不含密钥。`recipes.json`是技术索引，生产仍需绑定机构和批准manifest。
+
+## 公卫患者正文提交验证（2026-10-13）
+
+患者正文与医生提醒分别验证，检查/风险/用药依据保留在 warnings；患者准备及安全动作不得丢失。运动生成按3条、250至450码点、每条最多2句校验，手工编辑不套生成风格上限。覆盖随访空章不选/补正文再选、确认仅患者正文、合并字段、三食谱选择、旧脏草稿恢复及禁止重传；新增验证优先使用生产单元测试和已签名工程联调。提交前从精确生产候选树校验，不将本机 Mock 或混合工作树其他任务包含到交付。

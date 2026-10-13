@@ -41,8 +41,7 @@ class PublicHealthOrchestratorTest {
             String section = i.getArgument(4); ObjectNode r = PublicHealthTestFixture.M.createObjectNode();
             if ("lifestyle_guidance".equals(section)) return PublicHealthTestFixture.healthEducation();
             if ("meal_plan".equals(section) && ((JsonNode)i.getArgument(2)).path("recipeReferences").size() >= 3) return mealRaw(((JsonNode)i.getArgument(2)).path("recipeReferences"));
-            if ("check_plan".equals(section))r.putArray("checks"); else if ("medication_guidance".equals(section))r.putArray("medicationGuidance"); else r.put("content",
-            PublicHealthTestFixture.NOTICE); return r;
+            if ("check_plan".equals(section))r.putArray("checks"); else if ("medication_guidance".equals(section))r.putArray("medicationGuidance"); else r.put("content", "exercise_plan".equals(section) ? PublicHealthTestFixture.EXERCISE : PublicHealthTestFixture.PATIENT_CONTENT); return r;
         }
         );
     }
@@ -50,7 +49,7 @@ class PublicHealthOrchestratorTest {
     private ObjectNode mealRaw(JsonNode references) {
         ObjectNode raw = PublicHealthTestFixture.M.createObjectNode();
         ArrayNode options = raw.putArray("options");
-        for (int n = 0; n < 3; n++) options.addObject().put("recipeId", references.get(n).path("id").asText()).put("content", PublicHealthTestFixture.NOTICE + " " + n);
+        for (int n = 0; n < 3; n++) options.addObject().put("recipeId", references.get(n).path("id").asText()).put("content", PublicHealthTestFixture.PATIENT_CONTENT + " " + n);
         return raw;
     }
 
@@ -66,6 +65,92 @@ class PublicHealthOrchestratorTest {
         verify(listener, times(3)).section(any());
         verify(model, times(3)).generate(any(), any(), any(), anyString(), anyString(), anyString());
         verifyNoInteractions(retrieval);
+    }
+
+    @Test void emptyCheckAndMedicationSectionsDoNotBlockTheAvailablePatientEducation() throws Exception {
+        PublicHealthRequest request = PublicHealthTestFixture.parsed("health_prescription").request;
+        when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(PublicHealthTestFixture.policy(), null, PublicHealthTestFixture.versions()));
+        ObjectNode result = generateHealth(request);
+        assertEquals(3, result.path("sections").size());
+        assertEquals("", result.path("sections").get(0).path("content").asText());
+        assertEquals("", result.path("sections").get(1).path("content").asText());
+        assertTrue(result.path("sections").get(2).path("content").asText().contains(PublicHealthTestFixture.PATIENT_CONTENT));
+        assertTrue(doctorText(result).contains("本次未生成可回写的检查计划"));
+        assertTrue(doctorText(result).contains("未提供用药类别资料"));
+        assertFalse(result.has("metrics"));
+    }
+
+    @Test void onlyDoctorMetadataCannotPretendToBeAnAvailablePatientPrescription() throws Exception {
+        PublicHealthRequest request = PublicHealthTestFixture.parsed("health_prescription").request;
+        when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(PublicHealthTestFixture.policy(), null, PublicHealthTestFixture.versions()));
+        ObjectNode raw = PublicHealthTestFixture.healthEducation(); raw.withArray("diet").removeAll();
+        raw.withArray("missingFacts").add("待医生核实活动能力。");
+        raw.putArray("doctorNotes").add("请医生核对发起方资料。");
+        when(model.generate(any(), any(), any(), anyString(), eq("lifestyle_guidance"), anyString())).thenReturn(raw);
+        assertEquals("INVALID_MODEL_OUTPUT", assertThrows(PublicHealthException.class, () -> generateHealth(request)).getCode());
+        verify(model, times(3)).generate(any(), any(), any(), anyString(), anyString(), anyString());
+    }
+
+    @Test void separatesCheckReasonPriorityEvidenceAndMedicationPolicyFromThePatientBody() throws Exception {
+        ObjectNode input = PublicHealthTestFixture.request("health_prescription");
+        ((ArrayNode) input.path("facts").path("medicationClasses")).addObject().put("code", "SYNTHETIC-CLASS").put("name", "合成用药类别");
+        PublicHealthRequest request = parse(input);
+        ObjectNode policy = PublicHealthTestFixture.policy();
+        ((ObjectNode) policy.path("medicationReminders")).put("SYNTHETIC-CLASS", "请医生核对用药类别及发起方资料。\n出现持续不适时及时就诊，不自行调整治疗。");
+        ((ObjectNode) policy.path("checkWhitelist").get(0)).put("prep", "请医生核对机构准备规范。");
+        when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(policy, null, PublicHealthTestFixture.versions()));
+        ObjectNode checks = checkRaw("unused"); ObjectNode check = (ObjectNode) checks.path("checks").get(0);
+        check.withArray("evidenceObservationIds").removeAll(); check.putArray("evidenceRefs").add("patient:ageYears");
+        checks.putArray("doctorNotes").add("待医生核实检查适用性。");
+        when(model.generate(any(), any(), any(), anyString(), eq("check_plan"), anyString())).thenReturn(checks);
+        ObjectNode medications = PublicHealthTestFixture.M.createObjectNode();
+        medications.putArray("medicationGuidance").addObject().put("classCode", "SYNTHETIC-CLASS")
+                .put("content", "按现有医嘱用药，出现持续不适时及时就诊，不自行调整治疗。");
+        medications.putArray("doctorNotes").add("请医生核实当前医嘱。");
+        when(model.generate(any(), any(), any(), anyString(), eq("medication_guidance"), anyString())).thenReturn(medications);
+        ObjectNode result = generateHealth(request);
+        assertEquals("合成检查项目 · 2026-10-29", result.path("sections").get(0).path("content").asText());
+        assertTrue(result.path("sections").get(1).path("content").asText().contains("出现持续不适时及时就诊"));
+        for (JsonNode section : result.path("sections")) {
+            String body = section.path("content").asText();
+            assertFalse(body.contains("请医生")); assertFalse(body.contains("证据：")); assertFalse(body.contains("优先级："));
+            assertFalse(section.has("doctorNotes"));
+        }
+        for (String expected : Arrays.asList("年龄：40", "优先级：中", "尚未提供本项目既往结果", "核对机构准备规范", "核对用药类别", "核实当前医嘱")) {
+            assertTrue(doctorText(result).contains(expected), expected);
+        }
+    }
+
+    @Test void batchesManyProgramRemindersWithinExistingWireCountWithoutDroppingAnyEvidence() throws Exception {
+        ObjectNode input = PublicHealthTestFixture.request("health_prescription");
+        ArrayNode classes = (ArrayNode) input.path("facts").path("medicationClasses");
+        ObjectNode policy = PublicHealthTestFixture.policy(); ArrayNode whitelist = (ArrayNode) policy.path("checkWhitelist");
+        JsonNode template = whitelist.get(0).deepCopy(); whitelist.removeAll();
+        ObjectNode checks = PublicHealthTestFixture.M.createObjectNode(); ArrayNode checkList = checks.putArray("checks");
+        ObjectNode medications = PublicHealthTestFixture.M.createObjectNode(); ArrayNode medicationList = medications.putArray("medicationGuidance");
+        for (int i = 0; i < 33; i++) {
+            String checkCode = "CHECK-" + i, classCode = "CLASS-" + i;
+            ObjectNode rule = (ObjectNode) template.deepCopy(); rule.put("code", checkCode).put("name", "合成检查" + i); whitelist.add(rule);
+            ObjectNode check = checkList.addObject().put("code", checkCode).put("plannedDate", "2026-10-29")
+                    .put("priority", "low").put("reason", "合成审核理由" + i).put("intervalKind", "routine");
+            check.putArray("evidenceObservationIds"); check.putArray("evidenceRefs").add("patient:ageYears");
+            classes.addObject().put("code", classCode).put("name", "合成类别" + i);
+            ((ObjectNode) policy.path("medicationReminders")).put(classCode, "请医生核对类别" + i + "资料。");
+            medicationList.addObject().put("classCode", classCode).put("content", PublicHealthTestFixture.PATIENT_CONTENT);
+        }
+        PublicHealthRequest request = parse(input);
+        when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(policy, null, PublicHealthTestFixture.versions()));
+        when(model.generate(any(), any(), any(), anyString(), eq("check_plan"), anyString())).thenReturn(checks);
+        when(model.generate(any(), any(), any(), anyString(), eq("medication_guidance"), anyString())).thenReturn(medications);
+        ObjectNode result = generateHealth(request);
+        assertTrue(result.path("warnings").size() < 32);
+        for (int i = 0; i < 33; i++) {
+            assertTrue(doctorText(result).contains("合成审核理由" + i));
+            assertTrue(doctorText(result).contains("请医生核对类别" + i + "资料"));
+            assertTrue(result.path("sections").get(0).path("content").asText().contains("合成检查" + i));
+        }
+        for (JsonNode warning : result.path("warnings")) assertTrue(warning.path("message").asText().codePointCount(0, warning.path("message").asText().length()) <= 2000);
+        assertFalse(result.path("sections").get(1).path("content").asText().contains("请医生核对"));
     }
 
     @Test void healthNodesReceiveCurrentProfileAndOnlyUsableObservationsWithStructuredEducation() throws Exception {
@@ -87,7 +172,7 @@ class PublicHealthOrchestratorTest {
             else if ("medication_guidance".equals(section)) raw.putArray("medicationGuidance");
             else {
                 raw = PublicHealthTestFixture.healthEducation();
-                ObjectNode risk = raw.withArray("risks").addObject().put("type", "progression").put("name", "合成进展关注").put("concern", "needs_assessment").put("intervention", PublicHealthTestFixture.NOTICE);
+                ObjectNode risk = raw.withArray("risks").addObject().put("type", "progression").put("name", "合成进展关注").put("concern", "needs_assessment").put("intervention", PublicHealthTestFixture.PATIENT_CONTENT);
                 risk.putArray("evidenceRefs").add("observation:current");
                 assertEquals(PublicHealthHealthEducation.OUTPUT_SHAPE, call.getArgument(5));
             }
@@ -109,8 +194,9 @@ class PublicHealthOrchestratorTest {
         assertFalse(result.has("healthProfile"));
         assertFalse(result.has("riskPrediction"));
         assertFalse(result.has("checkScheduleConstraints"));
-        assertTrue(result.path("sections").get(2).path("content").asText().contains("合成进展关注"));
-        assertTrue(result.path("sections").get(2).path("content").asText().contains("SYNTHETIC-FACT"));
+        assertTrue(doctorText(result).contains("合成进展关注"));
+        assertTrue(doctorText(result).contains("SYNTHETIC-FACT"));
+        assertFalse(result.path("sections").get(2).path("content").asText().contains("SYNTHETIC-FACT"));
     }
 
     @Test void currentFollowUpMeasurementLimitsAllHealthNodeSchedulesAndStillRejectsEarlierOutput() throws Exception {
@@ -175,8 +261,10 @@ class PublicHealthOrchestratorTest {
         assertEquals(1, policy.path("checkWhitelist").size());
         ObjectNode empty = PublicHealthTestFixture.M.createObjectNode(); empty.putArray("checks");
         when(model.generate(any(), any(), any(), anyString(), eq("check_plan"), anyString())).thenReturn(empty);
-        assertTrue(service.generate(PublicHealthTestFixture.device(), request, "generation", service.prepare(PublicHealthTestFixture.device(), request), mock(PublicHealthOrchestrator.Listener.class))
-                .path("sections").get(0).path("content").asText().contains("未生成检查计划"));
+        ObjectNode partial = generateHealth(request);
+        assertEquals("", partial.path("sections").get(0).path("content").asText());
+        assertTrue(doctorText(partial).contains("本次未生成可回写的检查计划"));
+        assertFalse(partial.path("sections").get(2).path("content").asText().isEmpty());
     }
 
     @Test void eligibleRiskUsesLatestSuppliedGradeAndRetainsCheckTimingAndEvidenceRules() throws Exception {
@@ -197,7 +285,7 @@ class PublicHealthOrchestratorTest {
         });
         ObjectNode result = service.generate(PublicHealthTestFixture.device(), request, "generation", service.prepare(PublicHealthTestFixture.device(), request), mock(PublicHealthOrchestrator.Listener.class));
         assertTrue(result.path("sections").get(0).path("content").asText().contains("2026-10-29"));
-        assertTrue(result.path("sections").get(0).path("content").asText().contains("SYNTHETIC-FACT"));
+        assertTrue(doctorText(result).contains("SYNTHETIC-FACT"));
         PublicHealthTestFixture.observation(observations, "conflict-risk", "hypertension_risk_level", "synthetic-unit", 2);
         ((ObjectNode) observations.get(2)).put("value", "low");
         PublicHealthRequest conflict = parse(input);
@@ -209,7 +297,7 @@ class PublicHealthOrchestratorTest {
         PublicHealthRequest request = PublicHealthTestFixture.parsed("health_prescription").request;
         when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(PublicHealthTestFixture.policy(), null, PublicHealthTestFixture.versions()));
         ObjectNode raw = PublicHealthTestFixture.healthEducation();
-        raw.withArray("risks").addObject().put("type", "complication").put("name", "合成关注").put("concern", "attention").put("intervention", PublicHealthTestFixture.NOTICE).putArray("evidenceRefs").add("observation:invented");
+        raw.withArray("risks").addObject().put("type", "complication").put("name", "合成关注").put("concern", "attention").put("intervention", PublicHealthTestFixture.PATIENT_CONTENT).putArray("evidenceRefs").add("observation:invented");
         when(model.generate(any(), any(), any(), anyString(), eq("lifestyle_guidance"), anyString())).thenReturn(raw);
         PublicHealthOrchestrator.Listener listener = mock(PublicHealthOrchestrator.Listener.class);
         assertThrows(PublicHealthException.class, () -> service.generate(PublicHealthTestFixture.device(), request, "generation", service.prepare(PublicHealthTestFixture.device(), request), listener));
@@ -265,7 +353,7 @@ class PublicHealthOrchestratorTest {
         });
         ObjectNode result = generateHealth(request);
         assertEquals(3, result.path("sections").size());
-        String text = result.path("sections").get(0).path("content").asText();
+        String text = doctorText(result);
         assertTrue(text.contains("年龄：65"));
         assertTrue(text.contains("健康状况：合成病种（合成随访）"));
         assertTrue(text.contains("资料快照：2026-09-29T10:00:00+08:00"));
@@ -283,7 +371,7 @@ class PublicHealthOrchestratorTest {
         ObjectNode check = (ObjectNode) raw.path("checks").get(0);
         check.putArray("evidenceRefs").add("patient:ageYears");
         when(model.generate(any(), any(), any(), anyString(), eq("check_plan"), anyString())).thenReturn(raw);
-        String text = generateHealth(request).path("sections").get(0).path("content").asText();
+        String text = doctorText(generateHealth(request));
         assertTrue(text.indexOf("another-result：10 synthetic-unit") < text.indexOf("年龄：40"));
         assertTrue(text.contains("来源：SYNTHETIC / 记录：SYNTHETIC-FACT"));
         check.withArray("evidenceRefs").add("observation:evidence");
@@ -304,7 +392,7 @@ class PublicHealthOrchestratorTest {
         check.withArray("evidenceObservationIds").removeAll();
         check.putArray("evidenceRefs").add("observation:result");
         when(model.generate(any(), any(), any(), anyString(), eq("check_plan"), anyString())).thenReturn(raw);
-        String text = generateHealth(request).path("sections").get(0).path("content").asText();
+        String text = doctorText(generateHealth(request));
         assertTrue(text.contains("SYNTHETIC-CHECK：10 synthetic-unit"));
         assertFalse(text.contains("尚未提供本项目既往结果"));
         check.put("intervalKind", "abnormal_retest").put("plannedDate", "2026-10-05");
@@ -334,7 +422,7 @@ class PublicHealthOrchestratorTest {
         PublicHealthRequest conflictRequest = parse(input);
         check.put("intervalKind", "routine").put("plannedDate", "2026-10-29");
         check.putArray("evidenceRefs").add("patient:ageYears");
-        String text = generateHealth(conflictRequest).path("sections").get(0).path("content").asText();
+        String text = doctorText(generateHealth(conflictRequest));
         assertTrue(text.contains("既往结果：本项目最新结果存在冲突，请医生核对。"));
         assertFalse(text.contains("尚未提供本项目既往结果"));
     }
@@ -397,7 +485,7 @@ class PublicHealthOrchestratorTest {
         ObjectNode raw = checkRaw("obs-0"); ObjectNode check = (ObjectNode) raw.path("checks").get(0);
         String reason = String.join("", java.util.Collections.nCopies(2000, "𠮷")); check.put("reason", reason);
         when(model.generate(any(), any(), any(), anyString(), eq("check_plan"), anyString())).thenReturn(raw);
-        assertTrue(generateHealth(request).path("sections").get(0).path("content").asText().contains(reason));
+        assertTrue(doctorText(generateHealth(request)).contains(reason));
         check.put("reason", reason + "𠮷");
         assertThrows(PublicHealthException.class, () -> generateHealth(request));
         check.put("reason", PublicHealthTestFixture.NOTICE);
@@ -412,6 +500,12 @@ class PublicHealthOrchestratorTest {
         generateHealth(request);
         ids.add("obs-64");
         assertThrows(PublicHealthException.class, () -> generateHealth(request));
+    }
+
+    private String doctorText(JsonNode result) {
+        StringBuilder text = new StringBuilder();
+        for (JsonNode warning : result.path("warnings")) text.append(warning.path("message").asText());
+        return text.toString();
     }
 
     private ObjectNode generateHealth(PublicHealthRequest request) {
@@ -432,6 +526,59 @@ class PublicHealthOrchestratorTest {
         assertEquals(meal.path("options").get(0).path("content"), meal.path("content"));
         verify(retrieval).retrieve(any(AiDevice.class), any(), contains("1603"), any());
         verify(model, times(2)).generate(any(), any(), argThat(context -> !context.has("healthProfile") && !context.has("checkScheduleConstraints")), anyString(), anyString(), anyString());
+    }
+
+    @Test void recipeAndExerciseDoctorNotesNeverEnterDefaultOrAlternatePatientContents() throws Exception {
+        PublicHealthRequest request = PublicHealthTestFixture.parsed("weight_management").request;
+        ObjectNode recipes = PublicHealthTestFixture.recipes(); ArrayNode references = recipes.withArray("documents");
+        when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(null, recipes, PublicHealthTestFixture.versions()));
+        when(retrieval.retrieve(any(AiDevice.class), any(), anyString(), any())).thenReturn(references);
+        ObjectNode exercise = PublicHealthTestFixture.M.createObjectNode().put("content", PublicHealthTestFixture.EXERCISE);
+        exercise.putArray("doctorNotes").add("请医生核对既往运动耐受情况。");
+        when(model.generate(any(), any(), any(), anyString(), eq("exercise_plan"), anyString())).thenReturn(exercise);
+        ObjectNode meal = mealRaw(references); meal.putArray("doctorNotes").add("食谱资料需按机构适用性复核。");
+        for (int i = 0; i < 3; i++) ((ObjectNode) meal.path("options").get(i)).putArray("doctorNotes").add("请医生核实方案 " + i + " 的适用性。");
+        when(model.generate(any(), any(), any(), anyString(), eq("meal_plan"), anyString())).thenReturn(meal);
+        ObjectNode result = service.generate(PublicHealthTestFixture.device(), request, "generation", service.prepare(PublicHealthTestFixture.device(), request), mock(PublicHealthOrchestrator.Listener.class));
+        assertEquals(2, result.path("sections").size()); assertEquals(5, result.path("warnings").size());
+        assertEquals(PublicHealthTestFixture.EXERCISE, result.path("sections").get(0).path("content").asText());
+        JsonNode mealSection = result.path("sections").get(1);
+        for (int i = 0; i < 3; i++) {
+            JsonNode option = mealSection.path("options").get(i);
+            assertEquals(PublicHealthTestFixture.PATIENT_CONTENT + " " + i, option.path("content").asText());
+            assertFalse(option.has("doctorNotes"));
+            assertTrue(doctorText(result).contains(option.path("title").asText() + "：请医生核实方案 " + i));
+        }
+        assertEquals(mealSection.path("options").get(0).path("content"), mealSection.path("content"));
+        verify(model, times(2)).generate(any(), any(), argThat(context -> !context.has("healthProfile")), anyString(), anyString(), anyString());
+        assertTrue(exercise.has("doctorNotes")); assertTrue(meal.path("options").get(0).has("doctorNotes"));
+    }
+
+    @Test void contaminatedAlternateRecipeIsRejectedEvenWhenTheDefaultPatientRecipeIsClean() throws Exception {
+        PublicHealthRequest request = PublicHealthTestFixture.parsed("weight_management").request;
+        ObjectNode recipes = PublicHealthTestFixture.recipes(); ArrayNode references = recipes.withArray("documents");
+        when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(null, recipes, PublicHealthTestFixture.versions()));
+        when(retrieval.retrieve(any(AiDevice.class), any(), anyString(), any())).thenReturn(references);
+        ObjectNode meal = mealRaw(references); ((ObjectNode) meal.path("options").get(2)).put("content", "制定依据：合成来源。" + PublicHealthTestFixture.PATIENT_CONTENT);
+        when(model.generate(any(), any(), any(), anyString(), eq("meal_plan"), anyString())).thenReturn(meal);
+        PublicHealthOrchestrator.Listener listener = mock(PublicHealthOrchestrator.Listener.class);
+        assertEquals("INVALID_MODEL_OUTPUT", assertThrows(PublicHealthException.class,
+                () -> service.generate(PublicHealthTestFixture.device(), request, "generation", service.prepare(PublicHealthTestFixture.device(), request), listener)).getCode());
+        verify(listener, times(1)).section(any()); verify(model, times(2)).generate(any(), any(), any(), anyString(), anyString(), anyString());
+    }
+
+    @Test void doctorNotesDoNotAllowUnknownModelFieldsOrExcessExerciseSentences() throws Exception {
+        PublicHealthRequest request = PublicHealthTestFixture.parsed("weight_management").request;
+        when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(null, PublicHealthTestFixture.recipes(), PublicHealthTestFixture.versions()));
+        when(retrieval.retrieve(any(AiDevice.class), any(), anyString(), any())).thenReturn(PublicHealthTestFixture.recipes().withArray("documents"));
+        ObjectNode raw = PublicHealthTestFixture.M.createObjectNode().put("content", PublicHealthTestFixture.EXERCISE).put("extra", true);
+        raw.putArray("doctorNotes").add("请医生核对。");
+        when(model.generate(any(), any(), any(), anyString(), eq("exercise_plan"), anyString())).thenReturn(raw);
+        PublicHealthOrchestrator.Listener listener = mock(PublicHealthOrchestrator.Listener.class);
+        assertThrows(PublicHealthException.class, () -> service.generate(PublicHealthTestFixture.device(), request, "generation", service.prepare(PublicHealthTestFixture.device(), request), listener));
+        raw.remove("extra"); raw.put("content", PublicHealthTestFixture.EXERCISE.replace("结束时逐步放慢步速。", "结束时逐步放慢步速。额外一句。"));
+        assertThrows(PublicHealthException.class, () -> service.generate(PublicHealthTestFixture.device(), request, "generation", service.prepare(PublicHealthTestFixture.device(), request), listener));
+        verify(listener, never()).section(any()); verify(model, times(2)).generate(any(), any(), any(), anyString(), anyString(), anyString());
     }
 
     @Test void sourceBoundMealChoicesPreserveModelOrderAndUseSourceTitles() throws Exception {
@@ -460,7 +607,7 @@ class PublicHealthOrchestratorTest {
         when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(null, recipes, PublicHealthTestFixture.versions()));
         when(retrieval.retrieve(any(AiDevice.class), any(), anyString(), any())).thenReturn(references);
         JsonNode meal = service.generate(PublicHealthTestFixture.device(), r, "generation", service.prepare(PublicHealthTestFixture.device(), r), mock(PublicHealthOrchestrator.Listener.class)).path("sections").get(1);
-        assertFalse(meal.has("options")); assertEquals(PublicHealthTestFixture.NOTICE, meal.path("content").asText());
+        assertFalse(meal.has("options")); assertEquals(PublicHealthTestFixture.PATIENT_CONTENT, meal.path("content").asText());
     }
 
     @Test void rejectsMalformedMealOptionsBeforeEmittingMealWithoutRetry() throws Exception {
@@ -538,7 +685,7 @@ class PublicHealthOrchestratorTest {
         when(model.generate(any(), any(), any(), anyString(), eq("check_plan"), anyString())).thenReturn(raw);
         ObjectNode out = service.generate(PublicHealthTestFixture.device(), r,"generation", service.prepare(PublicHealthTestFixture.device(), r),
         mock(PublicHealthOrchestrator.Listener.class));
-        String text = out.path("sections").get(0).path("content").asText();
+        String text = doctorText(out);
         assertTrue(text.contains("优先级：高"));
         assertTrue(text.contains("SYNTHETIC-CHECK：10 synthetic-unit"));
         assertTrue(text.contains(PublicHealthTestFixture.NOTICE));

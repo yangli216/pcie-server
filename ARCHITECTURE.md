@@ -668,3 +668,5 @@ GaussDB/openGauss 初始化：
 公卫SSE使用自己的streamId与局部sequence，每次连接重放重新编号；客户端断连只停止该连接投递，业务运行继续并记录结果。180秒业务截止后不启动后续节点，既有外部请求可能继续执行/计费。这里不提供远端取消、PHIS写入、Bridge会话或浏览器广播。
 
 数据库交付同步Oracle/GaussDB init.sql与README，DM8按现有Oracle兼容基线由现场验证；新增表不执行线上迁移。
+
+公卫患者正文分离（2026-10-13）：PublicHealthPatientText校验患者正文、运动生成格式和内部doctorNotes；Orchestrator/HealthEducation把检查证据、风险分析、缺项及用药规则归入既有warnings，保留患者动作和医学证据原值。随访单章无建议时返回空正文，整体无患者内容才失败；两功能任务及机构批准/设备签名边界不变。

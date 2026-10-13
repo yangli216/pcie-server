@@ -96,18 +96,18 @@
           "sections": [
             {
               "id": "check_plan",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "检查计划",
+              "content": "2026-10-15 完成已预约的随访检查。"
             },
             {
               "id": "medication_guidance",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "用药指导",
+              "content": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
             },
             {
               "id": "lifestyle_guidance",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "生活方式建议",
+              "content": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
             }
           ],
           "promptVersions": [
@@ -121,6 +121,11 @@
             {
               "code": "SYNTHETIC_ONLY",
               "message": "合成展示，不构成医疗建议"
+            },
+            {
+              "code": "DOCTOR_REVIEW",
+              "sectionId": "check_plan",
+              "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
             }
           ],
           "generatedAt": "2026-09-29T10:00:10+08:00",
@@ -154,7 +159,7 @@
                   "medication_guidance",
                   "lifestyle_guidance"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议\n\n合成展示，不构成医疗建议\n合成展示，不构成医疗建议\n\n合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "检查计划\n2026-10-15 完成已预约的随访检查。\n\n用药指导\n按当前已确认方案规律用药；不要自行停药、加量或换药。\n\n生活方式建议\n保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
               }
             ],
             "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -360,8 +365,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "check_plan",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "检查计划",
+                "content": "2026-10-15 完成已预约的随访检查。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000001",
@@ -387,8 +392,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "medication_guidance",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "用药指导",
+                "content": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000001",
@@ -414,8 +419,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "lifestyle_guidance",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "生活方式建议",
+                "content": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000001",
@@ -452,18 +457,18 @@
                 "sections": [
                   {
                     "id": "check_plan",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "检查计划",
+                    "content": "2026-10-15 完成已预约的随访检查。"
                   },
                   {
                     "id": "medication_guidance",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "用药指导",
+                    "content": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
                   },
                   {
                     "id": "lifestyle_guidance",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "生活方式建议",
+                    "content": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
                   }
                 ],
                 "promptVersions": [
@@ -477,6 +482,11 @@
                   {
                     "code": "SYNTHETIC_ONLY",
                     "message": "合成展示，不构成医疗建议"
+                  },
+                  {
+                    "code": "DOCTOR_REVIEW",
+                    "sectionId": "check_plan",
+                    "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
                   }
                 ],
                 "generatedAt": "2026-09-29T10:00:10+08:00",
@@ -538,7 +548,7 @@
           }
         }
       ],
-      "sseWire": "event: accepted\nid: 40000000-0000-4000-8000-000000000001:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":1,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"new\",\"acceptedAt\":\"2026-09-29T10:00:02+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"40000000-0000-4000-8000-000000000001\"}\n\nevent: progress\nid: 40000000-0000-4000-8000-000000000001:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":2,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"stage\":\"generating_sections\",\"message\":\"合成展示，不构成医疗建议\",\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"40000000-0000-4000-8000-000000000001\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000001:3\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":3,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"check_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"40000000-0000-4000-8000-000000000001\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000001:4\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":4,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"medication_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"40000000-0000-4000-8000-000000000001\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000001:5\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":5,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"lifestyle_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"40000000-0000-4000-8000-000000000001\"}\n\nevent: completed\nid: 40000000-0000-4000-8000-000000000001:6\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":6,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"check_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},{\"id\":\"medication_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},{\"id\":\"lifestyle_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"}],\"promptVersions\":[{\"code\":\"synthetic_health_prescription\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000001\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"40000000-0000-4000-8000-000000000001\"}\n\n",
+      "sseWire": "event: accepted\nid: 40000000-0000-4000-8000-000000000001:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":1,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"new\",\"acceptedAt\":\"2026-09-29T10:00:02+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"40000000-0000-4000-8000-000000000001\"}\n\nevent: progress\nid: 40000000-0000-4000-8000-000000000001:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":2,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"stage\":\"generating_sections\",\"message\":\"合成展示，不构成医疗建议\",\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"40000000-0000-4000-8000-000000000001\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000001:3\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":3,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"check_plan\",\"title\":\"检查计划\",\"content\":\"2026-10-15 完成已预约的随访检查。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"40000000-0000-4000-8000-000000000001\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000001:4\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":4,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"medication_guidance\",\"title\":\"用药指导\",\"content\":\"按当前已确认方案规律用药；不要自行停药、加量或换药。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"40000000-0000-4000-8000-000000000001\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000001:5\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":5,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"lifestyle_guidance\",\"title\":\"生活方式建议\",\"content\":\"保持规律作息，按约定日期参加随访；出现不适时及时就诊。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"40000000-0000-4000-8000-000000000001\"}\n\nevent: completed\nid: 40000000-0000-4000-8000-000000000001:6\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":6,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"check_plan\",\"title\":\"检查计划\",\"content\":\"2026-10-15 完成已预约的随访检查。\"},{\"id\":\"medication_guidance\",\"title\":\"用药指导\",\"content\":\"按当前已确认方案规律用药；不要自行停药、加量或换药。\"},{\"id\":\"lifestyle_guidance\",\"title\":\"生活方式建议\",\"content\":\"保持规律作息，按约定日期参加随访；出现不适时及时就诊。\"}],\"promptVersions\":[{\"code\":\"synthetic_health_prescription\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"},{\"code\":\"DOCTOR_REVIEW\",\"sectionId\":\"check_plan\",\"message\":\"内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000001\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"40000000-0000-4000-8000-000000000001\"}\n\n",
       "confirmedWsMessage": {
         "name": "confirmedWsMessage",
         "schemaRef": "#/components/schemas/PublicHealthWsMessage",
@@ -569,7 +579,7 @@
                     "medication_guidance",
                     "lifestyle_guidance"
                   ],
-                  "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议\n\n合成展示，不构成医疗建议\n合成展示，不构成医疗建议\n\n合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                  "value": "检查计划\n2026-10-15 完成已预约的随访检查。\n\n用药指导\n按当前已确认方案规律用药；不要自行停药、加量或换药。\n\n生活方式建议\n保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
                 }
               ],
               "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -715,13 +725,13 @@
           "sections": [
             {
               "id": "exercise_plan",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "运动建议",
+              "content": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
             },
             {
               "id": "meal_plan",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "食谱推荐",
+              "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
             }
           ],
           "promptVersions": [
@@ -741,6 +751,11 @@
             {
               "code": "SYNTHETIC_ONLY",
               "message": "合成展示，不构成医疗建议"
+            },
+            {
+              "code": "DOCTOR_REVIEW",
+              "sectionId": "exercise_plan",
+              "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
             }
           ],
           "generatedAt": "2026-09-29T10:00:10+08:00",
@@ -777,7 +792,7 @@
                 "sourceSections": [
                   "exercise_plan"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
               }
             ],
             "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -1009,8 +1024,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "exercise_plan",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "运动建议",
+                "content": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000002",
@@ -1036,8 +1051,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "meal_plan",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "食谱推荐",
+                "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000002",
@@ -1074,13 +1089,13 @@
                 "sections": [
                   {
                     "id": "exercise_plan",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "运动建议",
+                    "content": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
                   },
                   {
                     "id": "meal_plan",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "食谱推荐",
+                    "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
                   }
                 ],
                 "promptVersions": [
@@ -1100,6 +1115,11 @@
                   {
                     "code": "SYNTHETIC_ONLY",
                     "message": "合成展示，不构成医疗建议"
+                  },
+                  {
+                    "code": "DOCTOR_REVIEW",
+                    "sectionId": "exercise_plan",
+                    "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
                   }
                 ],
                 "generatedAt": "2026-09-29T10:00:10+08:00",
@@ -1166,7 +1186,7 @@
           }
         }
       ],
-      "sseWire": "event: accepted\nid: 40000000-0000-4000-8000-000000000002:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"sequence\":1,\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"new\",\"acceptedAt\":\"2026-09-29T10:00:02+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000002\",\"streamId\":\"40000000-0000-4000-8000-000000000002\"}\n\nevent: progress\nid: 40000000-0000-4000-8000-000000000002:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"sequence\":2,\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"stage\":\"generating_sections\",\"message\":\"合成展示，不构成医疗建议\",\"originRequestId\":\"00000000-0000-4000-8000-000000000002\",\"streamId\":\"40000000-0000-4000-8000-000000000002\"}\n\nevent: metrics\nid: 40000000-0000-4000-8000-000000000002:3\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"sequence\":3,\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"metrics\":{\"bmi\":24.2,\"bmrKcalPerDay\":1603.0,\"formulaVersion\":\"legacy-bsoft-bmi-bmr.v1-synthetic-example\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000002\",\"streamId\":\"40000000-0000-4000-8000-000000000002\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000002:4\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"sequence\":4,\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"exercise_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000002\",\"streamId\":\"40000000-0000-4000-8000-000000000002\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000002:5\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"sequence\":5,\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"meal_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000002\",\"streamId\":\"40000000-0000-4000-8000-000000000002\"}\n\nevent: completed\nid: 40000000-0000-4000-8000-000000000002:6\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"sequence\":6,\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"exercise_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},{\"id\":\"meal_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"}],\"promptVersions\":[{\"code\":\"synthetic_weight_management\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[{\"assetId\":\"synthetic_regional_recipes\",\"version\":\"synthetic-display-only\",\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"metrics\":{\"bmi\":24.2,\"bmrKcalPerDay\":1603.0,\"formulaVersion\":\"legacy-bsoft-bmi-bmr.v1-synthetic-example\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000002\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000002\",\"streamId\":\"40000000-0000-4000-8000-000000000002\"}\n\n",
+      "sseWire": "event: accepted\nid: 40000000-0000-4000-8000-000000000002:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"sequence\":1,\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"new\",\"acceptedAt\":\"2026-09-29T10:00:02+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000002\",\"streamId\":\"40000000-0000-4000-8000-000000000002\"}\n\nevent: progress\nid: 40000000-0000-4000-8000-000000000002:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"sequence\":2,\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"stage\":\"generating_sections\",\"message\":\"合成展示，不构成医疗建议\",\"originRequestId\":\"00000000-0000-4000-8000-000000000002\",\"streamId\":\"40000000-0000-4000-8000-000000000002\"}\n\nevent: metrics\nid: 40000000-0000-4000-8000-000000000002:3\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"sequence\":3,\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"metrics\":{\"bmi\":24.2,\"bmrKcalPerDay\":1603.0,\"formulaVersion\":\"legacy-bsoft-bmi-bmr.v1-synthetic-example\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000002\",\"streamId\":\"40000000-0000-4000-8000-000000000002\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000002:4\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"sequence\":4,\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"exercise_plan\",\"title\":\"运动建议\",\"content\":\"1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000002\",\"streamId\":\"40000000-0000-4000-8000-000000000002\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000002:5\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"sequence\":5,\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"meal_plan\",\"title\":\"食谱推荐\",\"content\":\"早餐：燕麦粥、鸡蛋、牛奶。\\n午餐：杂粮饭、清蒸鱼、炒青菜。\\n晚餐：小米粥、豆腐、凉拌蔬菜。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000002\",\"streamId\":\"40000000-0000-4000-8000-000000000002\"}\n\nevent: completed\nid: 40000000-0000-4000-8000-000000000002:6\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"sequence\":6,\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000002\",\"requestId\":\"00000000-0000-4000-8000-000000000002\",\"capability\":\"weight_management\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-002\",\"businessRecordId\":\"SYNTHETIC-RECORD-002\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"exercise_plan\",\"title\":\"运动建议\",\"content\":\"1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。\"},{\"id\":\"meal_plan\",\"title\":\"食谱推荐\",\"content\":\"早餐：燕麦粥、鸡蛋、牛奶。\\n午餐：杂粮饭、清蒸鱼、炒青菜。\\n晚餐：小米粥、豆腐、凉拌蔬菜。\"}],\"promptVersions\":[{\"code\":\"synthetic_weight_management\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[{\"assetId\":\"synthetic_regional_recipes\",\"version\":\"synthetic-display-only\",\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"},{\"code\":\"DOCTOR_REVIEW\",\"sectionId\":\"exercise_plan\",\"message\":\"内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"metrics\":{\"bmi\":24.2,\"bmrKcalPerDay\":1603.0,\"formulaVersion\":\"legacy-bsoft-bmi-bmr.v1-synthetic-example\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000002\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000002\",\"streamId\":\"40000000-0000-4000-8000-000000000002\"}\n\n",
       "confirmedWsMessage": {
         "name": "confirmedWsMessage",
         "schemaRef": "#/components/schemas/PublicHealthWsMessage",
@@ -1195,7 +1215,7 @@
                   "sourceSections": [
                     "exercise_plan"
                   ],
-                  "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                  "value": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
                 }
               ],
               "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -1313,18 +1333,18 @@
           "sections": [
             {
               "id": "check_plan",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "检查计划",
+              "content": "2026-10-15 完成已预约的随访检查。"
             },
             {
               "id": "medication_guidance",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "用药指导",
+              "content": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
             },
             {
               "id": "lifestyle_guidance",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "生活方式建议",
+              "content": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
             }
           ],
           "promptVersions": [
@@ -1338,6 +1358,11 @@
             {
               "code": "SYNTHETIC_ONLY",
               "message": "合成展示，不构成医疗建议"
+            },
+            {
+              "code": "DOCTOR_REVIEW",
+              "sectionId": "check_plan",
+              "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
             }
           ],
           "generatedAt": "2026-09-29T10:00:10+08:00",
@@ -1369,21 +1394,21 @@
                 "sourceSections": [
                   "check_plan"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "2026-10-15 完成已预约的随访检查。"
               },
               {
                 "targetFieldId": "SYNTHETIC-TARGET-2",
                 "sourceSections": [
                   "medication_guidance"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
               },
               {
                 "targetFieldId": "SYNTHETIC-TARGET-3",
                 "sourceSections": [
                   "lifestyle_guidance"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
               }
             ],
             "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -1589,8 +1614,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "check_plan",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "检查计划",
+                "content": "2026-10-15 完成已预约的随访检查。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000003",
@@ -1616,8 +1641,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "medication_guidance",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "用药指导",
+                "content": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000003",
@@ -1643,8 +1668,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "lifestyle_guidance",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "生活方式建议",
+                "content": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000003",
@@ -1681,18 +1706,18 @@
                 "sections": [
                   {
                     "id": "check_plan",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "检查计划",
+                    "content": "2026-10-15 完成已预约的随访检查。"
                   },
                   {
                     "id": "medication_guidance",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "用药指导",
+                    "content": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
                   },
                   {
                     "id": "lifestyle_guidance",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "生活方式建议",
+                    "content": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
                   }
                 ],
                 "promptVersions": [
@@ -1706,6 +1731,11 @@
                   {
                     "code": "SYNTHETIC_ONLY",
                     "message": "合成展示，不构成医疗建议"
+                  },
+                  {
+                    "code": "DOCTOR_REVIEW",
+                    "sectionId": "check_plan",
+                    "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
                   }
                 ],
                 "generatedAt": "2026-09-29T10:00:10+08:00",
@@ -1767,7 +1797,7 @@
           }
         }
       ],
-      "sseWire": "event: accepted\nid: 40000000-0000-4000-8000-000000000003:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"sequence\":1,\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"new\",\"acceptedAt\":\"2026-09-29T10:00:02+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000003\",\"streamId\":\"40000000-0000-4000-8000-000000000003\"}\n\nevent: progress\nid: 40000000-0000-4000-8000-000000000003:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"sequence\":2,\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"stage\":\"generating_sections\",\"message\":\"合成展示，不构成医疗建议\",\"originRequestId\":\"00000000-0000-4000-8000-000000000003\",\"streamId\":\"40000000-0000-4000-8000-000000000003\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000003:3\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"sequence\":3,\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"check_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000003\",\"streamId\":\"40000000-0000-4000-8000-000000000003\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000003:4\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"sequence\":4,\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"medication_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000003\",\"streamId\":\"40000000-0000-4000-8000-000000000003\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000003:5\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"sequence\":5,\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"lifestyle_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000003\",\"streamId\":\"40000000-0000-4000-8000-000000000003\"}\n\nevent: completed\nid: 40000000-0000-4000-8000-000000000003:6\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"sequence\":6,\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"check_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},{\"id\":\"medication_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},{\"id\":\"lifestyle_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"}],\"promptVersions\":[{\"code\":\"synthetic_health_prescription\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000003\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000003\",\"streamId\":\"40000000-0000-4000-8000-000000000003\"}\n\n",
+      "sseWire": "event: accepted\nid: 40000000-0000-4000-8000-000000000003:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"sequence\":1,\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"new\",\"acceptedAt\":\"2026-09-29T10:00:02+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000003\",\"streamId\":\"40000000-0000-4000-8000-000000000003\"}\n\nevent: progress\nid: 40000000-0000-4000-8000-000000000003:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"sequence\":2,\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"stage\":\"generating_sections\",\"message\":\"合成展示，不构成医疗建议\",\"originRequestId\":\"00000000-0000-4000-8000-000000000003\",\"streamId\":\"40000000-0000-4000-8000-000000000003\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000003:3\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"sequence\":3,\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"check_plan\",\"title\":\"检查计划\",\"content\":\"2026-10-15 完成已预约的随访检查。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000003\",\"streamId\":\"40000000-0000-4000-8000-000000000003\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000003:4\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"sequence\":4,\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"medication_guidance\",\"title\":\"用药指导\",\"content\":\"按当前已确认方案规律用药；不要自行停药、加量或换药。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000003\",\"streamId\":\"40000000-0000-4000-8000-000000000003\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000003:5\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"sequence\":5,\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"lifestyle_guidance\",\"title\":\"生活方式建议\",\"content\":\"保持规律作息，按约定日期参加随访；出现不适时及时就诊。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000003\",\"streamId\":\"40000000-0000-4000-8000-000000000003\"}\n\nevent: completed\nid: 40000000-0000-4000-8000-000000000003:6\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"sequence\":6,\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000003\",\"requestId\":\"00000000-0000-4000-8000-000000000003\",\"capability\":\"health_prescription\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-003\",\"businessRecordId\":\"SYNTHETIC-RECORD-003\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"check_plan\",\"title\":\"检查计划\",\"content\":\"2026-10-15 完成已预约的随访检查。\"},{\"id\":\"medication_guidance\",\"title\":\"用药指导\",\"content\":\"按当前已确认方案规律用药；不要自行停药、加量或换药。\"},{\"id\":\"lifestyle_guidance\",\"title\":\"生活方式建议\",\"content\":\"保持规律作息，按约定日期参加随访；出现不适时及时就诊。\"}],\"promptVersions\":[{\"code\":\"synthetic_health_prescription\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"},{\"code\":\"DOCTOR_REVIEW\",\"sectionId\":\"check_plan\",\"message\":\"内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000003\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000003\",\"streamId\":\"40000000-0000-4000-8000-000000000003\"}\n\n",
       "confirmedWsMessage": {
         "name": "confirmedWsMessage",
         "schemaRef": "#/components/schemas/PublicHealthWsMessage",
@@ -1796,21 +1826,21 @@
                   "sourceSections": [
                     "check_plan"
                   ],
-                  "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                  "value": "2026-10-15 完成已预约的随访检查。"
                 },
                 {
                   "targetFieldId": "SYNTHETIC-TARGET-2",
                   "sourceSections": [
                     "medication_guidance"
                   ],
-                  "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                  "value": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
                 },
                 {
                   "targetFieldId": "SYNTHETIC-TARGET-3",
                   "sourceSections": [
                     "lifestyle_guidance"
                   ],
-                  "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                  "value": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
                 }
               ],
               "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -1956,13 +1986,13 @@
           "sections": [
             {
               "id": "exercise_plan",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "运动建议",
+              "content": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
             },
             {
               "id": "meal_plan",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "食谱推荐",
+              "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
             }
           ],
           "promptVersions": [
@@ -1982,6 +2012,11 @@
             {
               "code": "SYNTHETIC_ONLY",
               "message": "合成展示，不构成医疗建议"
+            },
+            {
+              "code": "DOCTOR_REVIEW",
+              "sectionId": "exercise_plan",
+              "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
             }
           ],
           "generatedAt": "2026-09-29T10:00:10+08:00",
@@ -2018,14 +2053,14 @@
                 "sourceSections": [
                   "exercise_plan"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
               },
               {
                 "targetFieldId": "SYNTHETIC-TARGET-2",
                 "sourceSections": [
                   "meal_plan"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
               }
             ],
             "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -2257,8 +2292,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "exercise_plan",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "运动建议",
+                "content": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000004",
@@ -2284,8 +2319,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "meal_plan",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "食谱推荐",
+                "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000004",
@@ -2322,13 +2357,13 @@
                 "sections": [
                   {
                     "id": "exercise_plan",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "运动建议",
+                    "content": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
                   },
                   {
                     "id": "meal_plan",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "食谱推荐",
+                    "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
                   }
                 ],
                 "promptVersions": [
@@ -2348,6 +2383,11 @@
                   {
                     "code": "SYNTHETIC_ONLY",
                     "message": "合成展示，不构成医疗建议"
+                  },
+                  {
+                    "code": "DOCTOR_REVIEW",
+                    "sectionId": "exercise_plan",
+                    "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
                   }
                 ],
                 "generatedAt": "2026-09-29T10:00:10+08:00",
@@ -2414,7 +2454,7 @@
           }
         }
       ],
-      "sseWire": "event: accepted\nid: 40000000-0000-4000-8000-000000000004:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"sequence\":1,\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"new\",\"acceptedAt\":\"2026-09-29T10:00:02+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000004\",\"streamId\":\"40000000-0000-4000-8000-000000000004\"}\n\nevent: progress\nid: 40000000-0000-4000-8000-000000000004:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"sequence\":2,\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"stage\":\"generating_sections\",\"message\":\"合成展示，不构成医疗建议\",\"originRequestId\":\"00000000-0000-4000-8000-000000000004\",\"streamId\":\"40000000-0000-4000-8000-000000000004\"}\n\nevent: metrics\nid: 40000000-0000-4000-8000-000000000004:3\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"sequence\":3,\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"metrics\":{\"bmi\":24.2,\"bmrKcalPerDay\":1603.0,\"formulaVersion\":\"legacy-bsoft-bmi-bmr.v1-synthetic-example\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000004\",\"streamId\":\"40000000-0000-4000-8000-000000000004\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000004:4\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"sequence\":4,\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"exercise_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000004\",\"streamId\":\"40000000-0000-4000-8000-000000000004\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000004:5\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"sequence\":5,\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"meal_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000004\",\"streamId\":\"40000000-0000-4000-8000-000000000004\"}\n\nevent: completed\nid: 40000000-0000-4000-8000-000000000004:6\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"sequence\":6,\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"exercise_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},{\"id\":\"meal_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"}],\"promptVersions\":[{\"code\":\"synthetic_weight_management\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[{\"assetId\":\"synthetic_regional_recipes\",\"version\":\"synthetic-display-only\",\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"metrics\":{\"bmi\":24.2,\"bmrKcalPerDay\":1603.0,\"formulaVersion\":\"legacy-bsoft-bmi-bmr.v1-synthetic-example\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000004\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000004\",\"streamId\":\"40000000-0000-4000-8000-000000000004\"}\n\n",
+      "sseWire": "event: accepted\nid: 40000000-0000-4000-8000-000000000004:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"sequence\":1,\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"new\",\"acceptedAt\":\"2026-09-29T10:00:02+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000004\",\"streamId\":\"40000000-0000-4000-8000-000000000004\"}\n\nevent: progress\nid: 40000000-0000-4000-8000-000000000004:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"sequence\":2,\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"stage\":\"generating_sections\",\"message\":\"合成展示，不构成医疗建议\",\"originRequestId\":\"00000000-0000-4000-8000-000000000004\",\"streamId\":\"40000000-0000-4000-8000-000000000004\"}\n\nevent: metrics\nid: 40000000-0000-4000-8000-000000000004:3\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"sequence\":3,\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"metrics\":{\"bmi\":24.2,\"bmrKcalPerDay\":1603.0,\"formulaVersion\":\"legacy-bsoft-bmi-bmr.v1-synthetic-example\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000004\",\"streamId\":\"40000000-0000-4000-8000-000000000004\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000004:4\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"sequence\":4,\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"exercise_plan\",\"title\":\"运动建议\",\"content\":\"1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000004\",\"streamId\":\"40000000-0000-4000-8000-000000000004\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000004:5\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"sequence\":5,\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"meal_plan\",\"title\":\"食谱推荐\",\"content\":\"早餐：燕麦粥、鸡蛋、牛奶。\\n午餐：杂粮饭、清蒸鱼、炒青菜。\\n晚餐：小米粥、豆腐、凉拌蔬菜。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000004\",\"streamId\":\"40000000-0000-4000-8000-000000000004\"}\n\nevent: completed\nid: 40000000-0000-4000-8000-000000000004:6\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"sequence\":6,\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000004\",\"requestId\":\"00000000-0000-4000-8000-000000000004\",\"capability\":\"weight_management\",\"scene\":\"diabetes_followup\",\"patientId\":\"SYNTHETIC-PERSON-004\",\"businessRecordId\":\"SYNTHETIC-RECORD-004\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"exercise_plan\",\"title\":\"运动建议\",\"content\":\"1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。\"},{\"id\":\"meal_plan\",\"title\":\"食谱推荐\",\"content\":\"早餐：燕麦粥、鸡蛋、牛奶。\\n午餐：杂粮饭、清蒸鱼、炒青菜。\\n晚餐：小米粥、豆腐、凉拌蔬菜。\"}],\"promptVersions\":[{\"code\":\"synthetic_weight_management\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[{\"assetId\":\"synthetic_regional_recipes\",\"version\":\"synthetic-display-only\",\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"},{\"code\":\"DOCTOR_REVIEW\",\"sectionId\":\"exercise_plan\",\"message\":\"内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"metrics\":{\"bmi\":24.2,\"bmrKcalPerDay\":1603.0,\"formulaVersion\":\"legacy-bsoft-bmi-bmr.v1-synthetic-example\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000004\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000004\",\"streamId\":\"40000000-0000-4000-8000-000000000004\"}\n\n",
       "confirmedWsMessage": {
         "name": "confirmedWsMessage",
         "schemaRef": "#/components/schemas/PublicHealthWsMessage",
@@ -2443,14 +2483,14 @@
                   "sourceSections": [
                     "exercise_plan"
                   ],
-                  "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                  "value": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
                 },
                 {
                   "targetFieldId": "SYNTHETIC-TARGET-2",
                   "sourceSections": [
                     "meal_plan"
                   ],
-                  "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                  "value": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
                 }
               ],
               "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -2568,18 +2608,18 @@
           "sections": [
             {
               "id": "check_plan",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "检查计划",
+              "content": "2026-10-15 完成已预约的随访检查。"
             },
             {
               "id": "medication_guidance",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "用药指导",
+              "content": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
             },
             {
               "id": "lifestyle_guidance",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "生活方式建议",
+              "content": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
             }
           ],
           "promptVersions": [
@@ -2593,6 +2633,11 @@
             {
               "code": "SYNTHETIC_ONLY",
               "message": "合成展示，不构成医疗建议"
+            },
+            {
+              "code": "DOCTOR_REVIEW",
+              "sectionId": "check_plan",
+              "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
             }
           ],
           "generatedAt": "2026-09-29T10:00:10+08:00",
@@ -2624,21 +2669,21 @@
                 "sourceSections": [
                   "check_plan"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "2026-10-15 完成已预约的随访检查。"
               },
               {
                 "targetFieldId": "SYNTHETIC-TARGET-2",
                 "sourceSections": [
                   "medication_guidance"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
               },
               {
                 "targetFieldId": "SYNTHETIC-TARGET-3",
                 "sourceSections": [
                   "lifestyle_guidance"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
               }
             ],
             "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -2844,8 +2889,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "check_plan",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "检查计划",
+                "content": "2026-10-15 完成已预约的随访检查。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000005",
@@ -2871,8 +2916,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "medication_guidance",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "用药指导",
+                "content": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000005",
@@ -2898,8 +2943,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "lifestyle_guidance",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "生活方式建议",
+                "content": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000005",
@@ -2936,18 +2981,18 @@
                 "sections": [
                   {
                     "id": "check_plan",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "检查计划",
+                    "content": "2026-10-15 完成已预约的随访检查。"
                   },
                   {
                     "id": "medication_guidance",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "用药指导",
+                    "content": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
                   },
                   {
                     "id": "lifestyle_guidance",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "生活方式建议",
+                    "content": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
                   }
                 ],
                 "promptVersions": [
@@ -2961,6 +3006,11 @@
                   {
                     "code": "SYNTHETIC_ONLY",
                     "message": "合成展示，不构成医疗建议"
+                  },
+                  {
+                    "code": "DOCTOR_REVIEW",
+                    "sectionId": "check_plan",
+                    "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
                   }
                 ],
                 "generatedAt": "2026-09-29T10:00:10+08:00",
@@ -3022,7 +3072,7 @@
           }
         }
       ],
-      "sseWire": "event: accepted\nid: 40000000-0000-4000-8000-000000000005:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"sequence\":1,\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"new\",\"acceptedAt\":\"2026-09-29T10:00:02+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000005\",\"streamId\":\"40000000-0000-4000-8000-000000000005\"}\n\nevent: progress\nid: 40000000-0000-4000-8000-000000000005:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"sequence\":2,\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"stage\":\"generating_sections\",\"message\":\"合成展示，不构成医疗建议\",\"originRequestId\":\"00000000-0000-4000-8000-000000000005\",\"streamId\":\"40000000-0000-4000-8000-000000000005\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000005:3\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"sequence\":3,\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"check_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000005\",\"streamId\":\"40000000-0000-4000-8000-000000000005\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000005:4\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"sequence\":4,\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"medication_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000005\",\"streamId\":\"40000000-0000-4000-8000-000000000005\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000005:5\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"sequence\":5,\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"lifestyle_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000005\",\"streamId\":\"40000000-0000-4000-8000-000000000005\"}\n\nevent: completed\nid: 40000000-0000-4000-8000-000000000005:6\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"sequence\":6,\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"check_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},{\"id\":\"medication_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},{\"id\":\"lifestyle_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"}],\"promptVersions\":[{\"code\":\"synthetic_health_prescription\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000005\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000005\",\"streamId\":\"40000000-0000-4000-8000-000000000005\"}\n\n",
+      "sseWire": "event: accepted\nid: 40000000-0000-4000-8000-000000000005:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"sequence\":1,\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"new\",\"acceptedAt\":\"2026-09-29T10:00:02+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000005\",\"streamId\":\"40000000-0000-4000-8000-000000000005\"}\n\nevent: progress\nid: 40000000-0000-4000-8000-000000000005:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"sequence\":2,\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"stage\":\"generating_sections\",\"message\":\"合成展示，不构成医疗建议\",\"originRequestId\":\"00000000-0000-4000-8000-000000000005\",\"streamId\":\"40000000-0000-4000-8000-000000000005\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000005:3\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"sequence\":3,\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"check_plan\",\"title\":\"检查计划\",\"content\":\"2026-10-15 完成已预约的随访检查。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000005\",\"streamId\":\"40000000-0000-4000-8000-000000000005\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000005:4\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"sequence\":4,\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"medication_guidance\",\"title\":\"用药指导\",\"content\":\"按当前已确认方案规律用药；不要自行停药、加量或换药。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000005\",\"streamId\":\"40000000-0000-4000-8000-000000000005\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000005:5\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"sequence\":5,\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"lifestyle_guidance\",\"title\":\"生活方式建议\",\"content\":\"保持规律作息，按约定日期参加随访；出现不适时及时就诊。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000005\",\"streamId\":\"40000000-0000-4000-8000-000000000005\"}\n\nevent: completed\nid: 40000000-0000-4000-8000-000000000005:6\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"sequence\":6,\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000005\",\"requestId\":\"00000000-0000-4000-8000-000000000005\",\"capability\":\"health_prescription\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-005\",\"businessRecordId\":\"SYNTHETIC-RECORD-005\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"check_plan\",\"title\":\"检查计划\",\"content\":\"2026-10-15 完成已预约的随访检查。\"},{\"id\":\"medication_guidance\",\"title\":\"用药指导\",\"content\":\"按当前已确认方案规律用药；不要自行停药、加量或换药。\"},{\"id\":\"lifestyle_guidance\",\"title\":\"生活方式建议\",\"content\":\"保持规律作息，按约定日期参加随访；出现不适时及时就诊。\"}],\"promptVersions\":[{\"code\":\"synthetic_health_prescription\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"},{\"code\":\"DOCTOR_REVIEW\",\"sectionId\":\"check_plan\",\"message\":\"内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000005\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000005\",\"streamId\":\"40000000-0000-4000-8000-000000000005\"}\n\n",
       "confirmedWsMessage": {
         "name": "confirmedWsMessage",
         "schemaRef": "#/components/schemas/PublicHealthWsMessage",
@@ -3051,21 +3101,21 @@
                   "sourceSections": [
                     "check_plan"
                   ],
-                  "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                  "value": "2026-10-15 完成已预约的随访检查。"
                 },
                 {
                   "targetFieldId": "SYNTHETIC-TARGET-2",
                   "sourceSections": [
                     "medication_guidance"
                   ],
-                  "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                  "value": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
                 },
                 {
                   "targetFieldId": "SYNTHETIC-TARGET-3",
                   "sourceSections": [
                     "lifestyle_guidance"
                   ],
-                  "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                  "value": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
                 }
               ],
               "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -3211,13 +3261,13 @@
           "sections": [
             {
               "id": "exercise_plan",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "运动建议",
+              "content": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
             },
             {
               "id": "meal_plan",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "食谱推荐",
+              "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
             }
           ],
           "promptVersions": [
@@ -3237,6 +3287,11 @@
             {
               "code": "SYNTHETIC_ONLY",
               "message": "合成展示，不构成医疗建议"
+            },
+            {
+              "code": "DOCTOR_REVIEW",
+              "sectionId": "exercise_plan",
+              "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
             }
           ],
           "generatedAt": "2026-09-29T10:00:10+08:00",
@@ -3273,14 +3328,14 @@
                 "sourceSections": [
                   "exercise_plan"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
               },
               {
                 "targetFieldId": "SYNTHETIC-TARGET-2",
                 "sourceSections": [
                   "meal_plan"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
               }
             ],
             "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -3512,8 +3567,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "exercise_plan",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "运动建议",
+                "content": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000006",
@@ -3539,8 +3594,8 @@
               "snapshotAt": "2026-09-29T10:00:00+08:00",
               "section": {
                 "id": "meal_plan",
-                "title": "合成展示，不构成医疗建议",
-                "content": "合成展示，不构成医疗建议"
+                "title": "食谱推荐",
+                "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
               },
               "provisional": true,
               "originRequestId": "00000000-0000-4000-8000-000000000006",
@@ -3577,13 +3632,13 @@
                 "sections": [
                   {
                     "id": "exercise_plan",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "运动建议",
+                    "content": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
                   },
                   {
                     "id": "meal_plan",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "食谱推荐",
+                    "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
                   }
                 ],
                 "promptVersions": [
@@ -3603,6 +3658,11 @@
                   {
                     "code": "SYNTHETIC_ONLY",
                     "message": "合成展示，不构成医疗建议"
+                  },
+                  {
+                    "code": "DOCTOR_REVIEW",
+                    "sectionId": "exercise_plan",
+                    "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
                   }
                 ],
                 "generatedAt": "2026-09-29T10:00:10+08:00",
@@ -3669,7 +3729,7 @@
           }
         }
       ],
-      "sseWire": "event: accepted\nid: 40000000-0000-4000-8000-000000000006:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"sequence\":1,\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"new\",\"acceptedAt\":\"2026-09-29T10:00:02+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000006\",\"streamId\":\"40000000-0000-4000-8000-000000000006\"}\n\nevent: progress\nid: 40000000-0000-4000-8000-000000000006:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"sequence\":2,\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"stage\":\"generating_sections\",\"message\":\"合成展示，不构成医疗建议\",\"originRequestId\":\"00000000-0000-4000-8000-000000000006\",\"streamId\":\"40000000-0000-4000-8000-000000000006\"}\n\nevent: metrics\nid: 40000000-0000-4000-8000-000000000006:3\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"sequence\":3,\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"metrics\":{\"bmi\":24.2,\"bmrKcalPerDay\":1399.0,\"formulaVersion\":\"legacy-bsoft-bmi-bmr.v1-synthetic-example\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000006\",\"streamId\":\"40000000-0000-4000-8000-000000000006\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000006:4\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"sequence\":4,\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"exercise_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000006\",\"streamId\":\"40000000-0000-4000-8000-000000000006\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000006:5\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"sequence\":5,\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"meal_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000006\",\"streamId\":\"40000000-0000-4000-8000-000000000006\"}\n\nevent: completed\nid: 40000000-0000-4000-8000-000000000006:6\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"sequence\":6,\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"exercise_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},{\"id\":\"meal_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"}],\"promptVersions\":[{\"code\":\"synthetic_weight_management\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[{\"assetId\":\"synthetic_regional_recipes\",\"version\":\"synthetic-display-only\",\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"metrics\":{\"bmi\":24.2,\"bmrKcalPerDay\":1399.0,\"formulaVersion\":\"legacy-bsoft-bmi-bmr.v1-synthetic-example\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000006\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000006\",\"streamId\":\"40000000-0000-4000-8000-000000000006\"}\n\n",
+      "sseWire": "event: accepted\nid: 40000000-0000-4000-8000-000000000006:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"sequence\":1,\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"new\",\"acceptedAt\":\"2026-09-29T10:00:02+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000006\",\"streamId\":\"40000000-0000-4000-8000-000000000006\"}\n\nevent: progress\nid: 40000000-0000-4000-8000-000000000006:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"sequence\":2,\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"stage\":\"generating_sections\",\"message\":\"合成展示，不构成医疗建议\",\"originRequestId\":\"00000000-0000-4000-8000-000000000006\",\"streamId\":\"40000000-0000-4000-8000-000000000006\"}\n\nevent: metrics\nid: 40000000-0000-4000-8000-000000000006:3\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"sequence\":3,\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"metrics\":{\"bmi\":24.2,\"bmrKcalPerDay\":1399.0,\"formulaVersion\":\"legacy-bsoft-bmi-bmr.v1-synthetic-example\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000006\",\"streamId\":\"40000000-0000-4000-8000-000000000006\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000006:4\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"sequence\":4,\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"exercise_plan\",\"title\":\"运动建议\",\"content\":\"1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000006\",\"streamId\":\"40000000-0000-4000-8000-000000000006\"}\n\nevent: section\nid: 40000000-0000-4000-8000-000000000006:5\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"sequence\":5,\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"section\":{\"id\":\"meal_plan\",\"title\":\"食谱推荐\",\"content\":\"早餐：燕麦粥、鸡蛋、牛奶。\\n午餐：杂粮饭、清蒸鱼、炒青菜。\\n晚餐：小米粥、豆腐、凉拌蔬菜。\"},\"provisional\":true,\"originRequestId\":\"00000000-0000-4000-8000-000000000006\",\"streamId\":\"40000000-0000-4000-8000-000000000006\"}\n\nevent: completed\nid: 40000000-0000-4000-8000-000000000006:6\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"sequence\":6,\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000006\",\"requestId\":\"00000000-0000-4000-8000-000000000006\",\"capability\":\"weight_management\",\"scene\":\"elderly_exam\",\"patientId\":\"SYNTHETIC-PERSON-006\",\"businessRecordId\":\"SYNTHETIC-RECORD-006\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"exercise_plan\",\"title\":\"运动建议\",\"content\":\"1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。\"},{\"id\":\"meal_plan\",\"title\":\"食谱推荐\",\"content\":\"早餐：燕麦粥、鸡蛋、牛奶。\\n午餐：杂粮饭、清蒸鱼、炒青菜。\\n晚餐：小米粥、豆腐、凉拌蔬菜。\"}],\"promptVersions\":[{\"code\":\"synthetic_weight_management\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[{\"assetId\":\"synthetic_regional_recipes\",\"version\":\"synthetic-display-only\",\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"},{\"code\":\"DOCTOR_REVIEW\",\"sectionId\":\"exercise_plan\",\"message\":\"内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"metrics\":{\"bmi\":24.2,\"bmrKcalPerDay\":1399.0,\"formulaVersion\":\"legacy-bsoft-bmi-bmr.v1-synthetic-example\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000006\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000006\",\"streamId\":\"40000000-0000-4000-8000-000000000006\"}\n\n",
       "confirmedWsMessage": {
         "name": "confirmedWsMessage",
         "schemaRef": "#/components/schemas/PublicHealthWsMessage",
@@ -3698,14 +3758,14 @@
                   "sourceSections": [
                     "exercise_plan"
                   ],
-                  "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                  "value": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
                 },
                 {
                   "targetFieldId": "SYNTHETIC-TARGET-2",
                   "sourceSections": [
                     "meal_plan"
                   ],
-                  "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                  "value": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
                 }
               ],
               "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -3938,6 +3998,145 @@
       "value": {
         "errorCode": "ORIGIN_NOT_ALLOWED",
         "message": "合成来源拒绝示例"
+      }
+    },
+    {
+      "name": "followup_empty_medication_section",
+      "schemaRef": "#/components/schemas/GenerationResult",
+      "description": "随访固定三章中用药章无患者建议可为空，原因只进入医生区；有正文的其余两章仍可确认。",
+      "value": {
+        "schemaVersion": "public-health.v1",
+        "generationId": "10000000-0000-4000-8000-000000000001",
+        "requestId": "00000000-0000-4000-8000-000000000001",
+        "capability": "health_prescription",
+        "scene": "hypertension_followup",
+        "patientId": "SYNTHETIC-PERSON-001",
+        "businessRecordId": "SYNTHETIC-RECORD-001",
+        "recordVersion": "synthetic-v1",
+        "snapshotAt": "2026-09-29T10:00:00+08:00",
+        "sections": [
+          {
+            "id": "check_plan",
+            "title": "检查计划",
+            "content": "2026-10-15 完成已预约的随访检查。"
+          },
+          {
+            "id": "medication_guidance",
+            "title": "用药指导",
+            "content": ""
+          },
+          {
+            "id": "lifestyle_guidance",
+            "title": "生活方式建议",
+            "content": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
+          }
+        ],
+        "promptVersions": [
+          {
+            "code": "synthetic_health_prescription",
+            "version": "synthetic-display-only"
+          }
+        ],
+        "knowledgeVersions": [],
+        "warnings": [
+          {
+            "code": "SYNTHETIC_ONLY",
+            "message": "合成展示，不构成医疗建议"
+          },
+          {
+            "code": "DOCTOR_REVIEW",
+            "sectionId": "check_plan",
+            "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
+          },
+          {
+            "code": "NO_PATIENT_ADVICE",
+            "sectionId": "medication_guidance",
+            "message": "本次没有可用的患者用药建议；该章为空且默认不选。"
+          }
+        ],
+        "generatedAt": "2026-09-29T10:00:10+08:00",
+        "originRequestId": "00000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "name": "three_meal_options_doctor_note_separate",
+      "schemaRef": "#/components/schemas/GenerationResult",
+      "description": "默认推荐与两备选均为患者正文；方案说明仅进入 result.warnings，options 不带 doctorNotes 或新的公开字段。",
+      "value": {
+        "schemaVersion": "public-health.v1",
+        "generationId": "10000000-0000-4000-8000-000000000002",
+        "requestId": "00000000-0000-4000-8000-000000000002",
+        "capability": "weight_management",
+        "scene": "hypertension_followup",
+        "patientId": "SYNTHETIC-PERSON-002",
+        "businessRecordId": "SYNTHETIC-RECORD-002",
+        "recordVersion": "synthetic-v1",
+        "snapshotAt": "2026-09-29T10:00:00+08:00",
+        "sections": [
+          {
+            "id": "exercise_plan",
+            "title": "运动建议",
+            "content": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
+          },
+          {
+            "id": "meal_plan",
+            "title": "食谱推荐",
+            "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。",
+            "options": [
+              {
+                "id": "synthetic-recipe-1",
+                "title": "默认食谱",
+                "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
+              },
+              {
+                "id": "synthetic-recipe-2",
+                "title": "备选食谱一",
+                "content": "早餐：全麦面包、鸡蛋、牛奶。\n午餐：杂粮饭、豆腐、青菜。\n晚餐：玉米粥、蒸鱼、蔬菜。"
+              },
+              {
+                "id": "synthetic-recipe-3",
+                "title": "备选食谱二",
+                "content": "早餐：小米粥、鸡蛋、豆浆。\n午餐：杂粮饭、鸡肉、青菜。\n晚餐：燕麦粥、豆腐、蔬菜。"
+              }
+            ]
+          }
+        ],
+        "promptVersions": [
+          {
+            "code": "synthetic_weight_management",
+            "version": "synthetic-display-only"
+          }
+        ],
+        "knowledgeVersions": [
+          {
+            "assetId": "synthetic_regional_recipes",
+            "version": "synthetic-display-only",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ],
+        "warnings": [
+          {
+            "code": "SYNTHETIC_ONLY",
+            "message": "合成展示，不构成医疗建议"
+          },
+          {
+            "code": "DOCTOR_REVIEW",
+            "sectionId": "exercise_plan",
+            "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
+          },
+          {
+            "code": "RECIPE_DOCTOR_NOTE",
+            "sectionId": "meal_plan",
+            "message": "备选食谱一：请核对食物过敏与实际份量；该提醒不随方案切换进入患者正文。"
+          }
+        ],
+        "generatedAt": "2026-09-29T10:00:10+08:00",
+        "metrics": {
+          "bmi": 24.2,
+          "bmrKcalPerDay": 1603.0,
+          "formulaVersion": "legacy-bsoft-bmi-bmr.v1-synthetic-example"
+        },
+        "originRequestId": "00000000-0000-4000-8000-000000000002"
       }
     }
   ],
@@ -4845,12 +5044,216 @@
       },
       "expectedError": "INVALID_REQUEST",
       "validationLayer": "schema"
+    },
+    {
+      "name": "empty_weight_section_forbidden",
+      "schemaRef": "#/components/schemas/GenerationResult",
+      "value": {
+        "schemaVersion": "public-health.v1",
+        "generationId": "10000000-0000-4000-8000-000000000002",
+        "requestId": "00000000-0000-4000-8000-000000000002",
+        "capability": "weight_management",
+        "scene": "hypertension_followup",
+        "patientId": "SYNTHETIC-PERSON-002",
+        "businessRecordId": "SYNTHETIC-RECORD-002",
+        "recordVersion": "synthetic-v1",
+        "snapshotAt": "2026-09-29T10:00:00+08:00",
+        "sections": [
+          {
+            "id": "exercise_plan",
+            "title": "运动建议",
+            "content": ""
+          },
+          {
+            "id": "meal_plan",
+            "title": "食谱推荐",
+            "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。"
+          }
+        ],
+        "promptVersions": [
+          {
+            "code": "synthetic_weight_management",
+            "version": "synthetic-display-only"
+          }
+        ],
+        "knowledgeVersions": [
+          {
+            "assetId": "synthetic_regional_recipes",
+            "version": "synthetic-display-only",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ],
+        "warnings": [
+          {
+            "code": "SYNTHETIC_ONLY",
+            "message": "合成展示，不构成医疗建议"
+          },
+          {
+            "code": "DOCTOR_REVIEW",
+            "sectionId": "exercise_plan",
+            "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
+          }
+        ],
+        "generatedAt": "2026-09-29T10:00:10+08:00",
+        "metrics": {
+          "bmi": 24.2,
+          "bmrKcalPerDay": 1603.0,
+          "formulaVersion": "legacy-bsoft-bmi-bmr.v1-synthetic-example"
+        },
+        "originRequestId": "00000000-0000-4000-8000-000000000002"
+      },
+      "expectedError": "INVALID_OUTPUT",
+      "validationLayer": "schema"
+    },
+    {
+      "name": "all_empty_followup_sections_forbidden",
+      "schemaRef": "#/components/schemas/GenerationResult",
+      "value": {
+        "schemaVersion": "public-health.v1",
+        "generationId": "10000000-0000-4000-8000-000000000001",
+        "requestId": "00000000-0000-4000-8000-000000000001",
+        "capability": "health_prescription",
+        "scene": "hypertension_followup",
+        "patientId": "SYNTHETIC-PERSON-001",
+        "businessRecordId": "SYNTHETIC-RECORD-001",
+        "recordVersion": "synthetic-v1",
+        "snapshotAt": "2026-09-29T10:00:00+08:00",
+        "sections": [
+          {
+            "id": "check_plan",
+            "title": "检查计划",
+            "content": ""
+          },
+          {
+            "id": "medication_guidance",
+            "title": "用药指导",
+            "content": ""
+          },
+          {
+            "id": "lifestyle_guidance",
+            "title": "生活方式建议",
+            "content": ""
+          }
+        ],
+        "promptVersions": [
+          {
+            "code": "synthetic_health_prescription",
+            "version": "synthetic-display-only"
+          }
+        ],
+        "knowledgeVersions": [],
+        "warnings": [
+          {
+            "code": "SYNTHETIC_ONLY",
+            "message": "合成展示，不构成医疗建议"
+          },
+          {
+            "code": "DOCTOR_REVIEW",
+            "sectionId": "check_plan",
+            "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
+          },
+          {
+            "code": "NO_PATIENT_ADVICE",
+            "sectionId": "medication_guidance",
+            "message": "本次没有可用的患者用药建议；该章为空且默认不选。"
+          }
+        ],
+        "generatedAt": "2026-09-29T10:00:10+08:00",
+        "originRequestId": "00000000-0000-4000-8000-000000000001"
+      },
+      "expectedError": "INVALID_OUTPUT",
+      "validationLayer": "runtime"
+    },
+    {
+      "name": "doctor_notes_not_public_meal_option_field",
+      "schemaRef": "#/components/schemas/GenerationResult",
+      "value": {
+        "schemaVersion": "public-health.v1",
+        "generationId": "10000000-0000-4000-8000-000000000002",
+        "requestId": "00000000-0000-4000-8000-000000000002",
+        "capability": "weight_management",
+        "scene": "hypertension_followup",
+        "patientId": "SYNTHETIC-PERSON-002",
+        "businessRecordId": "SYNTHETIC-RECORD-002",
+        "recordVersion": "synthetic-v1",
+        "snapshotAt": "2026-09-29T10:00:00+08:00",
+        "sections": [
+          {
+            "id": "exercise_plan",
+            "title": "运动建议",
+            "content": "1. 选择平地步行，沿熟悉、平坦的路线开展活动，步速以能够连贯交谈为准，可从现有习惯开始，将活动安排在方便坚持的时段，并穿合脚防滑的鞋，避免在湿滑地面行走。出发前先缓慢活动肩、膝和踝，结束前逐渐放慢速度，不骤停。\n2. 将坐着的时间分段，每隔一段时间起身在室内走动，安排在饭后或日常家务之间，外出不便时可在家中平地往返走动，并以扶稳和动作轻缓为原则。活动过程不憋气、不突然转身，可记录当天活动和身体感受。\n3. 如果出现胸闷、头晕、明显心悸或关节疼痛，立即停止活动，在安全处休息，症状持续时及时就诊。天气过热、过冷或身体不适时暂停户外活动，休息后恢复也从轻缓活动开始。"
+          },
+          {
+            "id": "meal_plan",
+            "title": "食谱推荐",
+            "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。",
+            "options": [
+              {
+                "id": "synthetic-recipe-1",
+                "title": "默认食谱",
+                "content": "早餐：燕麦粥、鸡蛋、牛奶。\n午餐：杂粮饭、清蒸鱼、炒青菜。\n晚餐：小米粥、豆腐、凉拌蔬菜。",
+                "doctorNotes": [
+                  "不能进入公开 options 字段。"
+                ]
+              },
+              {
+                "id": "synthetic-recipe-2",
+                "title": "备选食谱一",
+                "content": "早餐：全麦面包、鸡蛋、牛奶。\n午餐：杂粮饭、豆腐、青菜。\n晚餐：玉米粥、蒸鱼、蔬菜。"
+              },
+              {
+                "id": "synthetic-recipe-3",
+                "title": "备选食谱二",
+                "content": "早餐：小米粥、鸡蛋、豆浆。\n午餐：杂粮饭、鸡肉、青菜。\n晚餐：燕麦粥、豆腐、蔬菜。"
+              }
+            ]
+          }
+        ],
+        "promptVersions": [
+          {
+            "code": "synthetic_weight_management",
+            "version": "synthetic-display-only"
+          }
+        ],
+        "knowledgeVersions": [
+          {
+            "assetId": "synthetic_regional_recipes",
+            "version": "synthetic-display-only",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ],
+        "warnings": [
+          {
+            "code": "SYNTHETIC_ONLY",
+            "message": "合成展示，不构成医疗建议"
+          },
+          {
+            "code": "DOCTOR_REVIEW",
+            "sectionId": "exercise_plan",
+            "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
+          },
+          {
+            "code": "RECIPE_DOCTOR_NOTE",
+            "sectionId": "meal_plan",
+            "message": "备选食谱一：请核对食物过敏与实际份量；该提醒不随方案切换进入患者正文。"
+          }
+        ],
+        "generatedAt": "2026-09-29T10:00:10+08:00",
+        "metrics": {
+          "bmi": 24.2,
+          "bmrKcalPerDay": 1603.0,
+          "formulaVersion": "legacy-bsoft-bmi-bmr.v1-synthetic-example"
+        },
+        "originRequestId": "00000000-0000-4000-8000-000000000002"
+      },
+      "expectedError": "INVALID_OUTPUT",
+      "validationLayer": "schema"
     }
   ],
   "verification": {
-    "checkedAt": "2026-09-29",
-    "method": "Python standard-library validator covering all schema keywords used here plus refs, formats, cross-object mapping/identity and SSE framing; no dependency installation.",
-    "scope": "Candidate contract syntax and synthetic examples only; not a full OpenAPI certification or PHIS integration baseline. WeightProfile fact provenance and handshake/WS authentication/renewal control frames remain pending in the main design. No production implementation, database, model, billing-stop or PHIS save verification.",
+    "checkedAt": "2026-10-13",
+    "method": "Python standard-library targeted validator for the represented schema keywords, local refs, Unicode/string/array bounds, known conditional section rules and SSE wire round-trips; no dependency installation.",
+    "scope": "Candidate contract parsing and synthetic examples only; not independent JSONSchema/OpenAPI certification, runtime/stateful acceptance, model medical review, Windows/Tauri installation or real PHIS integration. Runtime/stateful negative examples are documented for corresponding production regressions.",
     "assertions": [
       "6 scene/capability combinations",
       "single target with multiple sourceSections",
@@ -4858,7 +5261,7 @@
       "success,failed,failed/RECORD_VERSION_CONFLICT alternatives",
       "pending/timeout local state only",
       "all local $ref and example schemaRef resolve",
-      "positive examples validate; declared invalid examples rejected",
+      "positive schema examples validate; schema-invalid examples reject; runtime/stateful examples require production regression",
       "SSE sequence, terminal state, full completed result, wire JSON round-trip",
       "failed是保存尝试终态；同failedID重放失败，不能失败变成功",
       "failed后医生重新确认相同正文也使用新writebackRequestId",
@@ -4866,13 +5269,18 @@
       "三章最大合并值48307字符，小于WritebackItem.value上限64000",
       "originRequestId在首次assist等于requestId，后续新生成保持origin",
       "每连接新streamId，sequence按stream从1计；同generation断线重放新stream的1/2",
-      "本地取消不取消服务端执行/计费，丢弃迟到帧；无远端取消接口"
+      "本地取消不取消服务端执行/计费，丢弃迟到帧；无远端取消接口",
+      "医生提醒只在 warnings，患者章节/食谱/确认/合并与失败恢复正文不含内部说明",
+      "仅随访单章可空，整份随访无患者正文及减重任一空章拒绝",
+      "公开 options 不增加 doctorNotes 等未知字段"
     ],
     "latestCounts": {
-      "schemaCount": 42,
-      "resolvedLocalReferences": 346,
-      "positiveExampleObjects": 136,
-      "negativeExamples": 17,
+      "schemaCount": 49,
+      "resolvedSchemaLocalReferences": 223,
+      "positiveExampleObjects": 145,
+      "negativeExamples": 22,
+      "negativeSchemaExamplesRejected": 19,
+      "negativeRuntimeOrStatefulExamples": 3,
       "sceneCapabilityCombinations": 6,
       "normalSseWireRoundTrips": 6,
       "reconnectSseWireRoundTrips": 1,
@@ -4880,7 +5288,11 @@
       "originRegenerationCases": 1,
       "maxMergedValueCharacters": 48307
     },
-    "note": "合成契约示例；不能作为真实模型、原生窗口、数据库或PHIS联调证明。握手token为无效合成字符串。"
+    "note": "合成契约示例及目标边界复核；不能作为真实模型、原生窗口、数据库或 PHIS 联调证明。握手 token 为无效合成字符串。医生提醒隔离和原字节同步另记测试证据。",
+    "latestChange": {
+      "changedAt": "2026-10-13",
+      "scope": "患者正文和医生 warnings 分离、随访空章与三食谱示例；JSON 解析、refs、指定边界及原字节同步另行复核，不将历史验证计数表述为本轮全量认证。"
+    }
   },
   "writebackAttemptLifecycleExamples": [
     {
@@ -4913,7 +5325,7 @@
                   "medication_guidance",
                   "lifestyle_guidance"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议\n\n合成展示，不构成医疗建议\n合成展示，不构成医疗建议\n\n合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "检查计划\n2026-10-15 完成已预约的随访检查。\n\n用药指导\n按当前已确认方案规律用药；不要自行停药、加量或换药。\n\n生活方式建议\n保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
               }
             ],
             "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -4948,7 +5360,7 @@
                   "medication_guidance",
                   "lifestyle_guidance"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议\n\n合成展示，不构成医疗建议\n合成展示，不构成医疗建议\n\n合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "检查计划\n2026-10-15 完成已预约的随访检查。\n\n用药指导\n按当前已确认方案规律用药；不要自行停药、加量或换药。\n\n生活方式建议\n保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
               }
             ],
             "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -5004,7 +5416,7 @@
                   "medication_guidance",
                   "lifestyle_guidance"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议\n\n合成展示，不构成医疗建议\n合成展示，不构成医疗建议\n\n合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "检查计划\n2026-10-15 完成已预约的随访检查。\n\n用药指导\n按当前已确认方案规律用药；不要自行停药、加量或换药。\n\n生活方式建议\n保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
               }
             ],
             "confirmedAt": "2026-09-29T10:01:00+08:00",
@@ -5060,7 +5472,7 @@
                   "medication_guidance",
                   "lifestyle_guidance"
                 ],
-                "value": "合成展示，不构成医疗建议\n合成展示，不构成医疗建议\n\n合成展示，不构成医疗建议\n合成展示，不构成医疗建议\n\n合成展示，不构成医疗建议\n合成展示，不构成医疗建议"
+                "value": "检查计划\n2026-10-15 完成已预约的随访检查。\n\n用药指导\n按当前已确认方案规律用药；不要自行停药、加量或换药。\n\n生活方式建议\n保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
               }
             ],
             "confirmedAt": "2026-09-29T10:03:00+08:00",
@@ -5202,18 +5614,18 @@
                 "sections": [
                   {
                     "id": "check_plan",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "检查计划",
+                    "content": "2026-10-15 完成已预约的随访检查。"
                   },
                   {
                     "id": "medication_guidance",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "用药指导",
+                    "content": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
                   },
                   {
                     "id": "lifestyle_guidance",
-                    "title": "合成展示，不构成医疗建议",
-                    "content": "合成展示，不构成医疗建议"
+                    "title": "生活方式建议",
+                    "content": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
                   }
                 ],
                 "promptVersions": [
@@ -5227,6 +5639,11 @@
                   {
                     "code": "SYNTHETIC_ONLY",
                     "message": "合成展示，不构成医疗建议"
+                  },
+                  {
+                    "code": "DOCTOR_REVIEW",
+                    "sectionId": "check_plan",
+                    "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
                   }
                 ],
                 "generatedAt": "2026-09-29T10:00:10+08:00",
@@ -5238,7 +5655,7 @@
           }
         }
       ],
-      "reconnectedWire": "event: accepted\nid: 60000000-0000-4000-8000-000000000001:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":1,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"replayed\",\"acceptedAt\":\"2026-09-29T10:02:00+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"60000000-0000-4000-8000-000000000001\"}\n\nevent: completed\nid: 60000000-0000-4000-8000-000000000001:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":2,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"check_plan\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},{\"id\":\"medication_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"},{\"id\":\"lifestyle_guidance\",\"title\":\"合成展示，不构成医疗建议\",\"content\":\"合成展示，不构成医疗建议\"}],\"promptVersions\":[{\"code\":\"synthetic_health_prescription\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000001\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"60000000-0000-4000-8000-000000000001\"}\n\n",
+      "reconnectedWire": "event: accepted\nid: 60000000-0000-4000-8000-000000000001:1\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":1,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"mode\":\"replayed\",\"acceptedAt\":\"2026-09-29T10:02:00+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"60000000-0000-4000-8000-000000000001\"}\n\nevent: completed\nid: 60000000-0000-4000-8000-000000000001:2\ndata: {\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"sequence\":2,\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"result\":{\"schemaVersion\":\"public-health.v1\",\"generationId\":\"10000000-0000-4000-8000-000000000001\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"capability\":\"health_prescription\",\"scene\":\"hypertension_followup\",\"patientId\":\"SYNTHETIC-PERSON-001\",\"businessRecordId\":\"SYNTHETIC-RECORD-001\",\"recordVersion\":\"synthetic-v1\",\"snapshotAt\":\"2026-09-29T10:00:00+08:00\",\"sections\":[{\"id\":\"check_plan\",\"title\":\"检查计划\",\"content\":\"2026-10-15 完成已预约的随访检查。\"},{\"id\":\"medication_guidance\",\"title\":\"用药指导\",\"content\":\"按当前已确认方案规律用药；不要自行停药、加量或换药。\"},{\"id\":\"lifestyle_guidance\",\"title\":\"生活方式建议\",\"content\":\"保持规律作息，按约定日期参加随访；出现不适时及时就诊。\"}],\"promptVersions\":[{\"code\":\"synthetic_health_prescription\",\"version\":\"synthetic-display-only\"}],\"knowledgeVersions\":[],\"warnings\":[{\"code\":\"SYNTHETIC_ONLY\",\"message\":\"合成展示，不构成医疗建议\"},{\"code\":\"DOCTOR_REVIEW\",\"sectionId\":\"check_plan\",\"message\":\"内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。\"}],\"generatedAt\":\"2026-09-29T10:00:10+08:00\",\"originRequestId\":\"00000000-0000-4000-8000-000000000001\"},\"originRequestId\":\"00000000-0000-4000-8000-000000000001\",\"streamId\":\"60000000-0000-4000-8000-000000000001\"}\n\n",
       "assertions": [
         "generationId/requestId/originRequestId不变，streamId改变。",
         "新连接sequence从1重新开始，completed为2；不能被旧stream的sequence水位丢弃。",
@@ -5376,18 +5793,18 @@
           "sections": [
             {
               "id": "check_plan",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "检查计划",
+              "content": "2026-10-15 完成已预约的随访检查。"
             },
             {
               "id": "medication_guidance",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "用药指导",
+              "content": "按当前已确认方案规律用药；不要自行停药、加量或换药。"
             },
             {
               "id": "lifestyle_guidance",
-              "title": "合成展示，不构成医疗建议",
-              "content": "合成展示，不构成医疗建议"
+              "title": "生活方式建议",
+              "content": "保持规律作息，按约定日期参加随访；出现不适时及时就诊。"
             }
           ],
           "promptVersions": [
@@ -5401,6 +5818,11 @@
             {
               "code": "SYNTHETIC_ONLY",
               "message": "合成展示，不构成医疗建议"
+            },
+            {
+              "code": "DOCTOR_REVIEW",
+              "sectionId": "check_plan",
+              "message": "内部示例来源与适用性待医生核对；此提醒只在医生区展示，不进入回写正文。"
             }
           ],
           "generatedAt": "2026-09-29T10:05:10+08:00",

@@ -1284,8 +1284,9 @@
           },
           "content": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 16000
+            "minLength": 0,
+            "maxLength": 16000,
+            "description": "交给患者的可执行处方正文，不含内部解释、制定依据、出处/证据、待医生核实或缺资料清单；具体患者安全动作保留。仅三个随访章节允许空串，空章默认不选，医生补充非空后才可确认。"
           },
           "options": {
             "type": "array",
@@ -1303,7 +1304,7 @@
           "content"
         ],
         "additionalProperties": false,
-        "description": "非空完整分节文本；纯空白亦须运行时拒绝。不得借空串清空目标字段。 食谱可提供默认推荐与两备选；正文绑定及ID唯一性由运行时校验。",
+        "description": "固定完整分节文本；随访无患者建议的单章可为空，原因进入 result.warnings 医生区。纯空白运行时拒绝；三章全空也须运行时拒绝。减重两章及每份食谱必须非空；空串不可用于清空 PHIS 字段。食谱可提供默认推荐与两备选，正文绑定及 ID 唯一性由运行时校验。",
         "anyOf": [
           {
             "properties": {
@@ -1319,6 +1320,38 @@
               "required": [
                 "options"
               ]
+            }
+          }
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "id": {
+                  "enum": [
+                    "check_plan",
+                    "medication_guidance",
+                    "lifestyle_guidance"
+                  ]
+                }
+              },
+              "required": [
+                "id"
+              ]
+            },
+            "then": {
+              "properties": {
+                "content": {
+                  "minLength": 0
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "content": {
+                  "minLength": 1
+                }
+              }
             }
           }
         ]
@@ -1417,7 +1450,8 @@
           "code",
           "message"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "独立医生区信息：模型 doctorNotes、制定依据、检查理由/优先级/证据、风险分析、缺资料及审核提醒；不拼入 Section/MealOption.content、WritebackItem.value、失败恢复草稿或重传正文。sectionId 仅标记所属章节，食谱方案名在 message 中标记。"
       },
       "GenerationResult": {
         "type": "object",
@@ -1489,7 +1523,8 @@
               "$ref": "#/components/schemas/Warning"
             },
             "minItems": 0,
-            "maxItems": 32
+            "maxItems": 32,
+            "description": "仅独立医生提醒区展示，不进入患者处方或 PHIS 回写。"
           },
           "generatedAt": {
             "$ref": "#/components/schemas/ZonedDateTime"
@@ -1669,7 +1704,8 @@
           "identity与已受理请求逐字段相等；sections恰好覆盖能力章节，id唯一且使用固定顺序。",
           "所有内容合计不超过64000字符，不能静默截断。",
           "promptVersions/knowledgeVersions为实际使用版本，缺资产不得伪造内容或版本。",
-          "originRequestId与已受理请求一致；它关联最初PHIS调入，不会随再次生成而改成新requestId。"
+          "originRequestId与已受理请求一致；它关联最初PHIS调入，不会随再次生成而改成新requestId。",
+          "随访可有空章节但三章全空拒绝；仅有非空患者正文的选中章节可确认，合并目标须全部对应章节非空且选中。内部 doctorNotes 仅移入 warnings，不增加公开协议字段。"
         ]
       },
       "AssistAccepted": {
@@ -1758,7 +1794,8 @@
           "value": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 64000
+            "maxLength": 64000,
+            "description": "医生确认给患者的非空处方正文；单章或固定顺序合并章节，不含 result.warnings、内部 doctorNotes 或其他医生区元数据。"
           }
         },
         "required": [
@@ -1864,7 +1901,8 @@
           "同failedID再次投递只重放原failed结果，绝不再次执行保存或将failed变成success。",
           "收到明确failed后，医生再次确认/重试保存（即使items正文完全相同）必须新writebackRequestId；requestId/generationId在生成内容和业务快照未变时保持不变。",
           "只有尚未获终态的awaiting网络重传复用同writebackRequestId及冻结内容；等待超时本身不授权创建重复保存尝试。",
-          "RECORD_VERSION_CONFLICT需先重新调入最新业务记录，不能只换writebackRequestId绕过recordVersion检查。"
+          "RECORD_VERSION_CONFLICT需先重新调入最新业务记录，不能只换writebackRequestId绕过recordVersion检查。",
+          "items.value 仅包含患者正文及固定章节标题；warnings、模型 doctorNotes、风险/证据/缺资料等医生区元数据不得进入单章、合并、失败恢复或重传内容。"
         ]
       },
       "PublicHealthResultConfirmedEvent": {
@@ -2525,7 +2563,7 @@
           "streamId"
         ],
         "additionalProperties": false,
-        "description": "整节快照，同id更新替换，不累计重复文本；completed前不可编辑或回写。"
+        "description": "整节快照，同 id 更新替换，不累计重复文本；completed 前不可编辑或回写。共用 Section 的章节 ID 边界：随访单章可为空，减重章节非空；内部说明不进入患者正文。"
       },
       "SseMetricsData": {
         "type": "object",
@@ -3183,7 +3221,8 @@
           "content": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 16000
+            "maxLength": 16000,
+            "description": "该方案的患者可执行食谱正文；不含内部解释、出处/证据、待医生核实或缺资料清单。医生提醒只通过 result.warnings 展示。"
           }
         },
         "required": [
