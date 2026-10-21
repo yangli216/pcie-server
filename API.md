@@ -3838,3 +3838,11 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 - `401`：device token 或 ECDSA 签名无效
 - `409`：相同 `requestId` 已存在但患者/病种关键字段冲突
 - `500`：服务端保存失败；客户端保留表单现场并允许使用同一 `requestId` 重试
+
+### POST `/v1/client/chronic-disease/examination-recommendations/query`
+
+设备 Bearer + ECDSA 签名鉴权，使用既有 DeviceAuthFilter，不豁免签名。请求：`{patientId: string, visitId: string, idCard: string}`，三者必填，前两者最多128字符；idCard 必须为18位居民身份证格式（末位允许 X/x），仅用于服务端加密上游查询，不记录或响应。响应 data：`{patientId, visitId, source: "getUserInfo", recommendations: [{name, description, subItems: string[]}], regionalHistory: {status: "not_connected", records: []}}`。source 表示 getJYJCPro 所消费的同一真实上游，不再经过旧 facade。推荐名称不是院内医嘱 ID；不保证年度周期、已扣除近90天记录或诊断归属。不能把 abnormalResults 当全区完整历史。
+
+部署配置：`FB_CHRONIC_EXAMINATIONS_ENABLED` 默认 false，`FB_CHRONIC_EXAMINATIONS_BASE_URL` 为健康处方根地址（不含路径、query 或凭据），`FB_CHRONIC_EXAMINATIONS_AK` / `FB_CHRONIC_EXAMINATIONS_SK` 只在服务端私有 service.env 中配置；SK 为32位十六进制。服务端完成 HMAC-SHA1 登录、token 缓存及 SM4 请求加密/响应解密。AK/SK 与 token 不进入客户端、日志、API 响应或数据库。连接/读取超时默认3000/8000ms，两次请求均通过出站安全门。未启用或上游失败为 HTTP503 / CHRONIC-EXAM-UNAVAILABLE；合法 inspectionItems=[] 才表示无推荐，结构异常、空密文、解密失败不能降级成空成功。全区90天明细查询仍未接通，保持 not_connected。
+
+现场验证：2026-10-20（开发机时区）在智医服务器 Java 8 上使用本次生产 Adapter/Service、测试环境 service.env 与授权测试患者执行只读查询。登录、SM4 查询/解密成功，inspectionItems 与规范化结果均17项，重复查询一致，regionalHistory 仍 not_connected。未执行医嘱写入或服务替换；同患者两慢病页面与 PHIS 回写闭环另行验收。详细脱敏记录见 `../floating-ball/docs/chronic-examination-reminders-uat.md`。

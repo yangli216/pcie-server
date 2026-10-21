@@ -638,3 +638,11 @@ GaussDB/openGauss 初始化：
 7. `POST /v1/client/chronic-disease/artifact-snapshots` 保存健康处方或年度评估打印前快照；DTO 使用固定字段和强类型确认项，服务端序列化确认项但不接受任意业务 payload，`requestId` 在机构内幂等。
 8. `c_ai_chronic_artifact` 固化患者锚点、病种集合、数据截至时间、模板/路径/依据/规则版本、年度指标、医生确认项及打印医生。
 9. 一期不增加管理端页面；正式模板与临床路径由代码仓库受审清单发布，AI 和医生均无规则发布权限。
+
+## 慢病检查检验推荐代理一期
+
+`modules/chronicdisease/examination` 提供签名 `/v1/client/chronic-disease/examination-recommendations/query`，直接复用两慢病 getJYJCPro 底层健康处方协议：服务端用 AK/SK、UTC+8 时间与 HMAC-SHA1 登录 `/api/login`，取得仅内存缓存的 token；将 `{idTypeCode:"01",idNo}` 用 hex SK 对应的 SM4/ECB/PKCS7Padding 加密，通过 `/api/wjjbgs/cy/getUserInfo` 查询并解密 data，仅规范化 inspectionItems。HMAC 的 key 是 SK 的 UTF-8 文本，SM4 的 key 是 SK 的十六进制解码，二者不能混用。使用 Java 8 适配的 Bouncy Castle 密码实现，不自行实现 SM4，不允许加密失败回退明文。
+
+独立短超时 HTTP Adapter 对登录与查询均复用既有出站安全门、禁止重定向，不转发设备令牌，不记录 AK/SK、token、身份证或上游正文。token 单实例同步刷新，最长缓存一小时；HTTP 401/403 时清除并只重新登录查询一次，其他协议或业务错误不自动重放。配置变更使缓存失效；无患者数据缓存。未配置、协议异常、解密失败与上游失败明确返回不可用，不以空数组掩盖失败。直接调用真实上游，避免 rbmh-cdw 的 Mock 开关。
+
+`RegionalExaminationHistoryProvider` 仅为健康大脑全区历史端口，默认固定 not_connected。接通健康处方推荐不代表全区90天历史已接通。配置前缀 floating-ball.chronic-examinations，enabled 默认 false，base-url/ak/sk 默认空，由受保护的服务端 service.env 注入，不进入 bootstrap 或客户端。无需新数据表。

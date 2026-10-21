@@ -32,6 +32,13 @@ mybatis-plus:
       logic-not-delete-value: 1
 
 floating-ball:
+  chronic-examinations:
+    enabled: ${FB_CHRONIC_EXAMINATIONS_ENABLED:false}
+    base-url: ${FB_CHRONIC_EXAMINATIONS_BASE_URL:}
+    ak: ${FB_CHRONIC_EXAMINATIONS_AK:}
+    sk: ${FB_CHRONIC_EXAMINATIONS_SK:}
+    connect-timeout-ms: ${FB_CHRONIC_EXAMINATIONS_CONNECT_TIMEOUT_MS:3000}
+    read-timeout-ms: ${FB_CHRONIC_EXAMINATIONS_READ_TIMEOUT_MS:8000}
   aes-key: ${FB_AES_KEY:FloatingBallKey!}
   admin:
     auth:
