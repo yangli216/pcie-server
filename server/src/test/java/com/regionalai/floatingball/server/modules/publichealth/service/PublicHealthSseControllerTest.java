@@ -62,6 +62,18 @@ class PublicHealthSseControllerTest {
         verify(store, never()).reserve(any(), any(), anyString());
     }
 
+    @Test void missingMedicationCoverageIsReportedInTheExistingStructuredErrorWithoutReserving() throws Exception {
+        when(orchestrator.prepare(any(), any())).thenThrow(new PublicHealthException(503, "POLICY_NOT_READY", "机构规则或知识资产尚未就绪",
+                Collections.singletonList("medicationClass:MISSING-CLASS")));
+        mvc.perform(post("/v1/public-health/generations").contentType(MediaType.APPLICATION_JSON)
+                .content(PublicHealthTestFixture.request("health_prescription").toString()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("POLICY_NOT_READY"))
+                .andExpect(jsonPath("$.missingFields[0]").value("medicationClass:MISSING-CLASS"));
+        verify(store, never()).reserve(any(), any(), anyString());
+        verify(orchestrator, never()).generate(any(), any(), anyString(), any(), any());
+    }
+
     @Test void missingAssetsReturnsStructured503WithoutReservingOrModelWork() throws Exception {
         when(orchestrator.prepare(any(), any())).thenThrow(new PublicHealthException(503,"KNOWLEDGE_NOT_READY","机构资料尚未就绪"));
         mvc.perform(post("/v1/public-health/generations").contentType(MediaType.APPLICATION_JSON).content(PublicHealthTestFixture.request("health_prescription").toString())).andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("KNOWLEDGE_NOT_READY")).andExpect(jsonPath("$.schemaVersion").value("public-health.v1"));

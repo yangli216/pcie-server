@@ -8,6 +8,10 @@ import com.regionalai.floatingball.server.modules.publichealth.dto.PublicHealthR
 import com.regionalai.floatingball.server.modules.device.entity.AiDevice;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import java.util.stream.Stream;
+import java.util.Collections;
 import java.util.Arrays;
 import java.util.List;
 import java.util.ArrayList;
@@ -76,7 +80,7 @@ class PublicHealthOrchestratorTest {
         assertEquals("", result.path("sections").get(1).path("content").asText());
         assertTrue(result.path("sections").get(2).path("content").asText().contains(PublicHealthTestFixture.PATIENT_CONTENT));
         assertTrue(doctorText(result).contains("本次未生成可回写的检查计划"));
-        assertTrue(doctorText(result).contains("未提供用药类别资料"));
+        assertTrue(doctorText(result).contains("本次未生成可回写的用药指导"));
         assertFalse(result.has("metrics"));
     }
 
@@ -567,7 +571,7 @@ class PublicHealthOrchestratorTest {
         verify(listener, times(1)).section(any()); verify(model, times(2)).generate(any(), any(), any(), anyString(), anyString(), anyString());
     }
 
-    @Test void doctorNotesDoNotAllowUnknownModelFieldsOrExcessExerciseSentences() throws Exception {
+    @Test void doctorNotesDoNotAllowUnknownModelFieldsButExerciseSentenceCountIsUnrestricted() throws Exception {
         PublicHealthRequest request = PublicHealthTestFixture.parsed("weight_management").request;
         when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(null, PublicHealthTestFixture.recipes(), PublicHealthTestFixture.versions()));
         when(retrieval.retrieve(any(AiDevice.class), any(), anyString(), any())).thenReturn(PublicHealthTestFixture.recipes().withArray("documents"));
@@ -577,8 +581,9 @@ class PublicHealthOrchestratorTest {
         PublicHealthOrchestrator.Listener listener = mock(PublicHealthOrchestrator.Listener.class);
         assertThrows(PublicHealthException.class, () -> service.generate(PublicHealthTestFixture.device(), request, "generation", service.prepare(PublicHealthTestFixture.device(), request), listener));
         raw.remove("extra"); raw.put("content", PublicHealthTestFixture.EXERCISE.replace("结束时逐步放慢步速。", "结束时逐步放慢步速。额外一句。"));
-        assertThrows(PublicHealthException.class, () -> service.generate(PublicHealthTestFixture.device(), request, "generation", service.prepare(PublicHealthTestFixture.device(), request), listener));
-        verify(listener, never()).section(any()); verify(model, times(2)).generate(any(), any(), any(), anyString(), anyString(), anyString());
+        ObjectNode result = service.generate(PublicHealthTestFixture.device(), request, "generation", service.prepare(PublicHealthTestFixture.device(), request), listener);
+        assertEquals(raw.path("content"), result.path("sections").get(0).path("content"));
+        verify(listener, times(2)).section(any()); verify(model, times(3)).generate(any(), any(), any(), anyString(), anyString(), anyString());
     }
 
     @Test void sourceBoundMealChoicesPreserveModelOrderAndUseSourceTitles() throws Exception {
@@ -699,4 +704,107 @@ class PublicHealthOrchestratorTest {
         assertEquals("POLICY_NOT_READY", assertThrows(PublicHealthException.class, () -> service.generate(PublicHealthTestFixture.device(), r,"generation",
         service.prepare(PublicHealthTestFixture.device(), r), mock(PublicHealthOrchestrator.Listener.class))).getCode());
     }
+    @ParameterizedTest @MethodSource("exerciseBodies")
+    void exerciseStyleDoesNotBlockGenerationOrChangeTheOriginalBody(String body) throws Exception {
+        PublicHealthRequest request = PublicHealthTestFixture.parsed("weight_management").request;
+        when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(null, PublicHealthTestFixture.recipes(), PublicHealthTestFixture.versions()));
+        when(retrieval.retrieve(any(AiDevice.class), any(), anyString(), any())).thenReturn(PublicHealthTestFixture.recipes().withArray("documents"));
+        when(model.generate(any(), any(), any(), anyString(), eq("exercise_plan"), anyString()))
+                .thenReturn(PublicHealthTestFixture.M.createObjectNode().put("content", body));
+        PublicHealthOrchestrator.Listener listener = mock(PublicHealthOrchestrator.Listener.class);
+        ObjectNode result = service.generate(PublicHealthTestFixture.device(), request, "generation", service.prepare(PublicHealthTestFixture.device(), request), listener);
+        assertEquals(body, result.path("sections").get(0).path("content").asText());
+        verify(listener, times(2)).section(any());
+        verify(model, times(2)).generate(any(), any(), any(), anyString(), anyString(), anyString());
+    }
+
+    static Stream<String> exerciseBodies() {
+        return Stream.of("按既有安排活动。", "先热身。再活动。逐步放慢。出现不适立即停止。",
+                "运动建议\n" + PublicHealthTestFixture.EXERCISE,
+                PublicHealthTestFixture.EXERCISE + "\n4. 额外条目。",
+                String.join("", Collections.nCopies(451, "𠮷")), String.join("", Collections.nCopies(16000, "𠮷")));
+    }
+
+    @Test void exerciseStillRejectsEmptyNonTextOversizedAndInternalExplanations() throws Exception {
+        PublicHealthRequest request = PublicHealthTestFixture.parsed("weight_management").request;
+        when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(null, PublicHealthTestFixture.recipes(), PublicHealthTestFixture.versions()));
+        when(retrieval.retrieve(any(AiDevice.class), any(), anyString(), any())).thenReturn(PublicHealthTestFixture.recipes().withArray("documents"));
+        for (JsonNode content : Arrays.asList(TextNode.valueOf(" "), TextNode.valueOf("\u00A0\uFEFF\u3000"), IntNode.valueOf(1), NullNode.instance,
+                TextNode.valueOf(String.join("", Collections.nCopies(16001, "𠮷"))), TextNode.valueOf("制定依据：资料"))) {
+            ObjectNode raw = PublicHealthTestFixture.M.createObjectNode(); raw.set("content", content);
+            when(model.generate(any(), any(), any(), anyString(), eq("exercise_plan"), anyString())).thenReturn(raw);
+            PublicHealthOrchestrator.Listener listener = mock(PublicHealthOrchestrator.Listener.class);
+            assertEquals("INVALID_MODEL_OUTPUT", assertThrows(PublicHealthException.class,
+                    () -> service.generate(PublicHealthTestFixture.device(), request, "generation", service.prepare(PublicHealthTestFixture.device(), request), listener)).getCode());
+            verify(listener, never()).section(any());
+        }
+        verify(model, times(6)).generate(any(), any(), any(), anyString(), eq("exercise_plan"), anyString());
+    }
+
+    @Test void approvedMedicationWithoutResidentMedicationRecordsUsesTheCodeAsLabel() throws Exception {
+        PublicHealthRequest request = PublicHealthTestFixture.parsed("health_prescription").request;
+        assertTrue(request.getFacts().getMedicationClasses().isEmpty());
+        when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(PublicHealthTestFixture.policy(), null, PublicHealthTestFixture.versions()));
+        when(model.generate(any(), any(), any(), anyString(), eq("medication_guidance"), anyString())).thenReturn(medicationRaw("SYNTHETIC-CLASS"));
+        ObjectNode result = generateHealth(request);
+        assertEquals("SYNTHETIC-CLASS\n" + PublicHealthTestFixture.PATIENT_CONTENT, result.path("sections").get(1).path("content").asText());
+        assertTrue(doctorText(result).contains("SYNTHETIC-CLASS：" + PublicHealthTestFixture.NOTICE));
+        verify(model).generate(any(), any(), any(), anyString(), eq("medication_guidance"), contains("机构已批准类别编码"));
+    }
+
+    @Test void suppliedMedicationClassesMayHavePartialOrNoGuidanceWithoutClaimingMissingRecords() throws Exception {
+        ObjectNode input = PublicHealthTestFixture.request("health_prescription");
+        ArrayNode classes = (ArrayNode) input.path("facts").path("medicationClasses");
+        classes.addObject().put("code", "SYNTHETIC-CLASS").put("name", "合成类别名");
+        classes.addObject().put("code", "SECOND-CLASS").put("name", "另一类别");
+        ObjectNode policy = PublicHealthTestFixture.policy();
+        ((ObjectNode) policy.path("medicationReminders")).put("SECOND-CLASS", "完整规则提醒");
+        when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(policy, null, PublicHealthTestFixture.versions()));
+        when(model.generate(any(), any(), any(), anyString(), eq("medication_guidance"), anyString())).thenReturn(medicationRaw("SYNTHETIC-CLASS"));
+        ObjectNode result = generateHealth(parse(input));
+        assertEquals("合成类别名\n" + PublicHealthTestFixture.PATIENT_CONTENT, result.path("sections").get(1).path("content").asText());
+        ObjectNode empty = PublicHealthTestFixture.M.createObjectNode(); empty.putArray("medicationGuidance");
+        when(model.generate(any(), any(), any(), anyString(), eq("medication_guidance"), anyString())).thenReturn(empty);
+        result = generateHealth(parse(input));
+        assertEquals("", result.path("sections").get(1).path("content").asText());
+        assertTrue(doctorText(result).contains("本次未生成可回写的用药指导"));
+        assertFalse(doctorText(result).contains("未提供用药类别"));
+    }
+
+    @Test void medicationStillRejectsUnapprovedDuplicateMalformedAndInvalidContent() throws Exception {
+        PublicHealthRequest request = PublicHealthTestFixture.parsed("health_prescription").request;
+        ObjectNode policy = PublicHealthTestFixture.policy();
+        ((ObjectNode) policy.path("medicationReminders")).put("123", "完整规则提醒");
+        when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(policy, null, PublicHealthTestFixture.versions()));
+        ObjectNode duplicate = medicationRaw("SYNTHETIC-CLASS");
+        duplicate.withArray("medicationGuidance").add(duplicate.path("medicationGuidance").get(0).deepCopy());
+        ObjectNode numeric = medicationRaw("123"); ((ObjectNode) numeric.path("medicationGuidance").get(0)).put("classCode", 123);
+        ObjectNode extra = medicationRaw("SYNTHETIC-CLASS"); ((ObjectNode) extra.path("medicationGuidance").get(0)).put("dose", 5);
+        ObjectNode blank = medicationRaw("SYNTHETIC-CLASS"); ((ObjectNode) blank.path("medicationGuidance").get(0)).put("content", " ");
+        ObjectNode internal = medicationRaw("SYNTHETIC-CLASS"); ((ObjectNode) internal.path("medicationGuidance").get(0)).put("content", "请医生核对处方。");
+        for (ObjectNode raw : Arrays.asList(medicationRaw("UNAPPROVED"), duplicate, numeric, extra, blank, internal, medicationRaw(""))) {
+            when(model.generate(any(), any(), any(), anyString(), eq("medication_guidance"), anyString())).thenReturn(raw);
+            assertEquals("INVALID_MODEL_OUTPUT", assertThrows(PublicHealthException.class, () -> generateHealth(request)).getCode());
+        }
+    }
+
+    @Test void uncoveredResidentMedicationClassesStillFailBeforeAnyModelCall() throws Exception {
+        ObjectNode input = PublicHealthTestFixture.request("health_prescription");
+        ArrayNode classes = (ArrayNode) input.path("facts").path("medicationClasses");
+        classes.addObject().put("code", "SYNTHETIC-CLASS").put("name", "已覆盖类别");
+        classes.addObject().put("code", "MISSING-CLASS").put("name", "待覆盖类别");
+        when(assets.load(any(), anyString())).thenReturn(new PublicHealthAssetService.Pack(PublicHealthTestFixture.policy(), null, PublicHealthTestFixture.versions()));
+        PublicHealthRequest request = parse(input);
+        PublicHealthException error = assertThrows(PublicHealthException.class, () -> service.prepare(PublicHealthTestFixture.device(), request));
+        assertEquals(503, error.getStatus()); assertEquals("POLICY_NOT_READY", error.getCode());
+        assertEquals(Collections.singletonList("medicationClass:MISSING-CLASS"), error.getMissingFields());
+        verifyNoInteractions(model, retrieval);
+    }
+
+    private ObjectNode medicationRaw(String code) {
+        ObjectNode raw = PublicHealthTestFixture.M.createObjectNode();
+        raw.putArray("medicationGuidance").addObject().put("classCode", code).put("content", PublicHealthTestFixture.PATIENT_CONTENT);
+        return raw;
+    }
+
 }

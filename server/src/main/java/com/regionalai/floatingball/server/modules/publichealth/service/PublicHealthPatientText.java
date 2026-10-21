@@ -18,8 +18,6 @@ public final class PublicHealthPatientText {
                     + "|(?:^|[\\s。！？!?;；（(])(?:来源|出处|证据|资料来源|数据来源|证据来源|优先级|资料快照|记录版本)\\s*[:：]"
                     + "|(?:^|[\\r\\n\\u2028\\u2029])\\s*(?:#{1,6}\\s*)?(?:待补充资料|医生提醒|模型说明|机构批准提示|生成依据|待核实事项|待审核事项|需医生核实事项|待医生核实事项)\\s*(?:[:：]|[\\r\\n\\u2028\\u2029]|$)",
             Pattern.CASE_INSENSITIVE);
-    private static final Pattern NUMBERED_ENTRY = ecmaPattern("(?m)^[ \\t]*([0-9]+)[.、．)）]\\s*", 0);
-    private static final Pattern EXTRA_ENTRY = ecmaPattern("[\\r\\n\\u2028\\u2029]\\s*(?:[-*•]|[0-9]+[.、．)）])", 0);
     private static final Pattern PREPARATION_BLOCK = Pattern.compile("[^\\r\\n\\u2028\\u2029。！？!?]+(?:[。！？!?]+|(?=[\\r\\n\\u2028\\u2029]|$))");
     private static final Pattern INTERNAL_PREPARATION = ecmaPattern("核对|核实|审核|待批准|目录|规则|基线|适用性"
             + "|(?:^|[\\s（(])(?:来源|出处|证据|制定依据|优先级|资料快照|记录版本)\\s*[:：]", 0);
@@ -81,47 +79,6 @@ public final class PublicHealthPatientText {
             offset = end;
         }
     }
-
-    public static String requireExercise(String text) {
-        requirePatientText(text);
-        String original = text;
-        text = trim(text);
-        int length = text.codePointCount(0, text.length());
-        if (length < 250 || length > 450) throw PublicHealthModelService.invalid();
-        Matcher matcher = NUMBERED_ENTRY.matcher(text);
-        List<Integer> starts = new ArrayList<Integer>();
-        List<Integer> ends = new ArrayList<Integer>();
-        while (matcher.find()) {
-            if (!String.valueOf(starts.size() + 1).equals(matcher.group(1))) throw PublicHealthModelService.invalid();
-            starts.add(matcher.start());
-            ends.add(matcher.end());
-        }
-        if (starts.size() != 3 || !text.substring(0, starts.get(0)).trim().isEmpty()) throw PublicHealthModelService.invalid();
-        for (int i = 0; i < 3; i++) {
-            String entry = trim(text.substring(ends.get(i), i + 1 < starts.size() ? starts.get(i + 1) : text.length()));
-            if (entry.isEmpty() || sentenceCount(entry) > 2 || EXTRA_ENTRY.matcher(entry).find()) {
-                throw PublicHealthModelService.invalid();
-            }
-        }
-        return original;
-    }
-
-    static int sentenceCount(String text) {
-        int count = 0;
-        boolean trailingText = false;
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            boolean decimal = c == '.' && i > 0 && i + 1 < text.length()
-                    && isAsciiDigit(text.charAt(i - 1)) && isAsciiDigit(text.charAt(i + 1));
-            if ("。！？!?".indexOf(c) >= 0 || (c == '.' && !decimal)) {
-                if (trailingText) count++;
-                trailingText = false;
-            } else if (!isEcmaWhitespace(c)) trailingText = true;
-        }
-        return count + (trailingText ? 1 : 0);
-    }
-
-    private static boolean isAsciiDigit(char value) { return value >= '0' && value <= '9'; }
 
     private static String trim(String text) {
         int start = 0, end = text.length();

@@ -17,45 +17,17 @@ class PublicHealthPatientTextTest {
             + "2. 坐姿抬腿练习：坐在稳固且无扶手的椅子上，背部挺直，双手轻扶椅面保持平衡；交替缓慢抬起单侧小腿至水平位置，保持3秒后缓慢放下，双腿轮流进行。建议每日早晚各进行一次，每组每侧腿重复10-15次，共做2-3组。动作需控制速度，避免惯性甩腿，若感到膝关节不适即停止或减小幅度。\n"
             + "3. 靠墙静蹲：背靠平整墙面，双脚分开与肩同宽，向前迈出一步，身体沿墙面缓慢下滑至大腿与地面呈约45度角（无需达到90度）；保持该姿势，感受大腿前侧肌肉发力。起始阶段每次坚持10-15秒，休息30秒，重复3-5次。随着腿部力量增强，可每周尝试增加5秒保持时间，上限不超过60秒。过程中确保膝盖不超过脚尖，腰部紧贴墙面，出现头晕或关节疼痛应立即终止。";
 
-    @Test void rejectsTheObserved433CodePointThreeEntryOutputWithTwoThreeFourSentences() {
+    @Test void acceptsTheObserved433CodePointOutputWithoutRewritingSentences() {
         assertEquals(433, OBSERVED_EXERCISE.codePointCount(0, OBSERVED_EXERCISE.length()));
-        String[] entries = OBSERVED_EXERCISE.split("\\n");
-        for (int i = 0; i < 3; i++) assertEquals(i + 2, PublicHealthPatientText.sentenceCount(entries[i].substring(3)));
-        assertEquals("INVALID_MODEL_OUTPUT", assertThrows(PublicHealthException.class,
-                () -> PublicHealthPatientText.requireExercise(OBSERVED_EXERCISE)).getCode());
+        assertEquals(OBSERVED_EXERCISE, PublicHealthPatientText.requirePatientText(OBSERVED_EXERCISE));
     }
 
-    @Test void acceptsInclusiveUnicodeLengthBoundariesAndDoesNotRewriteTheText() {
-        for (int length : Arrays.asList(250, 450)) {
-            String value = exerciseOfLength(length);
-            assertEquals(length, value.codePointCount(0, value.length()));
-            assertEquals(value, PublicHealthPatientText.requireExercise(value));
-            assertEquals("\n" + value + "\n", PublicHealthPatientText.requireExercise("\n" + value + "\n"));
-            assertEquals("\u00A0\uFEFF" + value + "\u00A0", PublicHealthPatientText.requireExercise("\u00A0\uFEFF" + value + "\u00A0"));
+    @Test void acceptsShortLongUnnumberedAndTitledExerciseTextWithoutRewriting() {
+        for (String text : Arrays.asList("按既有安排活动。", "运动建议\n" + PublicHealthTestFixture.EXERCISE,
+                PublicHealthTestFixture.EXERCISE + "\n4. 额外条目。", repeat("𠮷", 451),
+                "先热身。再活动。逐步放慢。出现不适立即停止。")) {
+            assertEquals(text, PublicHealthPatientText.requirePatientText(text));
         }
-        for (int length : Arrays.asList(249, 451)) assertThrows(PublicHealthException.class,
-                () -> PublicHealthPatientText.requireExercise(exerciseOfLength(length)));
-    }
-
-    @Test void rejectsWrongNumbersHeadersExtraBulletsAndMoreThanTwoSentences() {
-        String valid = PublicHealthTestFixture.EXERCISE;
-        assertEquals(valid, PublicHealthPatientText.requireExercise(valid));
-        for (String invalid : Arrays.asList("运动建议\n" + valid, valid.replace("2. ", "4. "), valid.replace("3. ", "2. "),
-                valid + "\n4. 额外条目。", valid.replace("\n2. ", "\n- 额外条目。\n2. "),
-                valid.replace("\n2. ", "\n\u00A0- 额外条目。\n2. "), valid.replace("\n2. ", "\n\u3000- 额外条目。\n2. "),
-                valid.replace("\n2. ", "\n\uFEFF- 额外条目。\n2. "),
-                valid.replace("\n2. ", "\r- 子条目\n2. "), valid.replace("\n2. ", "\u2028- 子条目\n2. "),
-                valid.replace("\n2. ", "\u2029- 子条目\n2. "),
-                valid.replace("结束时逐步放慢步速。", "结束时逐步放慢步速。额外一句。"))) {
-            assertThrows(PublicHealthException.class, () -> PublicHealthPatientText.requireExercise(invalid));
-        }
-    }
-
-    @Test void decimalsDoNotCountAsSentencesAndEnglishTerminalMarksDo() {
-        assertEquals(2, PublicHealthPatientText.sentenceCount("每次2.5分钟。按原计划继续。"));
-        assertEquals(2, PublicHealthPatientText.sentenceCount("Take care! Stop now。"));
-        assertEquals(3, PublicHealthPatientText.sentenceCount("First. Second? 第三句。"));
-        assertEquals(2, PublicHealthPatientText.sentenceCount("出现不适！？停止活动。"));
     }
 
     @Test void rejectsExplicitInternalExplanationsButKeepsPatientSafetyActions() {
@@ -138,11 +110,6 @@ class PublicHealthPatientTextTest {
         assertEquals(original, actual.toString());
         while (warnings.size() < 32) PublicHealthPatientText.warning(warnings, "DOCTOR_NOTE", "check_plan", "核对资料");
         assertThrows(PublicHealthException.class, () -> PublicHealthPatientText.warning(warnings, "DOCTOR_NOTE", "check_plan", "超过现有边界"));
-    }
-
-    private String exerciseOfLength(int length) {
-        String base = "1. 。\n2. 按安排活动。\n3. 不适时停止。";
-        return base.replace("1. ", "1. " + repeat("𠮷", length - base.codePointCount(0, base.length())));
     }
 
     private static String repeat(String value, int count) { return String.join("", Collections.nCopies(count, value)); }

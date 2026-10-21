@@ -10,6 +10,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
@@ -66,12 +68,74 @@ class PublicHealthRecipeRetrieverTest {
 
     @Test void explicitConfigAllowsOfflineVerificationWithoutChangingDeviceGate() {
         properties.setRetrievalEnabled(false);
+        properties.setEmbeddingBaseUrl("http://127.0.0.2:18081/v1");
         expectEmbedding();
         server.expect(requestTo("http://127.0.0.1:18080/rerank"))
                 .andRespond(withSuccess(validRanking(), MediaType.APPLICATION_JSON));
         assertEquals(4, retriever.retrieve(config, PublicHealthTestFixture.recipes(), "合成查询", () -> {}).size());
         verifyNoInteractions(configs);
         assertThrows(PublicHealthException.class, () -> retriever.retrieve(PublicHealthTestFixture.device(), PublicHealthTestFixture.recipes(), "合成查询"));
+        server.verify();
+    }
+
+    @ParameterizedTest @NullAndEmptySource @ValueSource(strings = {" ", "\t"})
+    void blankOverrideUsesTheDeviceGateway(String baseUrl) {
+        properties.setEmbeddingBaseUrl(baseUrl);
+        expectEmbedding();
+        server.expect(requestTo("http://127.0.0.1:18080/rerank"))
+                .andExpect(header("Authorization", "Bearer synthetic-key"))
+                .andRespond(withSuccess(validRanking(), MediaType.APPLICATION_JSON));
+        assertEquals(4, retriever.retrieve(PublicHealthTestFixture.device(), distinctRecipes(), "合成查询").size());
+        server.verify();
+    }
+
+    @Test void overrideRoutesBothRequestsWithTheDeviceKeyWithoutMutatingChatConfiguration() {
+        properties.setEmbeddingBaseUrl(" http://127.0.0.2:18081/v1/ ");
+        config.setModel("synthetic-chat");
+        ResolvedAiConfig before = new ResolvedAiConfig();
+        org.springframework.beans.BeanUtils.copyProperties(config, before);
+        server.expect(requestTo("http://127.0.0.2:18081/v1/embeddings"))
+                .andExpect(header("Authorization", "Bearer synthetic-key"))
+                .andExpect(jsonPath("$.model").value("synthetic-embedding"))
+                .andRespond(withSuccess("{\"model\":\"synthetic-embedding\",\"data\":[{\"index\":0,\"embedding\":[1,0]}]}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://127.0.0.2:18081/v1/rerank"))
+                .andExpect(header("Authorization", "Bearer synthetic-key"))
+                .andExpect(jsonPath("$.model").value("bge-reranker-large"))
+                .andRespond(withSuccess(validRanking(), MediaType.APPLICATION_JSON));
+        assertEquals(4, retriever.retrieve(PublicHealthTestFixture.device(), distinctRecipes(), "合成查询").size());
+        assertEquals(before, config);
+        verify(configs).resolveByDevice(any());
+        server.verify();
+    }
+
+    @Test void deniedOverrideFailsBeforeHttpWithoutUsingTheOriginalGateway() {
+        properties.setEmbeddingBaseUrl("http://127.0.0.2:18081/v1");
+        OutboundSecurityProperties security = new OutboundSecurityProperties();
+        security.setAllowAllHosts(false);
+        security.setAllowedHosts(java.util.Collections.singletonList("127.0.0.1"));
+        RestTemplate http = new RestTemplate();
+        MockRestServiceServer deniedServer = MockRestServiceServer.createServer(http);
+        PublicHealthRecipeRetriever denied = new PublicHealthRecipeRetriever(properties, configs,
+                new OutboundSecurityService(security), http, PublicHealthTestFixture.M);
+        PublicHealthException error = assertThrows(PublicHealthException.class,
+                () -> denied.retrieve(PublicHealthTestFixture.device(), distinctRecipes(), "合成查询"));
+        assertEquals("KNOWLEDGE_NOT_READY", error.getCode());
+        assertFalse(error.getMessage().contains("127.0.0.2"));
+        assertFalse(error.getMessage().contains("synthetic-key"));
+        assertEquals("http://127.0.0.1:18080", config.getBaseUrl());
+        deniedServer.verify();
+        server.verify();
+    }
+
+    @Test void failedOverrideIsSanitizedAndDoesNotRetryOrFallBack() {
+        properties.setEmbeddingBaseUrl("http://127.0.0.2:18081/v1");
+        server.expect(requestTo("http://127.0.0.2:18081/v1/embeddings"))
+                .andRespond(withBadRequest().body("synthetic-upstream-secret"));
+        PublicHealthException error = assertThrows(PublicHealthException.class,
+                () -> retriever.retrieve(PublicHealthTestFixture.device(), distinctRecipes(), "合成查询"));
+        assertEquals("KNOWLEDGE_NOT_READY", error.getCode());
+        assertFalse(error.getMessage().contains("synthetic-upstream-secret"));
+        assertEquals("http://127.0.0.1:18080", config.getBaseUrl());
         server.verify();
     }
 

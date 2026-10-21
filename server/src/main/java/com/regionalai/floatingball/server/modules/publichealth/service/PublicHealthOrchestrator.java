@@ -59,10 +59,14 @@ public class PublicHealthOrchestrator {
             throw PublicHealthAssetService.unavailable("KNOWLEDGE_NOT_READY");
         }
         if (pack.policy != null) {
+            List<String> missingClasses = new ArrayList<String>();
             for (MedicationClass m:request.getFacts().getMedicationClasses()) {
                 if (!pack.policy.path("medicationReminders").hasNonNull(m.getCode())) {
-                    throw PublicHealthAssetService.unavailable("POLICY_NOT_READY");
+                    missingClasses.add("medicationClass:" + m.getCode());
                 }
+            }
+            if (!missingClasses.isEmpty()) {
+                throw new PublicHealthException(503, "POLICY_NOT_READY", "机构规则或知识资产尚未就绪", missingClasses);
             }
         }
         return new Prepared(pack, resolved);
@@ -119,7 +123,7 @@ public class PublicHealthOrchestrator {
             if ("check_plan".equals(id)) {
                 shape = CHECK_OUTPUT_SHAPE;
             } else if ("medication_guidance".equals(id)) {
-                shape = "{\"medicationGuidance\":[{\"classCode\":\"已提供类别编码\",\"content\":\"仅该类别供患者执行的指导\"}]}";
+                shape = "{\"medicationGuidance\":[{\"classCode\":\"机构已批准类别编码\",\"content\":\"仅该类别供患者执行的指导\"}]}";
             } else if ("lifestyle_guidance".equals(id)) {
                 shape = PublicHealthHealthEducation.OUTPUT_SHAPE;
             } else if ("meal_plan".equals(id) && context.path("recipeReferences").size() >= 3) {
@@ -145,7 +149,6 @@ public class PublicHealthOrchestrator {
                 throw PublicHealthModelService.invalid();
             }
             PublicHealthPatientText.requirePatientText(text);
-            if ("exercise_plan".equals(id)) PublicHealthPatientText.requireExercise(text);
             if (section.has("options")) {
                 for (JsonNode option:section.path("options")) {
                     String optionText = option.path("content").asText();
@@ -306,33 +309,36 @@ public class PublicHealthOrchestrator {
         if (!list.isArray() || list.size()>64) {
             throw PublicHealthModelService.invalid();
         }
-        Map<String, String> allowed = new HashMap<String, String>();
+        Map<String, String> provided = new HashMap<String, String>();
         for (MedicationClass m:request.getFacts().getMedicationClasses()) {
-            allowed.put(m.getCode(), m.getName());
+            provided.put(m.getCode(), m.getName());
         }
         Set<String> seen = new HashSet<String>();
         StringBuilder text = new StringBuilder();
         StringBuilder doctorText = new StringBuilder();
         for (JsonNode item:list) {
             only(item,"classCode","content");
-            String code = item.path("classCode").asText();
-            if (!allowed.containsKey(code) || !seen.add(code) || !policy.path("medicationReminders").hasNonNull(code)) {
+            String code = PublicHealthHealthEducation.read(item.path("classCode"), 128);
+            if (!code.equals(code.trim()) || Character.isSpaceChar(code.charAt(0))
+                    || Character.isSpaceChar(code.charAt(code.length() - 1))
+                    || code.charAt(0) == '\uFEFF' || code.charAt(code.length() - 1) == '\uFEFF') {
                 throw PublicHealthModelService.invalid();
             }
+            if (!seen.add(code) || !policy.path("medicationReminders").hasNonNull(code)) {
+                throw PublicHealthModelService.invalid();
+            }
+            String name = provided.containsKey(code) ? provided.get(code) : code;
             String content = readContent(item);
             if (text.length()>0) {
                 text.append("\n\n");
             }
-            text.append(allowed.get(code)).append("\n").append(content);
+            text.append(name).append("\n").append(content);
             if (doctorText.length() > 0) doctorText.append("\n\n");
-            doctorText.append(allowed.get(code)).append("：").append(policy.path("medicationReminders").path(code).asText());
-        }
-        if (!seen.equals(allowed.keySet())) {
-            throw PublicHealthModelService.invalid();
+            doctorText.append(name).append("：").append(policy.path("medicationReminders").path(code).asText());
         }
         if (doctorText.length() > 0) PublicHealthPatientText.warning(warnings, "MEDICATION_REMINDER", "medication_guidance", doctorText.toString());
         if (text.length() == 0) PublicHealthPatientText.warning(warnings, "NO_PATIENT_ADVICE", "medication_guidance",
-                "未提供用药类别资料，本次没有可回写的用药指导，请先核对用药信息。");
+                "本次未生成可回写的用药指导，请医生核对用药信息及适用规则。");
         return text.toString();
     }
 
@@ -369,11 +375,7 @@ public class PublicHealthOrchestrator {
     }
 
     private String readContent(JsonNode raw) {
-        JsonNode c = raw.path("content");
-        if (!c.isTextual() || c.asText().trim().isEmpty()) {
-            throw PublicHealthModelService.invalid();
-        }
-        return PublicHealthPatientText.requirePatientText(c.asText());
+        return PublicHealthPatientText.requirePatientText(PublicHealthHealthEducation.read(raw.path("content"), 16000));
     }
 
     private void only(JsonNode raw, String... fields) {

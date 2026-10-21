@@ -9,6 +9,7 @@ import com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig;
 import com.regionalai.floatingball.server.modules.config.service.ConfigService;
 import com.regionalai.floatingball.server.modules.device.entity.AiDevice;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.BeanUtils;
 import org.springframework.web.client.RestTemplate;
 import java.util.*;
 
@@ -35,7 +36,16 @@ public class PublicHealthRecipeRetriever {
         if (!properties.isRetrievalEnabled()) {
             throw PublicHealthAssetService.unavailable("KNOWLEDGE_NOT_READY");
         }
-        return retrieve(configs.resolveByDevice(device), recipes, query, checkpoint);
+        ResolvedAiConfig config = configs.resolveByDevice(device);
+        String baseUrl = properties.getEmbeddingBaseUrl();
+        if (config != null && baseUrl != null && !baseUrl.trim().isEmpty()) {
+            // The resolved device config may be shared with chat calls; never mutate it.
+            ResolvedAiConfig retrievalConfig = new ResolvedAiConfig();
+            BeanUtils.copyProperties(config, retrievalConfig);
+            retrievalConfig.setBaseUrl(baseUrl.trim());
+            config = retrievalConfig;
+        }
+        return retrieve(config, recipes, query, checkpoint);
     }
 
     /** Explicit configuration entry point for offline technical verification; device calls retain their feature gate. */

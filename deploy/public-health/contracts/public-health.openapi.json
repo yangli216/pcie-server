@@ -444,31 +444,28 @@
         "x-signature-canonical-string": "METHOD + \"\\n\" + PATH + \"\\n\" + X-Timestamp + \"\\n\" + X-Nonce + \"\\n\" + SHA256(actual body bytes) + \"\\n\""
       }
     },
-    "/api/public-health/handshake": {
+    "/api/handshake": {
       "post": {
-        "operationId": "handshakePublicHealth",
+        "operationId": "handshakeWithPublicHealth",
         "tags": [
           "Local Bridge"
         ],
-        "summary": "公卫集成实例握手与会话续期",
+        "summary": "复用医疗握手，以可选 publicHealth 扩展创建/续期公卫实例会话",
         "servers": [
           {
             "url": "http://127.0.0.1:8081"
           }
         ],
-        "security": [
-          {
-            "pairingKey": []
-          }
-        ],
+        "security": [],
         "parameters": [
           {
             "name": "Origin",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "使用 publicHealth 扩展时必填，必须为规范 HTTP(S) Origin 且与 BrowserContext.origin 同源；普通医疗握手维持既有契约。"
           },
           {
             "name": "X-PCIE-Bridge-Token",
@@ -485,7 +482,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BridgeHandshakeRequest"
+                "$ref": "#/components/schemas/SdkHandshakeRequest"
               }
             }
           }
@@ -496,7 +493,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BridgeHandshakeResponse"
+                  "$ref": "#/components/schemas/SdkHandshakeResponse"
                 }
               }
             }
@@ -541,7 +538,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-PCIE-Bridge-Token",
-        "description": "候选待实现。合法handshake扩展返回publicHealthBridgeToken，至少256bit随机，内存30分钟，绑定允许Origin+SDK实例+桌面设备/机构+握手上下文，不进URL/日志/持久化。仅非空EMR token不等于身份认证；白名单未配置默认拒绝。"
+        "description": "由医疗 /api/handshake 的 publicHealth 扩展返回；至少256bit随机、内存30分钟、绑定本次 HTTP Origin 与 SDK 实例，REST/WS逐次验证，不进URL/日志/持久化。医疗上下文沿用非空 emrAccessToken 校验，不宣称 HIS 账号真实性。"
       },
       "deviceBearer": {
         "type": "http",
@@ -572,12 +569,6 @@
         "in": "header",
         "name": "X-Body-SHA256",
         "description": "实际body字节SHA-256 hex；POST有body，必须提供。"
-      },
-      "pairingKey": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-PCIE-Pairing-Key",
-        "description": "部署端独立配置的至少32随机字节base64配对密钥；只认证允许Origin上的集成实例，不认证医生账号。"
       }
     },
     "schemas": {
@@ -3232,6 +3223,93 @@
         ],
         "additionalProperties": false,
         "description": "源食谱ID及标题、单份完整正文；ID必须属于本次来源，空白运行时拒绝。"
+      },
+      "SdkHandshakeRequest": {
+        "type": "object",
+        "description": "普通医疗 BrowserContext；publicHealth 扩展使用时 Origin 必须与上下文 origin 同源，extra.emrAccessToken 必须非空。",
+        "properties": {
+          "origin": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          },
+          "cookie": {
+            "type": "string"
+          },
+          "userAgent": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sdkVersion": {
+            "type": "string"
+          },
+          "extra": {
+            "type": "object",
+            "properties": {
+              "emrAccessToken": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "emrAccessToken"
+            ],
+            "additionalProperties": true
+          },
+          "publicHealth": {
+            "$ref": "#/components/schemas/BridgeHandshakeRequest"
+          }
+        },
+        "required": [
+          "extra"
+        ],
+        "additionalProperties": true,
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "publicHealth"
+              ]
+            },
+            "then": {
+              "required": [
+                "origin"
+              ]
+            }
+          }
+        ]
+      },
+      "SdkHandshakeResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "const": "success"
+          },
+          "version": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "integer"
+          },
+          "traceId": {
+            "type": "string"
+          },
+          "publicHealth": {
+            "$ref": "#/components/schemas/BridgeHandshakeResponse"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "timestamp",
+          "traceId"
+        ],
+        "additionalProperties": false
       }
     }
   },
@@ -3311,13 +3389,13 @@
     "messageSchema": {
       "$ref": "#/components/schemas/PublicHealthWsMessage"
     },
-    "wireNote": "schema为event对象，messageSchema为完整WS文本JSON消息。公卫SDK独立握手/订阅，不要求初始化诊疗会话。"
+    "wireNote": "schema为event对象，messageSchema为完整WS文本JSON消息。公卫 SDK 复用医疗握手并单独订阅公卫事件，无需初始化诊疗会话。"
   },
   "x-source-evidence": {
     "design": "../PUBLIC_HEALTH_DESIGN.md",
     "remoteSignature": "pcie-server/API.md §2.3; DeviceAuthFilter.java",
     "localSocket": "pcie/api.md，唯一/api/consultation/events/ws",
-    "handshakeExtension": "独立POST /api/public-health/handshake；Origin白名单+配对密钥绑定SDK实例，再签发短期内存token。旧/api/handshake保持兼容。详见pcie/api.md §8。"
+    "handshakeExtension": "POST /api/handshake 复用医疗 BrowserContext；可选 publicHealth 请求扩展绑定 Origin/SDK 实例并返回隔离会话，续期携带旧token。无额外配对配置。详见pcie/api.md §8。"
   },
   "x-knowledge-boundary": {
     "assets": [
@@ -3344,8 +3422,8 @@
   },
   "x-public-health-bridge": {
     "configuration": {
-      "PCIE_PUBLIC_HEALTH_ALLOWED_ORIGINS": "完整Origin逗号分隔；默认空=拒绝",
-      "PCIE_PUBLIC_HEALTH_PAIRING_SECRET": "至少32随机字节base64；默认空=拒绝，不进入URL/日志"
+      "handshake": "POST /api/handshake，沿用医疗 extra.emrAccessToken/urt；publicHealth 为可选会话扩展",
+      "deployment": "无额外公卫配对密钥或 Origin 环境配置；实际 HTTP Origin 须与握手上下文同源"
     },
     "websocket": {
       "url": "ws://127.0.0.1:8081/api/consultation/events/ws?channel=public-health",

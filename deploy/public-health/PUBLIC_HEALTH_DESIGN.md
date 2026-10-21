@@ -1,16 +1,26 @@
 # 全医慧助（PCIE）公卫健康处方与减重助手设计
 
+## 客户端正文拦截调整（2026-10-20）
+
+用户确认取消随访和减重两个功能的客户端正文风格、编号/条数/句数、禁用词及内容关键词拦截。章节、食谱备选、医生编辑、确认、失败恢复和重传均保留原文；随访草稿不再因 BMI/BMR、单位或减重词而拒绝，也不按关键词分割删改准备说明。独立 warnings 仍在医生区，程序不自动拼入回写正文。空值、类型、协议容量（章节16000、合并目标64000码点）、任务身份、目标映射、机构规则和事实引用等结构化边界继续执行。协议字段和机器契约未变。
+
+此调整替代下文关于客户端正文拒绝与旧草稿禁止重传的历史要求；服务端运动格式校验由本日内网交接同步取消，其余服务端结构、正文/医生提醒分离及资产约束继续执行。客户端重新打包不改变服务端 JAR；真实模型、Windows/PHIS及医学审核仍分别验收。
+
 ## 患者处方正文与医生提醒分离（2026-10-13）
 
 医生使用助手生成可直接交给患者的健康教育处方。`sections[].content`、`options[].content` 和最终 `items[].value` 只包含患者可执行的检查安排、用药执行、饮食和运动内容；不包含制定依据、事实证据、来源/版本、AI/工程说明、待医生审核/核实、缺资料清单或机构批准提示。患者应遵循的具体安全动作（例如不适时停止运动、及时就诊）保留在正文，不以泛化删除“提醒”或“医生”字样处理。
 
 内部模型草稿可选 `doctorNotes` 数组（0至8条、每条非空且最多1000 Unicode码点）；食谱每份也可独立返回该数组。程序先严格校验并移入既有 `result.warnings`（按章节标记、食谱注明方案名），绝不拼接到章节或确认正文。检查理由/证据/优先级与需机构核对的准备说明、风险分类/定性分析/原值证据、`missingFacts` 和用药规则提醒均进入医生区。来源原值、时间和哈希保留工程核验，不因患者正文精简丢失证据。根 `warnings` 复用原协议，不新增 PHIS 回写字段。
 
-客户端用独立“医生提醒（不回写）”区域显示这些信息。处方编辑和食谱切换只处理患者正文；确认、合并字段、失败恢复和重传均不能纳入医生提醒。生成内容若混入明确的内部说明标题或来源/证据标签，拒绝应用，不靠事后截断或宽泛正则删除医疗内容；确认前也校验此边界，旧草稿需由医生调整后保存。随访某章确实无可用患者建议时保留固定章节、content为空，原因仅在医生区；默认不选空章，医生补充非空正文后可选。有其他患者正文时仍可确认对应字段，合并字段仍须全部对应章节有正文且选中。三章全空才报生成未完成；减重和每份食谱必须非空。不能用“请医生核对资料”等诊断说明充当处方正文。
+此前客户端用独立“医生提醒（不回写）”区域显示这些信息（正文拒绝行为已由2026-10-20调整取代）。处方编辑和食谱切换只处理患者正文；确认、合并字段、失败恢复和重传均不能纳入医生提醒。服务端生成内容若混入明确的内部说明标题或来源/证据标签，拒绝生成，不靠事后截断或宽泛正则删除医疗内容；客户端确认/恢复不按正文关键词拒绝，医生仍审阅编辑后保存。随访某章确实无可用患者建议时保留固定章节、content为空，原因仅在医生区；默认不选空章，医生补充非空正文后可选。有其他患者正文时仍可确认对应字段，合并字段仍须全部对应章节有正文且选中。三章全空才报生成未完成；减重和每份食谱必须非空。不能用“请医生核对资料”等诊断说明充当处方正文。
 
-运动生成必须按1至3编号输出恰好3条，合计250至450 Unicode码点，每条最多2句。中文句末“。！？”、英文问号/叹号和非小数的英文句号计句；小数和条目编号不计句。程序拒绝超限/额外标题/条目及污染正文，不自动截断、改标点或重试模型。医生后续手工编辑不受这项生成风格上限限制，仍遵守正文/医生提醒分离和原长度门禁。
+运动正文调整（2026-10-20，内网交接同步）：服务端取消运动正文的字数区间、编号/条数、标题和句数硬校验，并移除此前篇幅规划及合成格式示例。生成提示仅要求结合已传资料和受控规则写运动方式、频率或时长、时段安排及患者安全动作；运动数值仍只采用给定资料/规则，缺少时用定性安排。不填充、截断或自动重试。章节16000及合并结果64000 Unicode码点、非空（包括拒绝仅Unicode空白/BOM的正文）/JSON结构、资产批准与机构范围继续校验；服务端患者正文/医生提醒分离校验仍执行，客户端正文拦截按本日客户端调整取消。
 
-两个功能保持独立：随访只回写检查/用药/生活方式三章，减重只回写运动/当前食谱两章。自动化补真实模型形态、三选一、提醒展示与确认隔离、患者安全提醒保留、句数/编号/Unicode边界及缺建议拒绝；本机 Mock 调试代码仍不提交，真实 AI/模拟保存/真实 PHIS/医学审核分别记录。
+用药类别调整（2026-10-20）：模型可选择 policy.medicationReminders 中机构已批准的类别，不要求与居民 medicationClasses 一一对应；允许未传用药记录时生成批准类别，也允许只返回部分适用类别或空数组。类别编码必须为非空字符串、最多128码点、无首尾空白且不得重复；未批准类别仍拒绝。优先使用居民提供的类别名称，未提供时展示批准编码。患者正文与完整规则提醒分别输出；空结果只说明本次未生成，不误称已有资料缺失。请求中已有用药类别仍必须由批准 policy 覆盖，缺失时在模型调用前报 HTTP 503 POLICY_NOT_READY，missingFields 仅列 medicationClass:<未覆盖编码>，不暴露已覆盖类别或资产路径。提示继续禁止新增处方药、品牌、剂量及自行调整治疗；允许类别输出不构成医学适用性证明。
+
+公卫召回地址（2026-10-20）：新增服务端配置 floating-ball.public-health.embedding-base-url（环境变量 FB_PUBLIC_HEALTH_EMBEDDING_BASE_URL），默认空。空值沿用设备解析得到的 AI baseUrl；非空只替换在线减重召回的 /embeddings 和 /rerank 根地址（包含网关所需的 /v1 前缀），仍使用该设备解析的 apiKey，不修改原配置对象、聊天地址、Prompt、审计或显式配置的离线工具。两条请求均经过既有 OutboundSecurityService；失败脱敏为 KNOWLEDGE_NOT_READY，无静默回退。覆盖地址会接收设备 API 凭据，须由部署管理员选择能接收同一凭据的可信网关，并配置出站允许范围。地址通过环境变量或 --spring.config.additional-location 指定的外置配置提供；代码不内置现场地址，不改变 enabled=false、retrieval-enabled=false、资产根目录或机构批准映射。配置生效需重启服务，真实连通性另验。
+
+两个功能保持独立：随访只回写检查/用药/生活方式三章，减重只回写运动/当前食谱两章。自动化补真实模型形态、三选一、提醒展示与确认隔离、患者安全提醒保留、运动格式放开、Unicode协议容量及缺建议拒绝；本机 Mock 调试代码仍不提交，真实 AI/模拟保存/真实 PHIS/医学审核分别记录。
 
 更新日期：2026-10-10。协议：`public-health.v1`。状态：**原生迁移实施中；生产实现、工程验证与真实 PHIS/医学验收分别记录**。
 
@@ -113,7 +123,7 @@ sequenceDiagram
 | 接口 | 调用方 → 接收方 | 含义 |
 | --- | --- | --- |
 | POST `/api/public-health/assist` | PHIS → 本地 PCIE | 创建/恢复公卫任务，打开资料/结果页 |
-| POST `/api/public-health/handshake` | PHIS → 本地 PCIE | 受控来源与配对凭据认证，签发/续期公卫会话 |
+| POST `/api/handshake` | PHIS → 本地 PCIE | 复用医疗 HIS 上下文，publicHealth 扩展签发/续期公卫会话 |
 | POST `/v1/public-health/generations` | PCIE → 服务端 | 按 capability 生成，SSE 返回业务事件 |
 | WS `public-health-result-confirmed` | 本地 PCIE → 发起 PHIS 实例 | 已确认的待保存内容；不是已保存 |
 | POST `/api/public-health/writeback-feedback` | PHIS → 本地 PCIE | 保存成功或明确失败的业务回执 |
@@ -182,13 +192,13 @@ weightProfile 的 `heightCm/weightKg/region/season` 使用明确单位与枚举�
 
 远端保持 deviceToken + ECDSA P-256，签名覆盖实际请求体。沿用当前签名字段，不向PHIS暴露设备私钥。`X-Request-Id`仅追踪，不用作业务幂等键。
 
-本地公卫接口不继承现有宽松CORS作为安全保证。公卫独立`POST /api/public-health/handshake`：Origin与X-PCIE-Pairing-Key，body为schemaVersion、sdkInstanceId与可选resumeSessionId，返回status=ready、bridgeSessionId/publicHealthBridgeToken/expiresAt/renewUntil。部署配置PCIE_PUBLIC_HEALTH_ALLOWED_ORIGINS为完整Origin逗号列表，PCIE_PUBLIC_HEALTH_PAIRING_SECRET为至少32随机字节的base64密钥；两项默认空即拒绝，不自动启用部署权限。令牌256位随机、仅内存、30分钟有效，通过X-PCIE-Bridge-Token传递，不进URL/日志。续期须旧token+配对密钥+同Origin/sdkInstanceId，可在到期后30分钟宽限内恢复，稳定sessionId和任务所有权，只轮换token。
+2026-10-19 按用户要求与医疗统一接入：复用 `POST /api/handshake`、SDK 的 HIS 上下文采集与桌面协议拉起，不再部署公卫 Origin 白名单或配对密钥，删除独立公卫握手。普通 BrowserContext 顶层可选 publicHealth={schemaVersion,sdkInstanceId,resumeSessionId?}，响应保留医疗 status/version/timestamp/traceId，并在 publicHealth 返回 ready/session/token/expiry。验证本次 HTTP Origin 为规范 HTTP(S) 来源且与上下文 origin（允许 HIS contextPath）同源，再绑定 SDK 实例；不从全局已握手状态推断其他页面权限。令牌256位随机、仅内存、30分钟有效，通过 X-PCIE-Bridge-Token 传递，不进 URL/日志。续期继续提交医疗上下文、旧token与相同Origin/sdkInstanceId，宽限30分钟内保留session及任务所有权。
 
-既有门诊握手仅验证EMR token非空，不能据此声称已完成PHIS账号真实性验证。公卫采用上述独立配对握手并绑定允许Origin、SDK实例和会话；远端机构/设备以现有签名认证上下文为准，不能把请求体机构/人员字段当认证结果。PHIS医生账号真实性仍由PHIS身份体系负责。
+既有门诊握手仅验证EMR token非空，不能据此声称已完成PHIS账号真实性验证。公卫复用该医疗握手校验，并额外绑定本次Origin、SDK实例和会话；远端机构/设备以现有签名认证上下文为准，不能把请求体机构/人员字段当认证结果。PHIS医生账号真实性仍由PHIS身份体系负责。
 
 WS连接先完成公卫订阅认证并绑定会话；公卫帧只投递到拥有该originRequestId及其派生requestId的实例，不能先向所有连接广播再靠SDK过滤。门诊既有帧语义不变，公卫帧不伪造consultationId。
 
-WS沿用/api/consultation/events/ws，公卫专用连接附channel=public-health（不含凭据），首帧public-health-subscribe包含schemaVersion、bridgeSessionId、publicHealthBridgeToken与可选after事件ID。认证后ack为public-health-subscribed及session/expiry，失败public-health-error后关闭；未知或别的会话游标返回EVENT_CURSOR_INVALID。到期连接关闭，续期不能改变任务所有权或writebackRequestId去重空间。详细HTTP/WS/Tauri字段见pcie/api.md第8节。该配对机制认证集成实例，不宣称完成PHIS医生账号验证。
+WS沿用/api/consultation/events/ws，公卫专用连接附channel=public-health（不含凭据），首帧public-health-subscribe包含schemaVersion、bridgeSessionId、publicHealthBridgeToken与可选after事件ID。认证后ack为public-health-subscribed及session/expiry，失败public-health-error后关闭；未知或别的会话游标返回EVENT_CURSOR_INVALID。到期连接关闭，续期不能改变任务所有权或writebackRequestId去重空间。详细HTTP/WS/Tauri字段见pcie/api.md第8节。该会话机制沿用医疗接入信任边界，不宣称完成PHIS医生账号验证。
 
 桌面prepare仅允许相同业务锚点、recordVersion及目标映射下更新facts/snapshotAt；patient.name/ageYears固定，sex只允许unknown补充为male/female，并提供sexSource={system:PCIE_MANUAL,recordId:UUID}。明确性别、源记录版本或目标映射变更必须由PHIS以新origin重新调入。
 

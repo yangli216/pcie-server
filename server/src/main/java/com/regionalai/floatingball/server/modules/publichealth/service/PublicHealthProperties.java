@@ -16,6 +16,8 @@ public class PublicHealthProperties {
     @Value("${floating-ball.public-health.asset-directory:${FB_PUBLIC_HEALTH_ASSET_DIR:}}")
     private String assetDirectory = "";
     private Map<String, String> orgAssets = new HashMap<String, String>();
+    @Value("${floating-ball.public-health.embedding-base-url:${FB_PUBLIC_HEALTH_EMBEDDING_BASE_URL:}}")
+    private String embeddingBaseUrl = "";
     private boolean retrievalEnabled;
     private int retrievalCandidates = 20;
 }

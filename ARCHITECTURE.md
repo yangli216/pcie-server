@@ -1,5 +1,8 @@
 # 全医慧助服务端（PCIE Server）架构说明
 
+公卫召回地址（2026-10-20）：新增服务端配置 floating-ball.public-health.embedding-base-url（环境变量 FB_PUBLIC_HEALTH_EMBEDDING_BASE_URL），默认空。空值沿用设备解析得到的 AI baseUrl；非空只替换在线减重召回的 /embeddings 和 /rerank 根地址（包含网关所需的 /v1 前缀），仍使用该设备解析的 apiKey，不修改原配置对象、聊天地址、Prompt、审计或显式配置的离线工具。两条请求均经过既有 OutboundSecurityService；失败脱敏为 KNOWLEDGE_NOT_READY，无静默回退。覆盖地址会接收设备 API 凭据，须由部署管理员选择能接收同一凭据的可信网关，并配置出站允许范围。地址通过环境变量或 --spring.config.additional-location 指定的外置配置提供；代码不内置现场地址，不改变 enabled=false、retrieval-enabled=false、资产根目录或机构批准映射。配置生效需重启服务，真实连通性另验。
+
+
 ## WeKnora 机构知识服务（2026-09-30）
 
 `modules/knowledge` 增加 KnowledgeCatalogService（批准清单/机构/有效期/版本）、KnowledgeRetrievalService（统一证据映射）及 WeKnoraKnowledgeProvider（v0.8.2独立hybrid-search）。只对服务端批准的文档/片段检索并校验原文UTF-8 SHA-256，禁止父块/邻块扩展；不依赖WeKnora生成回答或沙箱，不改变公卫生成与PMPHAI。KnowledgeRetrievalProperties托管连接配置，专用HTTP客户端固定超时、禁重定向/重试、复用出站限流熔断，响应有大小上限。配置与部署见 [知识服务设计](../development-harness/KNOWLEDGE_BASE_DESIGN.md) 和 [接入说明](deploy/weknora/README.md)，无新增业务表。

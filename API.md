@@ -2,11 +2,15 @@
 
 ## 公卫处方正文边界（2026-10-13）
 
-公卫生成结果的 `sections[].content`、`options[].content` 为医生提供给患者的处方正文；最终确认 `items[].value` 只组合已选正文。制定依据、事实证据、AI/工程说明、来源、待医生核实和缺资料清单在既有 `warnings` 中按章节显示于“医生提醒（不回写）”，不进入 PHIS 字段。内部 AI 草稿可选 `doctorNotes`（0至8条、每条1至1000 Unicode码点）由生成器严格验证并转换为 warnings，不能下传到可编辑 content。患者需执行的具体安全动作保留。旧草稿或生成正文混入明确的内部说明标签时拒绝确认/生成，须调整后再保存；不自动删改医疗正文。
+公卫生成结果的 `sections[].content`、`options[].content` 为医生提供给患者的处方正文；最终确认 `items[].value` 只组合已选正文。制定依据、事实证据、AI/工程说明、来源、待医生核实和缺资料清单在既有 `warnings` 中按章节显示于“医生提醒（不回写）”，不进入 PHIS 字段。内部 AI 草稿可选 `doctorNotes`（0至8条、每条1至1000 Unicode码点）由生成器严格验证并转换为 warnings，不能下传到可编辑 content。患者需执行的具体安全动作保留。服务端生成正文混入明确的内部说明标签时拒绝生成；客户端不按正文关键词拒绝确认/恢复/重传；不自动删改医疗正文。
 
 随访固定三章，某章确无患者建议时允许 content 为空并仅在 warnings 说明，默认不选该章；补非空正文后可选，有其他正文时可单独确认，三章全空拒绝生成。减重及所有食谱仍非空，确认 items[].value 始终非空；合并字段须对应章全部选中且非空。
 
-减重运动生成固定3条、250至450 Unicode码点、每条最多2句，程序强校验；手工编辑沿用原长度及身份门禁。随访三章和减重两章的业务身份、签名、SSE、三选一和回执幂等契约保持独立。
+运动正文调整（2026-10-20，内网交接同步）：服务端取消运动正文的字数区间、编号/条数、标题和句数硬校验，并移除此前篇幅规划及合成格式示例。生成提示仅要求结合已传资料和受控规则写运动方式、频率或时长、时段安排及患者安全动作；运动数值仍只采用给定资料/规则，缺少时用定性安排。不填充、截断或自动重试。章节16000及合并结果64000 Unicode码点、非空（包括拒绝仅Unicode空白/BOM的正文）/JSON结构、资产批准与机构范围继续校验；服务端患者正文/医生提醒分离校验仍执行，客户端正文拦截按本日客户端调整取消。
+
+用药类别调整（2026-10-20）：模型可选择 policy.medicationReminders 中机构已批准的类别，不要求与居民 medicationClasses 一一对应；允许未传用药记录时生成批准类别，也允许只返回部分适用类别或空数组。类别编码必须为非空字符串、最多128码点、无首尾空白且不得重复；未批准类别仍拒绝。优先使用居民提供的类别名称，未提供时展示批准编码。患者正文与完整规则提醒分别输出；空结果只说明本次未生成，不误称已有资料缺失。请求中已有用药类别仍必须由批准 policy 覆盖，缺失时在模型调用前报 HTTP 503 POLICY_NOT_READY，missingFields 仅列 medicationClass:<未覆盖编码>，不暴露已覆盖类别或资产路径。提示继续禁止新增处方药、品牌、剂量及自行调整治疗；允许类别输出不构成医学适用性证明。
+
+公卫召回地址（2026-10-20）：新增服务端配置 floating-ball.public-health.embedding-base-url（环境变量 FB_PUBLIC_HEALTH_EMBEDDING_BASE_URL），默认空。空值沿用设备解析得到的 AI baseUrl；非空只替换在线减重召回的 /embeddings 和 /rerank 根地址（包含网关所需的 /v1 前缀），仍使用该设备解析的 apiKey，不修改原配置对象、聊天地址、Prompt、审计或显式配置的离线工具。两条请求均经过既有 OutboundSecurityService；失败脱敏为 KNOWLEDGE_NOT_READY，无静默回退。覆盖地址会接收设备 API 凭据，须由部署管理员选择能接收同一凭据的可信网关，并配置出站允许范围。地址通过环境变量或 --spring.config.additional-location 指定的外置配置提供；代码不内置现场地址，不改变 enabled=false、retrieval-enabled=false、资产根目录或机构批准映射。配置生效需重启服务，真实连通性另验。
 
 ## 机构知识检索（2026-09-30）
 
@@ -3881,7 +3885,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 - `legacy-bsoft-bmi-bmr.v1` 保留旧 Python 的双精度计算顺序：身高 cm 转 m 计算 BMI，再由 m 转 cm 计算旧版男女 BMR；按二进制浮点真实值执行十进制一位 HALF_EVEN，不能用 `Math.round(x*10)/10` 替代 Python `round`。合成对照覆盖 12.25→12.2、12.35→12.3 和 BMR 1609.85→1609.8 等边界，不引入新的临床公式。
 - 默认禁用：`floating-ball.public-health.enabled=false`（`FB_PUBLIC_HEALTH_ENABLED`）。资产根目录 `floating-ball.public-health.asset-directory`（`FB_PUBLIC_HEALTH_ASSET_DIR`）默认空；每机构通过服务端 `org-assets` 映射选择相对包目录，客户端不能传路径。无批准规则、Prompt或知识资产返回结构化 `POLICY_NOT_READY/KNOWLEDGE_NOT_READY`，不产生虚构成功。
 - 资产包使用 manifest.json、policy.json、recipes.json：manifest声明机构、版本、审核状态和文件SHA-256；规则包含检查白名单/最小间隔/异常复查间隔/准备事项、药物类别提醒和生活方式规则。食谱含原文分段ID与向量、embedding模型/维度、分段版本。工作区已保存真实食谱原文与85个原分段；向量构建产物仍需机构审核和绑定，不自动启用。
-- 减重检索使用本地余弦向量召回，再经机构现有模型网关 `/rerank` 调用 bge-reranker-large，Top4、无阈值、无元数据过滤；query含地区/季节/BMR。query向量通过同网关 `/embeddings` 取得。该网关必须支持对应协议；默认 `retrieval-enabled=false`。候选数通过服务端 `retrieval-candidates` 配置，默认20，原库候选数未核验，不能宣称排序等价；禁止静默退化关键词检索。
+- 减重检索使用本地余弦向量召回，再经设备解析的模型网关或上述配置的公卫召回网关 `/rerank` 调用 bge-reranker-large，Top4、无阈值、无元数据过滤；query含地区/季节/BMR。query向量通过同一召回网关 `/embeddings` 取得。该网关必须支持对应协议；默认 `retrieval-enabled=false`。候选数通过服务端 `retrieval-candidates` 配置，默认20，原库候选数未核验，不能宣称排序等价；禁止静默退化关键词检索。
 - 复用已发布Prompt代码 `publicHealthHealthPrescription`、`publicHealthExercisePlan`、`publicHealthMealPlan`，缺失时阻断。模型输出必须通过结构和受控编码校验；这些检查不是医学安全或临床有效性证明。
 
 原生运行表在Oracle/GaussDB初始化基线交付；未自动升级任何现场库。结果包含临床文本，应沿用现有数据库访问与保留策略。新增测试仅使用合成资料和Fake上游，不调用真实模型或PHIS。
@@ -3903,13 +3907,13 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 | 接入阶段 | 地址/方法 | 调用方与返回 |
 | --- | --- | --- |
-| 本机配对 | `POST /api/public-health/handshake` | PHIS SDK → 本机 `127.0.0.1:8081`；取得实例令牌 |
+| 本机医疗握手 | `POST /api/handshake` + `publicHealth` 扩展 | PHIS SDK → 本机 `127.0.0.1:8081`；复用医疗上下文取得公卫实例令牌，无额外配对配置 |
 | 调入并唤起 | `POST /api/public-health/assist` | PHIS SDK → 本机 Bridge；HTTP 202 `accepted` 表示受理任务 |
 | 业务生成 | `POST /v1/public-health/generations` | 桌面 → PCIE Server；HTTP 200、业务 SSE |
 | 医生确认 | `public-health-result-confirmed` | 本机公卫专用 WS → PHIS SDK；携带冻结的允许回写字段 |
 | 保存回执 | `POST /api/public-health/writeback-feedback` | PHIS SDK → 本机 Bridge；报告真实保存终态 |
 
-本机配对令牌与远端设备鉴权是两套不同凭据。远端请求使用 `Authorization: Bearer {deviceToken}` 及 ECDSA P-256 的 `X-Timestamp / X-Nonce / X-Signature / X-Body-SHA256`，桌面复用 `regionalRequestResponse` 完成签名；PHIS 不获得设备私钥或供应商密钥。请求 Header 为 `Content-Type: application/json`、`Accept: text/event-stream`。
+本机公卫会话令牌与远端设备鉴权是两套不同凭据。远端请求使用 `Authorization: Bearer {deviceToken}` 及 ECDSA P-256 的 `X-Timestamp / X-Nonce / X-Signature / X-Body-SHA256`，桌面复用 `regionalRequestResponse` 完成签名；PHIS 不获得设备私钥或供应商密钥。请求 Header 为 `Content-Type: application/json`、`Accept: text/event-stream`。
 
 #### 3.4.1 随访健康处方
 
@@ -3980,7 +3984,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 }
 ```
 
-服务端读取批准的 `publicHealthHealthPrescription` Prompt 生成三个固定章节；不返回 BMI/BMR 或减重食谱选项。检查计划包含目录项目、计划日期、优先级、事实依据与准备事项；用药指导覆盖所有已提供类别及批准提醒；生活方式内部六分区草稿承载带证据的潜在风险、干预建议、疾病预防、饮食、运动及随访教育，再拼为纯文本。没有用药资料或适配检查时明确说明未生成，不能填入虚构药物或检查。AI 定性风险不能作为专门量化预测模型验收。
+服务端读取批准的 `publicHealthHealthPrescription` Prompt 生成三个固定章节；不返回 BMI/BMR 或减重食谱选项。检查计划包含目录项目、计划日期、优先级、事实依据与准备事项；用药指导由模型选择机构批准类别，允许部分或无类别输出；完整规则提醒仅进入医生区；生活方式内部六分区草稿承载带证据的潜在风险、干预建议、疾病预防、饮食、运动及随访教育，再拼为纯文本。没有生成用药建议或适配检查时明确说明未生成，不能填入虚构药物或检查。AI 定性风险不能作为专门量化预测模型验收。
 
 医生核对并勾选三个章节后，PHIS SDK 收到以下确认 payload；正文为合成占位。`generationId` 来自实际生成结果，`writebackRequestId` 由桌面创建，接入方不能自己伪造生成/确认事件。若医生只选某一章节，回传仅包含该章节对应的独立目标；未回传字段保持原值。
 
