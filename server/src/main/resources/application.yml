@@ -41,6 +41,13 @@ floating-ball:
       default:
         base-url: ${FB_WEKNORA_BASE_URL:}
         api-key: ${FB_WEKNORA_API_KEY:}
+  chronic-examinations:
+    enabled: ${FB_CHRONIC_EXAMINATIONS_ENABLED:false}
+    base-url: ${FB_CHRONIC_EXAMINATIONS_BASE_URL:}
+    ak: ${FB_CHRONIC_EXAMINATIONS_AK:}
+    sk: ${FB_CHRONIC_EXAMINATIONS_SK:}
+    connect-timeout-ms: ${FB_CHRONIC_EXAMINATIONS_CONNECT_TIMEOUT_MS:3000}
+    read-timeout-ms: ${FB_CHRONIC_EXAMINATIONS_READ_TIMEOUT_MS:8000}
   aes-key: ${FB_AES_KEY:FloatingBallKey!}
   admin:
     auth:
