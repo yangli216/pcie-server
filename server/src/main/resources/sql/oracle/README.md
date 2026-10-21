@@ -121,3 +121,9 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 4. 直接用 `SYSTEM` 执行 `init.sql`
 
 但这只适合临时开发联调，不建议作为正式部署方案。
+
+## 住院病历日志
+
+初始化基线包含 `c_ai_inpatient_emr_log` 与 `c_ai_inpatient_emr_log_event`，分别保存每次生成的最新快照及不可变生命周期事件。唯一键覆盖设备/生成UUID、设备/事件UUID、轮次/序号；查询索引覆盖生成时间、HIS机构、患者住院和模板状态。新库执行 `init.sql`。
+
+按用户明确要求，存量库一次性交付 `update_inpatient_emr_logs.sql`。以当前应用账号使用 SQL*Plus / SQLcl 专用会话执行 `@update_inpatient_emr_logs.sql`，遇错非零退出；Oracle 已完成 DDL 不随 ROLLBACK 撤销。执行前必须确认应用 schema、备份并停止应用节点写入；若两表或七个命名索引中任一同名对象存在，脚本在建表前拒绝继续，由 DBA 核对结构，不直接重跑或删除。包含两张表、两主键、一外键、七个命名索引和全部注释，不含历史数据回填。完整步骤及失败恢复见 [迁移说明](../../../../../../docs/inpatient-emr-logs-migration.md)。上线客户端前必须完成建表验证；缺表时日志补传明确失败，不能按成功处理。

@@ -75,3 +75,9 @@ FB_DB_PASSWORD=Rbmh_ai@123
 7. 服务启动与 Actuator `featureEventSchema` readiness 会只读验证功能事件完整列和 `feature_event_minimization_v1` 标记；缺表、缺列、缺标记或权限不足时拒绝启动。使用情况索引仍须由 DBA 单独确认。
 8. `init.sql` 默认角色包含 `SYSTEM_ADMIN`、仅管理所属 BBP 机构 AI 使用权限的 `ORG_ADMIN`，以及只读查看本机构统计的 `ORG_ANALYST`；新增 BBP 用户授权通过 `c_ai_bbp_admin_grant` 维护，既有本地 PCIE 用户角色映射继续作为兼容路径。
 9. 已存在门诊模板快照表的库执行 `gsql -v ON_ERROR_STOP=1 -f update_outpatient_emr_template_snapshot.sql`，把唯一键调整为 `id_org + template_id + template_hash`；脚本仅重建索引，不改变任何业务记录，执行期间须停止模板快照写入。
+
+## 住院病历日志
+
+初始化基线包含 `c_ai_inpatient_emr_log` 与 `c_ai_inpatient_emr_log_event`，分别保存每次生成的最新快照及不可变生命周期事件。唯一键覆盖设备/生成UUID、设备/事件UUID、轮次/序号；查询索引覆盖生成时间、HIS机构、患者住院和模板状态。新库执行 `init.sql`。
+
+按用户明确要求，存量库一次性交付 `update_inpatient_emr_logs.sql`，仅面向 PostgreSQL 兼容模式。以当前应用账号连接正确的 database/schema 后执行 `gsql -v ON_ERROR_STOP=1 -f update_inpatient_emr_logs.sql`；脚本在事务中执行，错误中止后回滚。执行前必须备份并停止应用节点写入；若两表或七个命名索引中任一同名对象存在，脚本在建表前拒绝继续，由 DBA 核对结构。包含两张表、两主键、一外键、七个命名索引和全部注释，不含历史数据回填。完整步骤、search_path 设置及失败恢复见 [迁移说明](../../../../../../docs/inpatient-emr-logs-migration.md)。上线客户端前必须完成建表验证；缺表时日志补传明确失败，不能按成功处理。

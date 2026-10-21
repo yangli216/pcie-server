@@ -30,6 +30,8 @@ Optional environment variables:
 
 The script reuses a per-run SSH control connection. If password authentication
 is used, the remote password should normally be requested only once.
+Private runtime settings are loaded from <deployment directory>/service.env
+(trusted Bash assignments, owned by the runtime user, chmod 600).
 USAGE
 }
 
@@ -218,19 +220,13 @@ cleanup_local() {
 
 trap cleanup_local EXIT
 
-run_ssh() {
-  local remote_cmd="$1"
-
-  if [[ -n "${SSH_PASS:-}" ]]; then
-    if command -v sshpass >/dev/null 2>&1; then
-      SSHPASS="${SSH_PASS}" sshpass -e ssh "${SSH_BASE_OPTIONS[@]}" "${TARGET_USER}@${TARGET_HOST}" "${remote_cmd}"
-    elif command -v expect >/dev/null 2>&1; then
-      SSH_PASS="${SSH_PASS}" TARGET="${TARGET_USER}@${TARGET_HOST}" REMOTE_CMD="${remote_cmd}" expect <<'EXPECT'
+run_expect() {
+  SSH_PASS="${SSH_PASS}" expect -f /dev/stdin "$@" <<'EXPECT'
 set timeout -1
-spawn ssh -o StrictHostKeyChecking=accept-new $env(TARGET) $env(REMOTE_CMD)
+spawn -noecho {*}$argv
 expect {
   -re "(?i)password:" {
-    send "$env(SSH_PASS)\r"
+    send -- "$env(SSH_PASS)\r"
     exp_continue
   }
   eof
@@ -238,6 +234,16 @@ expect {
 catch wait result
 exit [lindex $result 3]
 EXPECT
+}
+
+run_ssh() {
+  local remote_cmd="$1"
+
+  if [[ -n "${SSH_PASS:-}" ]]; then
+    if command -v sshpass >/dev/null 2>&1; then
+      SSHPASS="${SSH_PASS}" sshpass -e ssh "${SSH_BASE_OPTIONS[@]}" "${TARGET_USER}@${TARGET_HOST}" "${remote_cmd}"
+    elif command -v expect >/dev/null 2>&1; then
+      run_expect ssh "${SSH_BASE_OPTIONS[@]}" "${TARGET_USER}@${TARGET_HOST}" "${remote_cmd}"
     else
       echo "SSH_PASS is set, but neither sshpass nor expect is available." >&2
       exit 1
@@ -255,19 +261,7 @@ run_scp() {
     if command -v sshpass >/dev/null 2>&1; then
       SSHPASS="${SSH_PASS}" sshpass -e scp "${SSH_BASE_OPTIONS[@]}" "${local_path}" "${TARGET_USER}@${TARGET_HOST}:${remote_path}"
     elif command -v expect >/dev/null 2>&1; then
-      SSH_PASS="${SSH_PASS}" LOCAL_PATH="${local_path}" REMOTE_TARGET="${TARGET_USER}@${TARGET_HOST}:${remote_path}" expect <<'EXPECT'
-set timeout -1
-spawn scp -o StrictHostKeyChecking=accept-new $env(LOCAL_PATH) $env(REMOTE_TARGET)
-expect {
-  -re "(?i)password:" {
-    send "$env(SSH_PASS)\r"
-    exp_continue
-  }
-  eof
-}
-catch wait result
-exit [lindex $result 3]
-EXPECT
+      run_expect scp "${SSH_BASE_OPTIONS[@]}" "${local_path}" "${TARGET_USER}@${TARGET_HOST}:${remote_path}"
     else
       echo "SSH_PASS is set, but neither sshpass nor expect is available." >&2
       exit 1
@@ -292,6 +286,30 @@ build_start_script() {
     printf 'SERVER_PORT="%s"\n' "${SERVER_PORT}"
     printf 'SPRING_PROFILES_ACTIVE="%s"\n' "${SPRING_PROFILE}"
     cat <<'REMOTE_START'
+readonly APP_NAME BASE_DIR JAR_FILE PID_FILE LOG_DIR RELEASE_DIR SPEECH_DIR SERVER_PORT SPRING_PROFILES_ACTIVE
+readonly ENV_FILE="${BASE_DIR}/service.env"
+if [[ -e "${ENV_FILE}" || -L "${ENV_FILE}" ]]; then
+  if [[ ! -f "${ENV_FILE}" || -L "${ENV_FILE}" || "$(stat -c %u "${ENV_FILE}")" != "$(id -u)" ]]; then
+    echo "Runtime config must be a regular file owned by the runtime user: ${ENV_FILE}" >&2
+    exit 1
+  fi
+  env_mode="$(stat -c %a "${ENV_FILE}")"
+  if (( (8#${env_mode} & 077) != 0 )); then
+    echo "Runtime config must have no group/other permissions (chmod 600): ${ENV_FILE}" >&2
+    exit 1
+  fi
+  if ! bash -n "${ENV_FILE}" 2>/dev/null; then
+    echo "Runtime config has invalid Bash syntax: ${ENV_FILE}" >&2
+    exit 1
+  fi
+  set -a
+  source "${ENV_FILE}"
+  set +a
+fi
+if [[ "${1:-start}" == "check-config" ]]; then
+  echo "Runtime config validated for ${APP_NAME}."
+  exit 0
+fi
 CONSOLE_LOG="${LOG_DIR}/console.log"
 
 JAVA_BIN="${JAVA_BIN:-java}"
@@ -414,7 +432,7 @@ case "${1:-start}" in
   restart) stop; start ;;
   status) status ;;
   logs) logs ;;
-  *) echo "Usage: $0 {start|stop|restart|status|logs}" >&2; exit 1 ;;
+  *) echo "Usage: $0 {start|stop|restart|status|logs|check-config}" >&2; exit 1 ;;
 esac
 REMOTE_START
   } > "${output}"
@@ -465,10 +483,6 @@ cleanup() {
 }
 
 rollback() {
-  local exit_code="$?"
-  trap - ERR
-  set +e
-
   if [[ "${MUTATION_STARTED}" == "1" && "${DEPLOY_SUCCEEDED}" != "1" ]]; then
     echo "Deployment failed; rolling back ${APP_NAME}." >&2
     if [[ -x "${START_SCRIPT}" ]]; then
@@ -486,18 +500,35 @@ rollback() {
       rm -f "${START_SCRIPT}"
     fi
     if [[ "${ORIGINAL_RUNNING}" == "1" && -x "${START_SCRIPT}" ]]; then
-      "${START_SCRIPT}" start || true
+      "${START_SCRIPT}" start 9>&- || true
     elif [[ "${LEGACY_RUNNING}" == "1" && -x "${LEGACY_START_SCRIPT}" ]]; then
-      "${LEGACY_START_SCRIPT}" start || true
+      "${LEGACY_START_SCRIPT}" start 9>&- || true
     fi
   fi
 
+}
+
+finish() {
+  local exit_code="$?"
+  trap - EXIT
+  set +e
+  if [[ "${exit_code}" != "0" ]]; then
+    rollback
+  fi
   cleanup
   exit "${exit_code}"
 }
 
-trap cleanup EXIT
-trap rollback ERR
+trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# Serialize switches per environment; the other environment has its own lock.
+exec 9>"${JAR_FILE}.publish.lock"
+if ! flock -n 9; then
+  echo "Another deployment is already switching ${APP_NAME}." >&2
+  exit 1
+fi
 
 if command -v jar >/dev/null 2>&1; then
   JAR_TOOL="$(command -v jar)"
@@ -523,6 +554,7 @@ grep -Fqx "JAR_FILE=\"${JAR_FILE}\"" "${UPLOAD_START}"
 grep -Fqx "PID_FILE=\"${PID_FILE}\"" "${UPLOAD_START}"
 grep -Fqx "SERVER_PORT=\"${SERVER_PORT}\"" "${UPLOAD_START}"
 grep -Fqx "SPRING_PROFILES_ACTIVE=\"${SPRING_PROFILE}\"" "${UPLOAD_START}"
+bash "${UPLOAD_START}" check-config
 
 current_pid=""
 if [[ -f "${PID_FILE}" ]]; then
@@ -614,11 +646,13 @@ done
 mv -f "${UPLOAD_JAR}" "${JAR_FILE}"
 mv -f "${UPLOAD_START}" "${START_SCRIPT}"
 chmod +x "${START_SCRIPT}"
-"${START_SCRIPT}" start
+# The application must not inherit the deployer's lock across its lifetime.
+"${START_SCRIPT}" start 9>&-
 
 ready=0
 for _ in $(seq 1 "${HEALTH_TIMEOUT_SECONDS}"); do
-  if curl -fsS --max-time 2 "http://127.0.0.1:${SERVER_PORT}/admin/" >/dev/null; then
+  if curl -fsS --max-time 2 "http://127.0.0.1:${SERVER_PORT}/actuator/health/readiness" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"UP"' &&
+     curl -fsS --max-time 2 "http://127.0.0.1:${SERVER_PORT}/admin/" >/dev/null; then
     ready=1
     break
   fi
@@ -628,7 +662,7 @@ for _ in $(seq 1 "${HEALTH_TIMEOUT_SECONDS}"); do
   sleep 1
 done
 if [[ "${ready}" != "1" ]]; then
-  echo "Health check timed out for ${APP_NAME}." >&2
+  echo "Readiness/admin check failed for ${APP_NAME}." >&2
   exit 1
 fi
 

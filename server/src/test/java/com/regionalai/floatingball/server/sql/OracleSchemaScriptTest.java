@@ -34,10 +34,11 @@ class OracleSchemaScriptTest {
             "bootstrap.sql", "init.sql", "update_his_org_statistics.sql",
             "update_chronic_disease_followup.sql",
             "update_chronic_disease_artifact.sql",
-            "update_outpatient_emr_template_snapshot.sql"
+            "update_outpatient_emr_template_snapshot.sql",
+            "update_inpatient_emr_logs.sql"
         ));
         assertTrue(actualSqlFiles.equals(expectedSqlFiles),
-            "oracle delivery should include the explicit HIS organization update script");
+            "oracle delivery should only include the baseline and explicitly authorized update scripts");
 
         try (DirectoryStream<Path> upgradeScripts = Files.newDirectoryStream(ORACLE_SQL_DIR, "upgrade_*.sql")) {
             assertFalse(upgradeScripts.iterator().hasNext(), "upgrade scripts should be folded into init.sql");
@@ -168,7 +169,7 @@ class OracleSchemaScriptTest {
     }
 
     @Test
-    void gaussdbDeliveryShouldOnlyKeepInitScript() throws IOException {
+    void gaussdbDeliveryShouldOnlyKeepBaselineAndExplicitUpdates() throws IOException {
         Set<String> actualSqlFiles = new HashSet<String>();
         try (DirectoryStream<Path> sqlScripts = Files.newDirectoryStream(GAUSSDB_SQL_DIR, "*.sql")) {
             for (Path sqlScript : sqlScripts) {
@@ -180,10 +181,11 @@ class OracleSchemaScriptTest {
             "init.sql", "update_his_org_statistics.sql",
             "update_chronic_disease_followup.sql",
             "update_chronic_disease_artifact.sql",
-            "update_outpatient_emr_template_snapshot.sql"
+            "update_outpatient_emr_template_snapshot.sql",
+            "update_inpatient_emr_logs.sql"
         ));
         assertTrue(actualSqlFiles.equals(expectedSqlFiles),
-            "gaussdb delivery should include the explicit HIS organization update script");
+            "gaussdb delivery should only include the baseline and explicitly authorized update scripts");
 
         try (DirectoryStream<Path> upgradeScripts = Files.newDirectoryStream(GAUSSDB_SQL_DIR, "upgrade_*.sql")) {
             assertFalse(upgradeScripts.iterator().hasNext(), "gaussdb upgrade scripts should be folded into init.sql");

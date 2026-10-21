@@ -54,6 +54,7 @@
 1. `server/src/main/resources/sql/oracle/init.sql` 与 `server/src/main/resources/sql/gaussdb/init.sql` 是对应数据库的业务 schema 初始化基线，新增表、字段、索引、注释和默认种子数据必须同步折叠进对应基线。
 2. Oracle 目录默认只保留 `bootstrap.sql` 与 `init.sql`；GaussDB 目录默认只保留 `init.sql`。不得在仓库中长期保留 `upgrade_*.sql` 补丁脚本。
 3. 现场旧库无法重建时，由 DBA 基于当前对应数据库 `init.sql` 和现场库结构生成一次性迁移脚本；该脚本不作为常驻工程资产提交，除非用户明确要求纳入版本交付。
+   - 用户于 2026-10-21 明确要求交付住院病历日志一次性迁移：两套 SQL 目录允许保留 `update_inpatient_emr_logs.sql`，仅包含该功能新增对象，必须与对应 `init.sql` 的 DDL 保持一致并维护一致性测试，不扩展为通用补丁链。
 4. 修改任一数据库 `init.sql` 后必须同步更新对应目录 `README.md`，并维护 schema 测试，防止补丁文件回流。
 5. 运行时 SQL 新增数据库相关函数、分页尾句、日期分组、JSON 读取时，必须通过数据库方言封装或明确提供 Oracle/GaussDB 双实现，不得只写 Oracle 专属 SQL。
 
@@ -81,6 +82,7 @@
 6. 修改 Maven release/versions 配置或版本号规则时，至少执行 `mvn -f server/pom.xml test`；如需验证发版流程，必须在干净工作区执行 `mvn -f server/pom.xml -DdryRun=true -DreleaseVersion=X.Y.Z -DdevelopmentVersion=X.Y.(Z+1)-SNAPSHOT -Dtag=vX.Y.Z release:prepare` 后执行 `mvn -f server/pom.xml release:clean`
 7. 若无法完成构建或测试，必须说明阻塞原因，并补充静态审查结论
 8. 小山现场发布必须通过 `scripts/publish-xiaoshan.sh` 执行 Maven `clean package` 并校验 JAR 内管理端入口及其静态资源；不得跳过构建或直接复用 `server/target` 中来源、时效不明的 JAR
+9. 萧山环境私有配置放在对应部署目录的 `service.env`（当前运行用户所有、权限 `600`），不得提交凭据；发布保持该文件，配置变更须单独备份。脚本修改后执行 `python3 scripts/test_publish_xiaoshan.py`，覆盖环境隔离、配置保护、显式失败与命令失败回滚；现场验收必须检查 readiness 和管理端入口。
 
 ## 管理端 UED 与组件规则
 

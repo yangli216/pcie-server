@@ -48,6 +48,11 @@ floating-ball:
     sk: ${FB_CHRONIC_EXAMINATIONS_SK:}
     connect-timeout-ms: ${FB_CHRONIC_EXAMINATIONS_CONNECT_TIMEOUT_MS:3000}
     read-timeout-ms: ${FB_CHRONIC_EXAMINATIONS_READ_TIMEOUT_MS:8000}
+  drug-instructions:
+    enabled: ${FB_DRUG_INSTRUCTIONS_ENABLED:false}
+    jdbc-url: ${FB_DRUG_INSTRUCTIONS_JDBC_URL:}
+    username: ${FB_DRUG_INSTRUCTIONS_USERNAME:}
+    password: ${FB_DRUG_INSTRUCTIONS_PASSWORD:}
   aes-key: ${FB_AES_KEY:FloatingBallKey!}
   admin:
     auth:

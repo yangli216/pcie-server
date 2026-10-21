@@ -21,6 +21,8 @@ const EmrTemplateView = () => import('../views/EmrTemplateView.vue')
 const LisResultEntryView = () => import('../views/LisResultEntryView.vue')
 const ReleaseView = () => import('../views/ReleaseView.vue')
 const LogView = () => import('../views/LogView.vue')
+const InpatientEmrLogView = () => import('../views/InpatientEmrLogView.vue')
+const MedicalAssistantLogView = () => import('../views/MedicalAssistantLogView.vue')
 const UserLogView = () => import('../views/UserLogView.vue')
 const BusinessWorkflowDebugView = () => import('../views/BusinessWorkflowDebugView.vue')
 const FeedbackView = () => import('../views/FeedbackView.vue')
@@ -58,6 +60,8 @@ const router = new Router({
     { path: '/exam-result-entry', component: LisResultEntryView, meta: { title: '检验检查回写' } },
     { path: '/releases', component: ReleaseView, meta: { title: '版本发布' } },
     { path: '/logs', component: LogView, meta: { title: '操作日志' } },
+    { path: '/inpatient-emr-logs', component: InpatientEmrLogView, meta: { title: '住院病历日志' } },
+    { path: '/medical-assistant-logs', component: MedicalAssistantLogView, meta: { title: '医学助手日志' } },
     { path: '/user-logs', component: UserLogView, meta: { title: '用户日志' } },
     { path: '/business-workflow-debug', component: BusinessWorkflowDebugView, meta: { title: '业务调试' } },
     { path: '/feedbacks', component: FeedbackView, meta: { title: '反馈管理' } },

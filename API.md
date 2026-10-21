@@ -1371,6 +1371,7 @@ AI 调用类 `operation` 事件补充约束：
 - `consultationId`：可选，当前问诊或病历生成运行的业务锚点；服务端会写入 `c_ai_op_log.consultation_id`，供调用排障和业务关联查询使用
 - `operationAction` / `operationTitle`：可选，桌面端 AI trace 中的业务动作编码与展示标题；服务端代理日志优先使用这两个字段，缺失时兼容回退 `chat / chat_stream`
 - `enableSearch`：可选，默认 `false`。只有 `stream=true`、`scene=chat-stream`、`sourceModule=chat_panel` 同时满足时，服务端才向上游 OpenAI 兼容载荷附加 `enable_search=true`；其他场景即使传 `true` 也忽略，确保语音问诊、病历生成、诊疗推荐、风险分析和审查链路不受影响。当前只转发回答正文，不返回 DashScope 原生搜索来源列表或引用角标
+- `doctorId` / `doctorName` / `hisOrgId` / `hisOrgName`：可选身份快照，每项最长 128 字符；桌面端独立医学助手从 SDK 握手上下文读取，仅用于审计展示，不参与鉴权或上游推理，旧客户端可省略。后台 `idOrg` 始终来自设备令牌。
 - `enable_thinking` 是否开启由服务端当前 AI 配置统一决定；桌面端不单独透传该开关覆盖服务端配置
 
 非流式响应 `data`：
@@ -1471,6 +1472,35 @@ ws(s)://{server}/v1/ai/speech/realtime/ws?token={deviceToken}&clientVersion={ver
 ```json
 { "type": "error", "message": "错误说明" }
 ```
+
+### 药品说明书：`/v1/knowledge/drug-instructions`
+
+所有请求须经过设备 Bearer token 与 ECDSA P-256 签名校验，使用本文统一响应包装；数据库地址和凭据仅保存在服务端。
+
+**POST `/v1/knowledge/drug-instructions/search`**
+
+请求：`{ "keyword": "痔疮", "current": 1, "size": 20 }`。keyword 去除首尾空格后必填、最多 128 字符，按药品名称、通用名、拼音包含匹配，`%/_/!` 按字面匹配；current 默认 1，范围 1–1000；size 默认 20，范围 1–100。参数不合法返回 HTTP 400。优先完整药名/通用名命中，再按药名和 productId 稳定排序。同名不同厂家、规格分别返回，不自动挑选。
+
+响应 `data` 示例：
+
+```json
+{
+  "current": 1,
+  "size": 20,
+  "hasMore": false,
+  "records": [
+    { "productId": "65b0d1673ed3402b813d969d", "productName": "痔疮胶囊", "genericName": "", "drugSpec": "每粒装0.4g", "producer": "湖南九典制药有限公司", "drugForm": "", "category": "中成药" }
+  ]
+}
+```
+
+分页使用多取一条判断 hasMore，不执行全视图 COUNT；没有匹配项返回 records=[]、hasMore=false，列表不返回 summary。现场视图存在关联重复行和同一 productId 的名称别名：检索先分别投影名称/通用名/拼音命中的去重 ID，再按 productId 合并、排序和分页，最后读取每个 ID 的一条完整元数据记录，避免重复候选、重复分页及跨行拼接字段；详情使用同样的 ID 查询。
+
+**GET `/v1/knowledge/drug-instructions/{productId}`**
+
+productId 为视图药品 ID（最多 64 字符）。响应 data 包含列表条目的全部字段，另含 `summary`（完整用药说明文本，保留换行，不截断、不由 AI 改写）和 `createDate`（数据库记录时间，`yyyy-MM-dd HH:mm:ss`，不表示说明书修订时间）。文本字段 NULL 统一返回空字符串；summary 为空时前端明确显示“暂无用药说明”。未找到返回 HTTP 404、`DRUG_INSTRUCTION_NOT_FOUND`。
+
+未启用或未配置返回 HTTP 503、`DRUG_INSTRUCTIONS_UNAVAILABLE`；连接/SQL 超时或数据库故障返回同一错误码和可重试提示，不能转换为零命中。错误沿用 requestId，响应不包含 SQL、地址或凭据。summary 按不可信纯文本展示，不使用 v-html。
 
 ### 4.4 POST `/v1/knowledge/pmphai/search`
 
@@ -3861,3 +3891,41 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 部署配置：`FB_CHRONIC_EXAMINATIONS_ENABLED` 默认 false，`FB_CHRONIC_EXAMINATIONS_BASE_URL` 为健康处方根地址（不含路径、query 或凭据），`FB_CHRONIC_EXAMINATIONS_AK` / `FB_CHRONIC_EXAMINATIONS_SK` 只在服务端私有 service.env 中配置；SK 为32位十六进制。服务端完成 HMAC-SHA1 登录、token 缓存及 SM4 请求加密/响应解密。AK/SK 与 token 不进入客户端、日志、API 响应或数据库。连接/读取超时默认3000/8000ms，两次请求均通过出站安全门。未启用或上游失败为 HTTP503 / CHRONIC-EXAM-UNAVAILABLE；合法 inspectionItems=[] 才表示无推荐，结构异常、空密文、解密失败不能降级成空成功。全区90天明细查询仍未接通，保持 not_connected。
 
 现场验证：2026-10-20（开发机时区）在智医服务器 Java 8 上使用本次生产 Adapter/Service、测试环境 service.env 与授权测试患者执行只读查询。登录、SM4 查询/解密成功，inspectionItems 与规范化结果均17项，重复查询一致，regionalHistory 仍 not_connected。未执行医嘱写入或服务替换；同患者两慢病页面与 PHIS 回写闭环另行验收。详细脱敏记录见 `../floating-ball/docs/chronic-examination-reminders-uat.md`。
+
+## 医学助手日志（管理端）
+
+以下接口均需管理员 Bearer token；统计专用账号禁止访问。
+
+- `GET /admin/api/medical-assistant-logs`：标准 `current/size` 分页，参数 `doctorName`（字面子串匹配）、`idOrg`（后台机构）、`hisOrgId`（HIS 机构）、`dateFrom/dateTo`（yyyy-MM-dd，必须成对，含起止日；都不传默认本周）。日期非法或倒序返回业务错误。按使用时间、日志 ID 倒序。
+- `GET /admin/api/medical-assistant-logs/organizations`：返回日志中出现的机构选项数组 `{idOrg, hisOrgId, orgName}`，机构名优先事件 HIS 机构名，再取后台机构名/ID。选择一项时同时传其后台机构及 HIS 机构标识；旧日志缺少 HIS 标识时只传后台机构。
+- `GET /admin/api/medical-assistant-logs/{idLog}`：返回当前医学助手调用详情；非医学助手、已失效或不存在记录均拒绝读取。
+- `GET /admin/api/medical-assistant-logs/export`：使用同一筛选条件，忽略分页，最多导出 1000 条；超限报错，不截断。UTF-8 BOM CSV 附件，列为序号、机构、医生姓名、使用时间、查询内容输入（完整末条 user 文本，图片以数量说明）。
+
+列表 `data.records[]`：`idLog/idOrg/hisOrgId/orgName/doctorId/doctorName/usageTime/inputPreview/imageCount/success`。详情额外返回 `inputText/outputText/contentAvailable`；缺少输入/输出保留空字符串，损坏或缺少载荷 `contentAvailable=false`。身份缺失为 null；列表不包含完整问答或原始 payload。
+
+数据来源限定为服务端 `ai_proxy + ai + chat_panel + chat-stream/chat` 审计日志，一次上游请求对应一条（含失败和重试）；不是统计中的用户调用次数。只展示本次最后一条 user 输入和本次回答，历史上下文、系统提示词、上游响应原文、图片内容及密钥不返回。AI 输出为未经管理员改写的文本；流式失败时可包含已生成的部分回答。身份快照为客户端上报元数据，不代表管理员权限或已核验的人员身份。
+
+## 住院病历日志
+
+### POST `/v1/client/user-logs/inpatient-emr/events`
+
+设备 Bearer + ECDSA P-256 签名保护，不新增绕过路径。每个事件携带完整快照，正文最大1MiB；未知顶层或嵌套字段拒绝。字段与桌面端 `features/inpatient-emr/api/inpatientEmrLog.ts` 同步。
+
+必填：`generationId/eventId`（UUID）、`sequence`（1..100000）、`eventType`、`status`、`generationStartedAt/occurredAt`（epoch毫秒）、`admissionId/templateId/templateName/templateHash`（SHA-256 hex）。可选：`requestId/recordTime/doctorId/doctorName/hisOrgId/orgName/patientId/patientName/patientGender/patientAge`。身份和模板 ID最长128、机构/模板名称256、性别/年龄32、书写时间64、requestId128。
+
+`sources[]`：最多8项，`code`固定为`doctor_supplement/his_summary/outpatient_record`，`status`为来源可用状态编码，`text`最长100000字符；仅发送本次实际使用的医生要点、HIS摘要或引用正文，不上传HIS原始对象。
+
+`fields[]`：最多250项，`id/name/section/source/generatedValue/finalValue`；ID128、名称/章节256、文本每项20000字符，ID不得重复。source取`ai/his_or_system/fixed/doctor_signature/manual_or_his`。generatedValue为生成完成时原稿（非AI字段是HIS/模板来源值），finalValue在回填/放弃/被替代时冻结，未终稿为null；按模板原始顺序保存。`message`最长512，只接受面向用户的简短状态说明。允许sources/fields为空以记录生成前失败。
+
+事件/状态映射：`started=generating`、`waiting=waiting`、`generated=generated`、`generation_failed=generation_failed`、`fallback=fallback`、`writeback_requested/writeback_dispatched=writeback_pending`、`writeback_success=writeback_success`、`writeback_failed=writeback_failed`、`abandoned=abandoned`、`superseded=superseded`。回填事件必须有requestId。正在等待回执时不得放弃/重新生成；终态success/abandoned/superseded不再允许更高序号事件。缺失回执不视为成功。重试回填保留轮次、更新事件序号；前次已发送给HIS的请求重试时使用新requestId，首次发送保留HIS入口requestId，避免前一次迟到回执串入新尝试；晚到旧事件仅入历史。生成UUID内admissionId/templateId/templateHash/generationStartedAt固定。
+
+响应data：`{idLog, replayed}`。同设备事件UUID+同正文重传幂等，不同正文或同轮次重复序号拒绝；不同设备隔离。响应不回传患者快照。服务端失败时客户端保留待补传事件，不影响已有诊疗行为，但界面必须提示日志尚未上传。
+
+### 管理接口 `/admin/api/inpatient-emr-logs`
+
+- `GET /`：标准current/size分页。筛选`dateFrom/dateTo`（yyyy-MM-dd，成对；含结束日，默认本周）、`doctorName/patientName`（字面子串）、`idOrg/hisOrgId/templateId/status`（精确）。按generationTime、ID倒序。列表字段：`idLog/idOrg/hisOrgId/orgName/doctorName/patientName/patientGender/patientAge/admissionId/templateId/templateName/recordTime/generationTime/status/latestSequence`，不包含全文JSON。
+- `GET /options`：`{organizations:[{idOrg,hisOrgId,orgName}],templates:[{templateId,templateName}]}`，只返回有日志的选项。
+- `GET /{idLog}`：`{record:列表项,snapshot:最后完整事件DTO,events:[{eventId,sequence,eventType,status,occurredAt,message}]}`。详情字段按实际模板顺序纯文本展示；不执行HTML。
+- `GET /export`：同筛选，忽略分页；最多1000条UTF-8 BOM CSV，含机构、医生、生成时间、书写时间、患者、性别、年龄、住院ID、模板、处理结果；无全文、无公式执行，超限拒绝。
+
+所有管理接口要求adminToken。统计专用账号拒绝访问；BBP非系统管理员的HIS机构由服务端锁定登录机构，选项、详情、导出同样限制。

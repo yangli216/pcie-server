@@ -1050,6 +1050,10 @@ public class AiProxyService {
                                                     String proxyAction,
                                                     AiCallTiming timing) {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        payload.put("doctorId", request == null ? null : request.getDoctorId());
+        payload.put("doctorName", request == null ? null : request.getDoctorName());
+        payload.put("hisOrgId", request == null ? null : request.getHisOrgId());
+        payload.put("hisOrgName", request == null ? null : request.getHisOrgName());
         payload.put("consultationId", request == null ? null : request.getConsultationId());
         payload.put("traceId", request == null ? null : request.getTraceId());
         payload.put("scene", request == null ? null : request.getScene());

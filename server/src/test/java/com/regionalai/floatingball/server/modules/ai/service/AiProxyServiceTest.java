@@ -60,6 +60,10 @@ class AiProxyServiceTest {
             .andRespond(withSuccess("{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}", MediaType.APPLICATION_JSON));
 
         ChatRequest request = chatRequest(false);
+        request.setDoctorId("doctor-1");
+        request.setDoctorName("张医生");
+        request.setHisOrgId("his-1");
+        request.setHisOrgName("社区医院");
         String response = service.chat(new AiDevice(), request);
 
         assertThat(response).isEqualTo("ok");
@@ -73,6 +77,12 @@ class AiProxyServiceTest {
             eq(true)
         );
         Map<String, Object> auditPayload = (Map<String, Object>) payloadCaptor.getValue();
+        assertThat(auditPayload).containsEntry("doctorId", "doctor-1");
+        assertThat(auditPayload).containsEntry("doctorName", "张医生");
+        assertThat(auditPayload).containsEntry("hisOrgId", "his-1");
+        assertThat(auditPayload).containsEntry("hisOrgName", "社区医院");
+        assertThat((Map<String, Object>) auditPayload.get("requestBody"))
+            .doesNotContainKeys("doctorId", "doctorName", "hisOrgId", "hisOrgName");
         assertThat(auditPayload).containsEntry("provider", "dashscope");
         assertThat(auditPayload).containsEntry("model", "qwen-plus");
         assertThat(auditPayload).containsEntry("action", "assess_medication_with_current_information");
@@ -105,7 +115,10 @@ class AiProxyServiceTest {
                 MediaType.TEXT_EVENT_STREAM
             ));
 
-        service.chatStream(new AiDevice(), chatRequest(true));
+        ChatRequest request = chatRequest(true);
+        request.setDoctorName("流式医生");
+        request.setHisOrgId("his-stream");
+        service.chatStream(new AiDevice(), request);
 
         org.mockito.ArgumentCaptor<Object> payloadCaptor = org.mockito.ArgumentCaptor.forClass(Object.class);
         verify(auditService).saveSystemLog(
@@ -117,6 +130,10 @@ class AiProxyServiceTest {
             eq(true)
         );
         Map<String, Object> auditPayload = (Map<String, Object>) payloadCaptor.getValue();
+        assertThat(auditPayload).containsEntry("doctorName", "流式医生");
+        assertThat(auditPayload).containsEntry("hisOrgId", "his-stream");
+        assertThat((Map<String, Object>) auditPayload.get("requestBody"))
+            .doesNotContainKeys("doctorName", "hisOrgId");
         assertThat((Long) auditPayload.get("firstTokenMs")).isGreaterThanOrEqualTo(0L);
         assertThat((Long) auditPayload.get("durationMs"))
             .isGreaterThanOrEqualTo((Long) auditPayload.get("firstTokenMs"));

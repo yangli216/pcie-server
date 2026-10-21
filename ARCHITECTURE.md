@@ -78,9 +78,11 @@ pcie-server/
         │   ├── modules/audit/      # 审计事件与日志
         │   ├── modules/feedback/   # 用户反馈与调用链路聚合
         │   ├── modules/recommendationpreference/ # 机构/科室/医生推荐偏好事件与灰度重排
+        │   ├── modules/inpatientlog/ # 住院病历生成轮次、快照、回填结果与事件历史
+        │   ├── modules/assistantlog/ # 独立医学助手对话审计查询、全文详情与 CSV 导出
         │   ├── modules/userlog/    # 运维用户日志，按一次问诊聚合首版与最终内容
         │   ├── modules/businessdebug/ # 业务调试台，按业务可用节点重放核心 AI 环节
-        │   ├── modules/knowledge/  # PMPHAI/知识库代理
+        │   ├── modules/knowledge/  # PMPHAI 代理、MySQL 药品说明书只读查询
         │   ├── modules/adminui/    # 管理端静态页面入口控制
         │   ├── modules/ai/         # chat / transcribe / realtime 代理
         │   ├── modules/analytics/  # 综合概况统计分析：趋势、分布、核心指标
@@ -116,8 +118,19 @@ pcie-server/
 11. 测试环境固定发布到 `/data/floating-ball-server-testing`，使用 `xiaoshan-test` profile 和 `9090` 端口；正式环境固定发布到 `/data/floating-ball-server-production`，使用目录内的 `floating-ball-server.jar`、`start.sh`、`xiaoshan` profile 和 `8080` 端口。首次切换时发布脚本允许受控停止旧 `/data/floating-ball-server.jar` 正式进程，失败时恢复旧正式服务；切换成功后后续正式发布只操作 production 目录。
 12. 发布脚本先构建并校验 JAR，再上传到目标环境的临时文件；本地校验必须确认管理端入口及入口引用的静态资源均已进入 JAR。远端校验摘要、profile 配置、当前进程归属和端口归属后才停止目标服务。切换失败或健康检查失败时自动恢复该环境的上一版 JAR 和启动脚本，不得操作另一环境的 PID、JAR 或启动脚本。
 13. 测试环境一键发布使用 `./scripts/publish-xiaoshan.sh testing`；正式环境使用 `./scripts/publish-xiaoshan.sh production --confirm-production`，必须携带显式正式发布确认参数；脚本会为单次发布复用临时 SSH 控制连接，密码认证场景正常只需输入一次远程服务器密码，已配置 SSH key 时无需输入密码。
+    - 各环境可在部署目录维护独立的 `service.env`（受信任的 Bash 赋值文件，仅当前运行用户拥有、权限 `600`，不得为符号链接），启动脚本自动导出其中配置；凭据不得写进仓库、JAR 或启动脚本。目录、profile、端口等映射为只读变量。发布前检查配置文件权限及语法，发布不覆盖此文件；配置修改须单独备份和恢复。
+    - 远端按环境使用 `flock` 防止并发切换；切换后的所有非零退出（含显式退出和中断）均尝试恢复上一版并重启原服务。验收同时检查 `/actuator/health/readiness` 的 `UP` 状态（包含主库与业务 schema）及管理端入口，失败按同样流程回滚。
 14. 管理端认证由 `floating-ball.admin.auth.mode` 选择 `local` 或 `bbp`。启用 `bbp` 时必须同时配置 `floating-ball.admin.auth.bbp.base-url`；可通过 `tenant-id` 固定租户，未固定时由登录者填写租户 ID。服务地址仅允许 HTTP/HTTPS，不能包含账号信息、query 或 fragment。
 15. 萧山现场访问 DashScope 时，由 AI 前置机 `172.17.2.6` 上的 Nginx `stream` 模块提供固定目标的 TCP 443 透传，配置基线为 `scripts/xiaoshan-ai-front-nginx.conf`；RHEL 7 的 SELinux PID 文件启动兼容配置为 `scripts/xiaoshan-ai-front-nginx.service.conf`。应用服务器 `192.168.204.122` 访问网络映射入口 `172.18.10.1:9443`，网络设备将其 DNAT 到前置机 `172.17.2.6:443`，前置机实测看到的 SNAT 来源为 `172.17.10.1`；Nginx 与主机防火墙只允许该 NAT 来源。前置机后端只连接 `dashscope.aliyuncs.com:443`，不终止 TLS、不读取 Authorization 或业务载荷，同时支持 HTTPS/SSE/WSS。应用服务器必须保持请求主机名为 `dashscope.aliyuncs.com` 并显式使用映射端口 `9443`；该入口解析不得同步到前置机，前置机必须继续把域名解析为阿里云公网地址，避免转发环路。测试与生产环境共用该出口，切换配置前必须先完成 `curl --resolve`、未鉴权 API 401、WebSocket 握手和测试环境业务验证。
+
+### 药品说明书外部数据源
+
+`modules/knowledge` 通过独立、惰性初始化的 Hikari 连接池只读访问 MySQL 5.7+ 的 `hzsz` 视图，JDBC URL 选择 `ipharmacare_knowledge` 数据库。不注册第二个 Spring `DataSource` Bean，不改变 Oracle/GaussDB 主库、MyBatis 或事务配置，不建表、不复制药品数据。
+
+- 配置前缀 `floating-ball.drug-instructions`：`enabled`、`jdbc-url`、`username`、`password`；对应 `FB_DRUG_INSTRUCTIONS_ENABLED/JDBC_URL/USERNAME/PASSWORD`，默认关闭且凭据为空。URL 示例 `jdbc:mysql://db-host:3306/ipharmacare_knowledge?useUnicode=true&characterEncoding=UTF-8&connectTimeout=5000&socketTimeout=10000`；TLS 由现场按证书配置，工程不关闭证书验证。
+- 连接池最多 2 个连接、最小空闲 0、只读；连接等待 5 秒、SQL 超时 5 秒。未启用、配置缺失或上游失败时仅说明书接口返回 503，不阻断主服务启动。账号需仅有目标视图 SELECT 权限。
+- 签名接口 `/v1/knowledge/drug-instructions/search` 和 `/{productId}` 分别提供限量分页检索及完整说明书详情。SQL 参数绑定并转义 LIKE 通配符，数据库/视图名不接收客户端输入；检索不拉取 `summary`，仅详情返回完整原文，空值归一为空字符串。现场视图含大量关联重复行及同 ID 名称别名，不能直接对完整视图 OR 检索后排序；先使用 UNION 去重投影，按 ID 聚合后排序分页，再读取各 ID 的一条元数据记录，详情沿用相同读取方式。
+- 客户端知识库工作台新增“药品说明书”，按名称、通用名或拼音查找，以规格/厂家区分同名药；`summary` 按文本与原始章节显示，不执行 HTML、不由 AI 改写，不参与处方自动选中或 HIS 回写。
 
 ### 3.1.1 BBP 统一账号认证边界
 
@@ -364,6 +377,14 @@ pcie-server/
 4. 服务端按 `consultationId + consultationType + idDevice` 只聚合同一轮尚未结束的问诊日志；记录进入 `completed` 或 `abandoned` 后，同一就诊再次发起智能问诊/语音问诊必须创建新记录，保证“同一病人多次问诊多条记录”，且不记录医生每次中间编辑。
 5. 服务端在写入最终快照时同步计算 `change_summary_json` 与 `total_changes`，供统计分析计算诊断符合率与用户日志变更筛选使用。
 6. 管理端新增“用户日志”模块，列表列为机构、医生、问诊时间、问诊病人、问诊类型、操作；详情对比展示首版生成内容与最终修改内容，最终内容中发生变化的字段按 diff 样式显示为“原文字删除线 + 修改后文字”，病例正文统一包含主诉、现病史、既往史、个人史、家族史、体格检查、注意事项，并继续展示诊断、用药、检查、检验、处置和用药/项目选中状态，同时支持播放语音问诊录音与查看 ASR 识别文字。
+
+### 5.6.1 医学助手日志
+
+1. 管理端 `/medical-assistant-logs` 对独立医学助手对话提供按次查询、CSV 导出和输入/输出对照详情；复用 `c_ai_op_log` 的服务端代理审计记录，限定 `ai_proxy + ai + chat_panel + chat-stream/chat`，不混入问诊日志或客户端点击事件，不改变功能统计口径。
+2. `modules/assistantlog` 负责只读查询和安全展示投影。数据库分页、计数、医生姓名与后台/HIS 机构筛选使用 Oracle/GaussDB 双实现；不新增表和依赖。列表仅返回末条 user 消息的 160 字预览；详情返回该条完整文本、图片数量和 AI 原始回答文本，不返回系统提示词、历史轮次、图片 base64、上游原文或配置地址。
+3. 桌面端 `llm.ts` 仅在 `sourceModule=chat_panel` 时从 `feedbackContext` 读取医生/机构快照，作为 `/v1/ai/chat` 的可选元数据传入；服务端只写审计载荷，不向上游发送这些字段。后台机构始终由设备鉴权确定。历史缺失医生显示未记录，不根据设备当前用户推断。
+4. 时间默认本周（服务端本地日期，周一至周日），支持日/周/月/季度/年度及自定义日期，结束日期按次日零点排除。CSV 沿用原型列：序号、机构、医生姓名、使用时间、查询内容输入；通过事务内数据库游标逐条导出命中记录（最多 1000 条，超限明确拒绝），避免同时加载大量含图片的审计载荷，含 UTF-8 BOM、规范引号及公式注入防护。
+5. 详情保留成功/失败状态，失败或不完整回答明确标识。问答按纯文本渲染，不执行 AI 输出的 HTML。所有接口继续由 `AdminAuthFilter` 保护，机构统计专用账号不开放临床全文日志。
 
 ### 5.7 安全拒绝日志链路
 
@@ -656,3 +677,14 @@ GaussDB/openGauss 初始化：
 独立短超时 HTTP Adapter 对登录与查询均复用既有出站安全门、禁止重定向，不转发设备令牌，不记录 AK/SK、token、身份证或上游正文。token 单实例同步刷新，最长缓存一小时；HTTP 401/403 时清除并只重新登录查询一次，其他协议或业务错误不自动重放。配置变更使缓存失效；无患者数据缓存。未配置、协议异常、解密失败与上游失败明确返回不可用，不以空数组掩盖失败。直接调用真实上游，避免 rbmh-cdw 的 Mock 开关。
 
 `RegionalExaminationHistoryProvider` 仅为健康大脑全区历史端口，默认固定 not_connected。接通健康处方推荐不代表全区90天历史已接通。配置前缀 floating-ball.chronic-examinations，enabled 默认 false，base-url/ak/sk 默认空，由受保护的服务端 service.env 注入，不进入 bootstrap 或客户端。无需新数据表。
+
+## 住院病历日志
+
+1. 管理端菜单和页面统一为“住院病历日志”，路径 `/inpatient-emr-logs`。范围仅为桌面端 `features/inpatient-emr`，家庭病床模板与普通住院模板共用链路，文书类型采用实际模板名称筛选，不以名称推断患者业务归属。
+2. `modules/inpatientlog` 使用 `c_ai_inpatient_emr_log` 保存每个设备/生成 UUID 的最新完整快照，`c_ai_inpatient_emr_log_event` 保存不可变事件。每次生成或重新生成使用新 UUID，上一轮标为 superseded；最小化不改变日志，明确放弃才写 abandoned。没有可靠 HIS 文书主键时不伪造 recordId。
+3. 签名 `/v1/client/user-logs/inpatient-emr/events` 接收强类型完整快照。快照包含医生/HIS 机构/患者身份、住院锚点、模板 ID/名称/原始 HTML 的 SHA-256、生成时间、病历书写时间、来源文本、按模板顺序排列的字段及 AI 原稿/最终稿。模板原始 HTML、录音、系统提示词、完整 HIS raw 对象和密钥不上传。非 AI 字段保留其来源，不冒充 AI 生成。
+4. 设备/后台机构从鉴权获得，客户端身份快照不参与授权。父记录按设备+生成 UUID 唯一，事件按设备+事件 UUID及轮次+序号唯一；写事务锁定父记录，校验锚点一致，按最大序号更新投影。重复事件同正文幂等、不同正文拒绝；迟到旧事件只入历史，不覆盖新状态。唯一冲突必须退出并回滚独立写事务后再重试一次，兼容 GaussDB 事务失败态。
+5. status 分别记录 generating、waiting、generated、generation_failed、fallback、writeback_pending、writeback_success、writeback_failed、abandoned、superseded。只有严格匹配住院 ID 和待回写 requestId 的 HIS 成功回执才是回填成功，不宣称已签署或数据库已落库；无回执保持待确认。失败后可重试回填，最终稿冻结于发起回填瞬间，不受随后编辑或迟到回调影响。
+6. 客户端 `inpatientEmrLog` 组装生成轮次快照，独立 `inpatientEmrLogOutbox` 使用 IndexedDB 按服务地址+机构编码+设备编码隔离保存待上传事件；按序通过既有签名 regionalPost 补传、确认后删除，不保存 token。最多100条/8MiB，禁止静默淘汰；存储失败或上传失败在住院页显示待补传/失败提示及重试入口，内存保留尚未落盘的事件。进入住院工作区时恢复补传，当前运行期后台每30秒重试；最小化仍保活。关闭客户端前未能落盘的事件不能承诺恢复。
+7. 管理端分页默认本周，时间按生成开始时间筛选，同时独立显示病历书写时间；支持机构、医生、患者、模板、状态。详情纯文本按字段分区显示生成依据、AI原稿、最终稿、字段差异和事件时间线。CSV只导出列表元数据，最多1000条，超限拒绝；日志全文权限不开放给机构统计专用账号，BBP机构管理员限制本机构。
+8. Oracle/GaussDB 初始化基线同步建表、注释、唯一键和查询索引。按用户 2026-10-21 的明确交付要求，两套 SQL 目录各保留定向一次性 `update_inpatient_emr_logs.sql`，只创建住院日志两表及其约束、索引和注释，DDL 与对应 `init.sql` 一致；执行前校验当前 schema 的应用基础表及同名对象，已存在对象时拒绝继续，不静默跳过未知结构。Oracle 遇错停止但已完成 DDL 不可回滚；GaussDB PostgreSQL 兼容模式采用事务。执行方法、验收及失败恢复见 `docs/inpatient-emr-logs-migration.md`。历史代理日志不自动伪造为有完整闭环的住院日志。

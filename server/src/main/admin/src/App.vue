@@ -97,6 +97,8 @@ const menuItems = [
   { path: '/exam-result-entry', label: '检验检查回写', icon: 'el-icon-edit-outline' },
   { path: '/releases', label: '版本发布', icon: 'el-icon-upload' },
   { path: '/logs', label: '日志', icon: 'el-icon-document' },
+  { path: '/inpatient-emr-logs', label: '住院病历日志', icon: 'el-icon-document-copy' },
+  { path: '/medical-assistant-logs', label: '医学助手日志', icon: 'el-icon-chat-dot-round' },
   { path: '/user-logs', label: '用户日志', icon: 'el-icon-notebook-2' },
   { path: '/business-workflow-debug', label: '业务调试', icon: 'el-icon-connection' },
   { path: '/feedbacks', label: '反馈', icon: 'el-icon-chat-dot-square' },
