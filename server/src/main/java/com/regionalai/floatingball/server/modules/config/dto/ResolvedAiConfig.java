@@ -19,6 +19,8 @@ public class ResolvedAiConfig {
     private String speechProvider;
     private String speechRealtimeUrl;
     private String speechModel;
+    private String speechTranscriptionMode;
+    private Integer speechSegmentDurationMs;
     private Boolean knowledgeBaseEnabled;
     private String knowledgeBaseBaseUrl;
     private Boolean pmphaiEnabled;

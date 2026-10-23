@@ -87,8 +87,7 @@ class RoleServiceTest {
 
         assertEquals("0", role.getFgActive());
         assertEquals("0", role.getSdStatus());
-        assertEquals("0", mapping.getFgActive());
-        verify(aiRoleMapper).updateById(role);
-        verify(aiUserRoleMapper).updateById(mapping);
+        verify(aiRoleMapper).update(org.mockito.ArgumentMatchers.isNull(), any());
+        verify(aiUserRoleMapper).deleteById("UR001");
     }
 }

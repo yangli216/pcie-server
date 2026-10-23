@@ -1,6 +1,7 @@
 package com.regionalai.floatingball.server.modules.role.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.api.PageRequest;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.time.LocalDateTime;
 
 @Service
 public class RoleService {
@@ -88,14 +90,16 @@ public class RoleService {
         AiRole role = requireActiveRole(idRole);
         role.setFgActive("0");
         role.setSdStatus("0");
-        aiRoleMapper.updateById(role);
+        aiRoleMapper.update(null, new UpdateWrapper<AiRole>()
+            .eq("id_role", idRole)
+            .set("fg_active", "0").set("sd_status", "0")
+            .set("update_time", LocalDateTime.now()));
 
         List<AiUserRole> mappings = aiUserRoleMapper.selectList(new LambdaQueryWrapper<AiUserRole>()
             .eq(AiUserRole::getIdRole, idRole)
             .eq(AiUserRole::getFgActive, "1"));
         for (AiUserRole mapping : mappings) {
-            mapping.setFgActive("0");
-            aiUserRoleMapper.updateById(mapping);
+            aiUserRoleMapper.deleteById(mapping.getIdUserRole());
         }
     }
 

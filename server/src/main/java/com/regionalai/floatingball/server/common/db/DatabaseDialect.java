@@ -12,7 +12,8 @@ public class DatabaseDialect {
     public enum Kind {
         ORACLE,
         OPENGAUSS,
-        POSTGRESQL
+        POSTGRESQL,
+        GBASE_POSTGRESQL
     }
 
     private final Kind kind;
@@ -31,7 +32,7 @@ public class DatabaseDialect {
     }
 
     public boolean isPgCompatible() {
-        return kind == Kind.OPENGAUSS || kind == Kind.POSTGRESQL;
+        return kind == Kind.OPENGAUSS || kind == Kind.POSTGRESQL || kind == Kind.GBASE_POSTGRESQL;
     }
 
     public String firstRows(int rows) {
@@ -89,6 +90,9 @@ public class DatabaseDialect {
             return Kind.ORACLE;
         }
         String value = configured.trim().toLowerCase(Locale.ROOT);
+        if ("gbase-postgresql".equals(value)) {
+            return Kind.GBASE_POSTGRESQL;
+        }
         if ("gauss".equals(value) || "gaussdb".equals(value) || "opengauss".equals(value)) {
             return Kind.OPENGAUSS;
         }

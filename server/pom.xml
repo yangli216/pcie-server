@@ -29,6 +29,9 @@
         <mybatis-plus.version>3.5.5</mybatis-plus.version>
         <lombok.version>1.18.38</lombok.version>
         <opengauss-jdbc.version>6.0.3-og</opengauss-jdbc.version>
+        <database-jdbc.group-id>org.opengauss</database-jdbc.group-id>
+        <database-jdbc.artifact-id>opengauss-jdbc</database-jdbc.artifact-id>
+        <database-jdbc.version>${opengauss-jdbc.version}</database-jdbc.version>
         <frontend-maven-plugin.version>1.15.0</frontend-maven-plugin.version>
         <maven-release-plugin.version>3.0.1</maven-release-plugin.version>
         <versions-maven-plugin.version>2.16.2</versions-maven-plugin.version>
@@ -73,9 +76,9 @@
             <scope>runtime</scope>
         </dependency>
         <dependency>
-            <groupId>org.opengauss</groupId>
-            <artifactId>opengauss-jdbc</artifactId>
-            <version>${opengauss-jdbc.version}</version>
+            <groupId>${database-jdbc.group-id}</groupId>
+            <artifactId>${database-jdbc.artifact-id}</artifactId>
+            <version>${database-jdbc.version}</version>
             <scope>runtime</scope>
         </dependency>
         <dependency>
@@ -116,6 +119,20 @@
             <scope>runtime</scope>
         </dependency>
     </dependencies>
+
+    <profiles>
+        <profile>
+            <id>gbase-postgresql</id>
+            <properties>
+                <database-jdbc.group-id>cn.gbase</database-jdbc.group-id>
+                <database-jdbc.artifact-id>gbase-jdbc</database-jdbc.artifact-id>
+                <database-jdbc.version>5.0.0</database-jdbc.version>
+            </properties>
+            <build>
+                <directory>${project.basedir}/target/gbase-postgresql</directory>
+            </build>
+        </profile>
+    </profiles>
 
     <build>
         <plugins>

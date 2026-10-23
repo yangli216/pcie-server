@@ -1,5 +1,9 @@
 # 全医慧助服务端（PCIE Server）架构说明
 
+`gbase-postgresql` 运行 profile 使用与 `gaussdb` 一致的 Logback 控制台及滚动文件输出，支持 `FB_LOG_ROOT_LEVEL`、`FB_APP_LOG_LEVEL` 与独立 `FB_LOG_PATH`。厂商驱动及验证边界见 [部署验证](deploy/gbase-postgresql/README.md)。
+
+`fgActive` 由 MyBatis-Plus 全局逻辑删除配置管理，停用业务对象必须明确写入该字段，不能依赖普通 `updateById` 的实体赋值。用户角色替换使用逻辑删除释放旧的有效关联；设备封禁记录的查询及管理员重置后的物理删除使用专用 Mapper SQL，避免逻辑删除过滤器遮蔽封禁记录或留下无法释放的终端编码。
+
 ## WeKnora 机构知识服务（2026-09-30）
 
 `modules/knowledge` 增加 KnowledgeCatalogService（批准清单/机构/有效期/版本）、KnowledgeRetrievalService（统一证据映射）及 WeKnoraKnowledgeProvider（v0.8.2独立hybrid-search）。只对服务端批准的文档/片段检索并校验原文UTF-8 SHA-256，禁止父块/邻块扩展；不依赖WeKnora生成回答或沙箱，不改变公卫生成与PMPHAI。KnowledgeRetrievalProperties托管连接配置，专用HTTP客户端固定超时、禁重定向/重试、复用出站限流熔断，响应有大小上限。配置与部署见 [知识服务设计](../development-harness/KNOWLEDGE_BASE_DESIGN.md) 和 [接入说明](deploy/weknora/README.md)，无新增业务表。
@@ -210,8 +214,12 @@ pcie-server/
 ### 4.3 数据访问层
 
 - 使用 MyBatis-Plus `Mapper` 访问 Oracle 19c 或 GaussDB/openGauss PostgreSQL 兼容库
+- 南大通用 PostgreSQL 适配使用独立 `gbase-postgresql` 配置与 `DatabaseDialect.Kind.GBASE_POSTGRESQL`，共享 PG 兼容 SQL 和 PostgreSQL 分页；不将产品名推断为 Informix、8s 或 8c，真实版本/兼容模式另验。Maven 同名 profile 只替换数据库 JDBC 依赖，默认仍为 openGauss；厂商 JAR 本机安装，连接和口令外部注入。
+- 该 profile 使用独立 `server/target/gbase-postgresql/` 存放编译类、测试报告与可执行包，避免复用默认目录中的旧类或覆盖默认运行包。
+- 当前用户介质 `gbase-jdbc-5.0.0(1).jar` 已通过只读连接，厂商 profile 的本机安装别名为 `cn.gbase:gbase-jdbc:5.0.0`。实际测试库为 `GBase8sV8.8 S5.0.0B77`、`sql_compatibility=A`；JDBC 产品名/版本仍报告 `PostgreSQL 9.2.4`。完整 `version()` 与驱动原件摘要共同作为身份依据；PG 方言的初始化、约束和 ORM/接口在 A 模式下仍须实测。
 - `mybatis-plus.db-type` 决定分页方言，默认 `oracle`，`gaussdb` profile 默认 `opengauss`
 - 运行时数据库差异集中在 `common/db/DatabaseDialect`：分页尾句、日期分组、空值函数、JSON 数值读取等不得散落硬编码
+- PG 兼容库的诊断符合率按原机构/区域/HIS机构/时间/终态筛选逐行读取完整 JSON，再解析顶层数值 `diagnosisChanges`，避免脏文本强转使整页失败；缺失、非法、非数字、重复键和尾随内容不计为符合，不改变原分母。Oracle 保留原数据库 JSON 查询。
 - 首期不引入复杂读写分离、缓存和消息队列
 
 ### 4.4 管理端托管约定
@@ -293,7 +301,7 @@ pcie-server/
 
 1. 当 `configProfile=fast` 时，服务端优先使用 AI 配置中的独立快速模型；缺失时回退主模型配置
 2. 当 `configProfile=reviewer` 时，服务端优先使用 AI 配置中的独立审查模型地址 / 密钥 / 模型；缺失时回退主模型配置
-3. `enableThinking` 作为当前 AI 配置的一部分统一作用于主模型 / fast / reviewer 代理请求，最终映射为上游 OpenAI 兼容载荷中的 `enable_thinking`
+3. `enableThinking` 统一作用于主模型 / fast / reviewer 的普通与 SSE 代理请求，映射为上游 `enable_thinking`；有效模型名为 `Qwen3` / `Qwen3-*`（含仓库名前缀）时，另携带同值 `chat_template_kwargs.enable_thinking`。本轮真实服务 A/B 已确认仅根字段不能关闭思考，模板参数能够生效；其余模型不增加模板参数。
 4. `bootstrap` 仅向桌面端暴露 `llm.model`、`llm.fastModel`、`llm.enableThinking`、`reviewer.enabled`、`reviewer.model`、`reviewer.checkExaminationEnabled` 等非敏感字段，不返回密钥
 5. `reviewer.checkExaminationEnabled` 只控制桌面端是否触发 `check_examination` 场景的独立审查，不影响诊断、用药、病历一致性等其他 reviewer 场景；默认开启以兼容旧配置
 6. `/v1/ai/chat` 与 `/v1/client/bootstrap` 的实际生效模型、thinking 开关和检查项目独立审查开关以服务端当前解析到的配置为准；桌面端不应依赖本地缓存的 `model` 回传覆盖服务端配置，确保后台修改后下一次请求立即生效
@@ -583,6 +591,8 @@ pcie-server/
 
 本项目保留 Oracle 与 GaussDB/openGauss 两套初始化基线：
 
+南大通用 PostgreSQL 的独立候选基线为 `sql/gbase-postgresql/init.sql`，从当前 GaussDB PG 结构建立，单独核对实体、约束与种子顺序。该脚本不创建库或 schema、不自动运行，不包含存量数据迁移；整份脚本在指定产品隔离空 schema 执行前不能称为真实初始化通过。配置、厂商介质与验证记录见 `deploy/gbase-postgresql/README.md`。
+
 Oracle 初始化拆成两步：
 
 1. `server/src/main/resources/sql/oracle/bootstrap.sql`
@@ -648,3 +658,6 @@ GaussDB/openGauss 初始化：
 7. `POST /v1/client/chronic-disease/artifact-snapshots` 保存健康处方或年度评估打印前快照；DTO 使用固定字段和强类型确认项，服务端序列化确认项但不接受任意业务 payload，`requestId` 在机构内幂等。
 8. `c_ai_chronic_artifact` 固化患者锚点、病种集合、数据截至时间、模板/路径/依据/规则版本、年度指标、医生确认项及打印医生。
 9. 一期不增加管理端页面；正式模板与临床路径由代码仓库受审清单发布，AI 和医生均无规则发布权限。
+## 分段语音转写
+
+OpenAI 兼容语音配置可选择 `batch` 或 `segmented`；模式与分段时长复用 `AiConfig.featuresJson` 的保留对象存储，ConfigService 在管理 DTO 与 bootstrap speech 中投影。Boolean 功能开关单独解析，禁止向客户端投影供应商连接信息。现有批量代理和签名入口复用，数据库无新增对象。

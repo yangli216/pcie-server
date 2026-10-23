@@ -1,5 +1,15 @@
 # AGENTS.md
 
+## 南大通用 PostgreSQL 适配
+
+功能联调以显式前缀合成资料验证 CRUD、事件/统计与导出，并保留签名和 readiness；默认 JUnit 仍不连真实库。涉及 `fgActive` 停用时，须核对 MyBatis-Plus 实际生成 SQL；用户角色替换、封禁查找及设备重置不能只依赖实体赋值的 Mock 断言。实际页面展示、Fake AI 工程链路和真实上游验收分别记录，清理仅限本轮合成对象。
+
+该 Maven profile 的类、测试报告和 JAR 输出到 `server/target/gbase-postgresql/`，与默认 `target/classes`/JAR 隔离，验证时核对最终包内厂商驱动摘要与管理端资源。
+
+当前厂商 profile 使用用户提供的 `gbase-jdbc-5.0.0(1).jar`，本机安装别名为 `cn.gbase:gbase-jdbc:5.0.0`，原件 SHA-256 及内部元数据差异见部署 README；不得用它覆盖 `org.opengauss` 官方缓存。真实只读连接已确认测试库为 `GBase8sV8.8 S5.0.0B77`、`sql_compatibility=A`；空库、唯一约束/事务及 ORM/接口须在此实际模式下独立验证，不以 JDBC 产品名 `PostgreSQL 9.2.4` 或 PG 方言路径代替。
+
+独立分支 `feature/gbase-postgresql-adapter` 使用 `gbase-postgresql` Maven/Spring profile。`FB_DB_TYPE=gbase-postgresql` 选择 PG SQL 和 MyBatis-Plus PostgreSQL 分页，不能使用 Informix 的 `gbase/gbase8s` 类型。厂商 JDBC 作为显式 Maven profile 的独立驱动替换默认 openGauss 依赖，JAR 不入 Git；实测介质驱动为 `cn.gbase.Driver`，协议为 `jdbc:gbase:`，连接/账号/口令通过 `FB_DB_URL/FB_DB_USERNAME/FB_DB_PASSWORD` 从环境或私有配置注入，无真实凭据默认值。`deploy/gbase-postgresql/.local/` 保存私有资料；默认测试不连真实库，显式 JDBC 验证只读，真实初始化和接口验收另记，保留签名与 readiness。新增对象同步维护 `sql/gbase-postgresql/init.sql` 与对应 schema 回归，不自动修改测试库原有对象。命令见该部署目录 README。
+
 ## WeKnora 知识服务
 
 新知识检索使用服务端批准集合与设备机构，验证原文片段SHA-256；第三方API Key只保存在受控部署配置。新增Provider必须复用出站安全和默认Fake测试，不绕过签名、不将知识入库自动当批准。WeKnora为用户授权的独立组件，其基础设施不成为PCIE Server单体启动前置条件。执行知识service/controller/security测试及Maven构建，真实部署/召回/医学审核单列。

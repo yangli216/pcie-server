@@ -14,6 +14,7 @@ import com.regionalai.floatingball.server.modules.analytics.dto.TrendDataVO;
 import com.regionalai.floatingball.server.modules.analytics.mapper.AnalyticsMapper;
 import com.regionalai.floatingball.server.modules.audit.service.AuditLogDisplayCatalog;
 import com.regionalai.floatingball.server.common.api.PageRequest;
+import com.regionalai.floatingball.server.common.db.DatabaseDialect;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.util.ExcelColumnWidthUtils;
 import org.apache.poi.ss.usermodel.Cell;
@@ -25,6 +26,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -64,12 +66,17 @@ public class AnalyticsService {
     private static final Map<String, String> FUNCTION_USAGE_ALIASES = buildFunctionUsageAliases();
 
     private final AnalyticsMapper analyticsMapper;
+    private final DatabaseDialect databaseDialect;
 
     public AnalyticsService(AnalyticsMapper analyticsMapper,
-                            AuditLogDisplayCatalog displayCatalog) {
+                            AuditLogDisplayCatalog displayCatalog,
+                            DatabaseDialect databaseDialect) {
         this.analyticsMapper = analyticsMapper;
+        this.databaseDialect = databaseDialect;
     }
 
+    // PG JDBC requires a transaction for bounded fetch-size cursor reads.
+    @Transactional(readOnly = true)
     public AnalyticsSummaryVO getSummary(AnalyticsQueryDTO query) {
         fillDateBounds(query);
         AnalyticsSummaryVO vo = new AnalyticsSummaryVO();
@@ -79,7 +86,7 @@ public class AnalyticsService {
         long activeDoctorCount = analyticsMapper.countActiveDoctors(query);
         long adoptedCount = analyticsMapper.countAdoptedConsultations(query);
         long finalizedCount = analyticsMapper.countFinalizedConsultations(query);
-        long diagnosisMatchedCount = analyticsMapper.countDiagnosisMatchedConsultations(query);
+        long diagnosisMatchedCount = countDiagnosisMatchedConsultations(query);
 
         long days = computeDays(query);
         long avgDaily = days > 0 ? aiServiceTotal / days : 0;
@@ -102,7 +109,7 @@ public class AnalyticsService {
         long prevActiveDoctors = analyticsMapper.countActiveDoctors(prevQuery);
         long prevAdopted = analyticsMapper.countAdoptedConsultations(prevQuery);
         long prevFinalized = analyticsMapper.countFinalizedConsultations(prevQuery);
-        long prevDiagnosisMatched = analyticsMapper.countDiagnosisMatchedConsultations(prevQuery);
+        long prevDiagnosisMatched = countDiagnosisMatchedConsultations(prevQuery);
 
         long prevDays = computeDays(prevQuery);
         long prevAvgDaily = prevDays > 0 ? prevAiService / prevDays : 0;
@@ -121,6 +128,19 @@ public class AnalyticsService {
         vo.setConsultationGrowth(formatGrowth(consultationTotal, prevConsultation));
 
         return vo;
+    }
+
+    private long countDiagnosisMatchedConsultations(AnalyticsQueryDTO query) {
+        if (!databaseDialect.isPgCompatible()) {
+            return analyticsMapper.countDiagnosisMatchedConsultations(query);
+        }
+        final long[] matched = {0};
+        analyticsMapper.visitFinalizedChangeSummaries(query, context -> {
+            if (DiagnosisChangeSummary.hasUnchangedDiagnosis(context.getResultObject())) {
+                matched[0]++;
+            }
+        });
+        return matched[0];
     }
 
     public TrendDataVO getTrend(AnalyticsQueryDTO query) {
@@ -186,6 +206,7 @@ public class AnalyticsService {
         return vo;
     }
 
+    @Transactional(readOnly = true)
     public byte[] exportAnalyticsExcel(AnalyticsQueryDTO query) {
         AnalyticsSummaryVO summary = getSummary(query);
         TrendDataVO trend = getTrend(query);

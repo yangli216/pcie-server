@@ -17,6 +17,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.isNull;
 
 @ExtendWith(MockitoExtension.class)
 class PromptServiceTest {
@@ -29,6 +32,23 @@ class PromptServiceTest {
     @BeforeEach
     void setUp() {
         promptService = new PromptService(aiPromptMapper, new PromptDefaultCatalog());
+    }
+
+    @Test
+    void invalidateShouldExplicitlyWriteTheLogicalDeleteFlag() {
+        AiPrompt prompt = buildPrompt("P1", "engineering", "synthetic", "1", "ORG001", null, "1");
+        when(aiPromptMapper.selectById("P1")).thenReturn(prompt);
+
+        promptService.invalidate("P1");
+
+        org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<AiPrompt>> update =
+            org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper.class);
+        verify(aiPromptMapper).update(isNull(), update.capture());
+        assertTrue(update.getValue().getSqlSet().contains("fg_active="));
+        assertTrue(update.getValue().getSqlSegment().contains("id_prompt ="));
+        assertTrue(update.getValue().getParamNameValuePairs().containsValue("P1"));
+        assertTrue(update.getValue().getParamNameValuePairs().containsValue("0"));
+        verify(aiPromptMapper, never()).updateById(any(AiPrompt.class));
     }
 
     @Test

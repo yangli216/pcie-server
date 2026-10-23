@@ -1,6 +1,12 @@
 package com.regionalai.floatingball.server.modules.config.dto;
 
 import lombok.Data;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import java.io.IOException;
 
 @Data
 public class AiConfigSaveRequest {
@@ -20,6 +26,9 @@ public class AiConfigSaveRequest {
     private String speechProvider;
     private String speechRealtimeUrl;
     private String speechModel;
+    private String speechTranscriptionMode;
+    @JsonDeserialize(using = WholeMillisecondsDeserializer.class)
+    private Integer speechSegmentDurationMs;
     private Boolean knowledgeBaseEnabled;
     private String knowledgeBaseBaseUrl;
     private Boolean pmphaiEnabled;
@@ -35,4 +44,14 @@ public class AiConfigSaveRequest {
     private String idOrg;
     private String idRegion;
     private String sdStatus;
+
+    public static class WholeMillisecondsDeserializer extends JsonDeserializer<Integer> {
+        @Override
+        public Integer deserialize(JsonParser parser, DeserializationContext context) throws IOException {
+            if (!parser.hasToken(JsonToken.VALUE_NUMBER_INT)) {
+                return (Integer) context.handleUnexpectedToken(Integer.class, parser);
+            }
+            return parser.getIntValue();
+        }
+    }
 }

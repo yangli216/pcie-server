@@ -228,7 +228,8 @@ class DeviceServiceTest {
         disabled.setDevicePublicKey("old-public-key");
 
         when(aiOrgMapper.selectOne(any())).thenReturn(org);
-        when(aiDeviceMapper.selectOne(any())).thenReturn(null, disabled);
+        when(aiDeviceMapper.selectOne(any())).thenReturn(null);
+        when(aiDeviceMapper.countDisabledByCodeAndOrg("DEV-CODE", "ORG001")).thenReturn(1L);
 
         RegisterDeviceRequest request = new RegisterDeviceRequest();
         request.setCdOrg("ORG-CODE");
@@ -494,26 +495,31 @@ class DeviceServiceTest {
 
         assertEquals("0", device.getFgActive());
         assertEquals("0", device.getSdStatus());
-        verify(aiDeviceMapper).updateById(device);
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<AiDevice>> update =
+            ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper.class);
+        verify(aiDeviceMapper).update(org.mockito.ArgumentMatchers.isNull(), update.capture());
+        assertTrue(update.getValue().getSqlSet().contains("fg_active="));
+        assertTrue(update.getValue().getSqlSet().contains("sd_status="));
+        assertTrue(update.getValue().getSqlSegment().contains("id_device ="));
+        assertTrue(update.getValue().getParamNameValuePairs().containsValue("DEV001"));
+        assertTrue(update.getValue().getParamNameValuePairs().containsValue("0"));
+        verify(aiDeviceMapper, never()).updateById(any(AiDevice.class));
     }
 
     @Test
     void deleteForResetShouldPhysicallyRemoveDeviceRecord() {
-        AiDevice device = new AiDevice();
-        device.setIdDevice("DEV001");
-        device.setFgActive("1");
-        device.setSdStatus("1");
-        when(aiDeviceMapper.selectById("DEV001")).thenReturn(device);
+        when(aiDeviceMapper.deleteForResetById("DEV001")).thenReturn(1);
 
         deviceService.deleteForReset("DEV001");
 
-        verify(aiDeviceMapper).deleteById("DEV001");
+        verify(aiDeviceMapper).deleteForResetById("DEV001");
+        verify(aiDeviceMapper, never()).selectById(any(String.class));
         verify(aiDeviceMapper, never()).updateById(any(AiDevice.class));
     }
 
     @Test
     void deleteForResetShouldRejectMissingDevice() {
-        when(aiDeviceMapper.selectById("MISSING")).thenReturn(null);
+        when(aiDeviceMapper.deleteForResetById("MISSING")).thenReturn(0);
 
         BusinessException ex = assertThrows(BusinessException.class, () -> deviceService.deleteForReset("MISSING"));
 

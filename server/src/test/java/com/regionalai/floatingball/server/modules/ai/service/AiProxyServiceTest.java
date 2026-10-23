@@ -57,6 +57,7 @@ class AiProxyServiceTest {
         when(configService.resolveByDevice(any(AiDevice.class))).thenReturn(config);
         upstream.expect(requestTo("http://127.0.0.1:18080/chat/completions"))
             .andExpect(method(HttpMethod.POST))
+            .andExpect(jsonPath("$.chat_template_kwargs").doesNotExist())
             .andRespond(withSuccess("{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}", MediaType.APPLICATION_JSON));
 
         ChatRequest request = chatRequest(false);
@@ -79,6 +80,44 @@ class AiProxyServiceTest {
         assertThat(auditPayload).containsEntry("title", "医生主动基于现有信息评估用药");
         assertThat((Long) auditPayload.get("durationMs")).isGreaterThanOrEqualTo(0L);
         assertThat(auditPayload.get("firstTokenMs")).isNull();
+        upstream.verify();
+    }
+
+    @Test
+    void qwen3ChatShouldApplyConfiguredThinkingToTheUpstreamTemplate() {
+        RestTemplate rest = new RestTemplate();
+        MockRestServiceServer upstream = MockRestServiceServer.createServer(rest);
+        ConfigService configs = mock(ConfigService.class);
+        AiProxyService service = new AiProxyService(configs, mock(AuditService.class), rest,
+            new ObjectMapper(), new OutboundSecurityService(new OutboundSecurityProperties()), Runnable::run);
+        ResolvedAiConfig config = resolvedChatConfig();
+        config.setModel("Qwen3-32B");
+        config.setEnableThinking(false);
+        when(configs.resolveByDevice(any(AiDevice.class))).thenReturn(config);
+        upstream.expect(requestTo("http://127.0.0.1:18080/chat/completions"))
+            .andExpect(jsonPath("$.enable_thinking").value(false))
+            .andExpect(jsonPath("$.chat_template_kwargs.enable_thinking").value(false))
+            .andRespond(withSuccess("{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}", MediaType.APPLICATION_JSON));
+        assertThat(service.chat(new AiDevice(), chatRequest(false))).isEqualTo("ok");
+        upstream.verify();
+    }
+
+    @Test
+    void qwen3StreamingShouldApplyTheSameTemplateFlagForNamespacedModels() {
+        RestTemplate rest = new RestTemplate();
+        MockRestServiceServer upstream = MockRestServiceServer.createServer(rest);
+        ConfigService configs = mock(ConfigService.class);
+        AiProxyService service = new AiProxyService(configs, mock(AuditService.class), rest,
+            new ObjectMapper(), new OutboundSecurityService(new OutboundSecurityProperties()), Runnable::run);
+        ResolvedAiConfig config = resolvedChatConfig();
+        config.setModel("Qwen/Qwen3-32B");
+        config.setEnableThinking(true);
+        when(configs.resolveByDevice(any(AiDevice.class))).thenReturn(config);
+        upstream.expect(requestTo("http://127.0.0.1:18080/chat/completions"))
+            .andExpect(jsonPath("$.stream").value(true))
+            .andExpect(jsonPath("$.chat_template_kwargs.enable_thinking").value(true))
+            .andRespond(withSuccess("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n", MediaType.TEXT_EVENT_STREAM));
+        service.chatStream(new AiDevice(), chatRequest(true));
         upstream.verify();
     }
 

@@ -373,6 +373,31 @@ class ConfigServiceTest {
     }
 
     @Test
+    void segmentedSpeechSettingsShouldSurviveSaveViewAndBootstrap() {
+        AiConfigSaveRequest request = new AiConfigSaveRequest();
+        request.setNaConfig("合成语音配置");
+        request.setApiBaseUrl("https://llm.example.com");
+        request.setModelName("model");
+        request.setAudioModel("SenseVoiceSmall");
+        request.setSpeechProvider("openai-compatible");
+        request.setSpeechTranscriptionMode("segmented");
+        request.setSpeechSegmentDurationMs(3000);
+        request.setFeaturesJson("{\"voice\":true}");
+        AiConfigView view = configService.save(request);
+        org.mockito.ArgumentCaptor<AiConfig> captor = org.mockito.ArgumentCaptor.forClass(AiConfig.class);
+        verify(aiConfigMapper).insert(captor.capture());
+        assertEquals("segmented", view.getSpeechTranscriptionMode());
+        assertEquals(3000, view.getSpeechSegmentDurationMs());
+        when(aiConfigMapper.selectList(any())).thenReturn(Arrays.asList(captor.getValue()));
+        BootstrapVO bootstrap = configService.buildBootstrap(new AiDevice());
+        assertEquals("segmented", bootstrap.getSpeech().getTranscriptionMode());
+        assertEquals(3000, bootstrap.getSpeech().getSegmentDurationMs());
+        assertEquals("SenseVoiceSmall", bootstrap.getLlm().getAudioModel());
+        assertEquals(1, bootstrap.getFeatures().size());
+        assertTrue(bootstrap.getFeatures().get("voice"));
+    }
+
+    @Test
     void invalidateShouldSoftDeleteExistingConfig() {
         AiConfig existing = buildConfig("ORG001", "REG001", "https://llm.example.com", "key", "deepseek-chat");
         existing.setIdConfig("CFG001");
@@ -382,7 +407,7 @@ class ConfigServiceTest {
         configService.invalidate("CFG001");
 
         assertEquals("0", existing.getFgActive());
-        verify(aiConfigMapper).updateById(existing);
+        verify(aiConfigMapper).update(org.mockito.ArgumentMatchers.isNull(), any());
     }
 
     private AiConfig buildConfig(String idOrg, String idRegion, String apiBaseUrl, String apiKey, String modelName) {

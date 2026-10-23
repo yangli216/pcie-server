@@ -676,7 +676,7 @@ Content-Type: application/json
 语音配置字段说明：
 
 - `llm.fastModel`：供 `floating-ball/src/services/llm.ts` 的 `chatFast()` 使用的独立快速模型；未单独配置时回退 `llm.model`
-- `llm.enableThinking`：由服务端统一托管的思考模式开关；`floating-ball` 只读消费该值，`/v1/ai/chat` 代理转发时会据此决定是否向上游传 `enable_thinking`
+- `llm.enableThinking`：由服务端统一托管的思考模式开关；`floating-ball` 只读消费该值，`/v1/ai/chat` 代理据此设置上游 `enable_thinking`。实际模型名为 `Qwen3` / `Qwen3-*`（允许仓库名前缀）时，同时传入 `chat_template_kwargs.enable_thinking`，使本轮内网服务的模板开关实际生效；普通与 SSE、主/fast/reviewer 使用同一规则，其余模型载荷保持原协议。
 - `reviewer.checkExaminationEnabled`：控制是否启用 `check_examination` 独立审查；未显式配置时默认开启，保证旧配置行为不变
 - `llm.audioModel`：服务端实际提交给上游的语音模型；`openai-compatible` 默认 `whisper-1`，`aliyun-dashscope` 默认 `qwen3-asr-flash`
 - `speech.provider`：下发给 `floating-ball` 的语音提供方标识，当前兼容 `openai-compatible`、`aliyun-dashscope`、`funasr-websocket`
@@ -3853,3 +3853,10 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 - `401`：device token 或 ECDSA 签名无效
 - `409`：相同 `requestId` 已存在但患者/病种关键字段冲突
 - `500`：服务端保存失败；客户端保留表单现场并允许使用同一 `requestId` 重试
+## SenseVoice 分段转写配置（2026-10-22）
+
+AI 配置新增 `speechTranscriptionMode`（`batch` / `segmented`，默认 `batch`）及 `speechSegmentDurationMs`（2000–15000 的整数，默认 4000）。只对 `speechProvider=openai-compatible` 生效，复用 `audioBaseUrl/audioModel` 与既有签名 `/v1/ai/speech/transcribe`；上游地址和密钥仍只留服务端。管理端保存/列表返回上述两个字段，bootstrap 的 `speech` 对象返回 `transcriptionMode`、`segmentDurationMs`。老客户端忽略新增字段，旧配置默认整段转写。保存后重新启动客户端获取新 bootstrap，录音开始时确定本轮模式。
+
+配置存于既有 `featuresJson.speechTranscription={"mode":"segmented","segmentDurationMs":4000}`，不新增数据库列、不迁移现场对象；该保留对象不进入 bootstrap 的 Boolean `features`。其余功能开关保持 Boolean，非对象根节点、未知模式、非法时长均拒绝；管理端显式字段覆盖同一请求中的保留对象，缺省时兼容已有值。实时 WebSocket 提供方继续走原协议。
+
+分段模式串行识别有界音频窗口，固定保留 500ms 重叠，合并结果仅作为停止前草稿；慢请求不建立无界队列，停止时对完整录音再转写一次并替换草稿。暂停不提交新音频，关闭/切换会话隔离迟到回调；分段失败仍可最终整段转写，不把草稿冒充最终医学事实。仅消费最终文本的聊天录音调用方不额外请求分段草稿。增加短音频调用量，响应时间取决于模型与网络，属于准实时而非原生流式 ASR。
