@@ -65,9 +65,9 @@
 <script>
 import { isNavigationFailure, NavigationFailureType } from 'vue-router'
 import http from '../api/http'
-import { isStatisticsOnlyUser } from '../utils/access'
+import { defaultAdminLandingPath, isRestrictedBbpUser, resolveAdminRouteRedirect } from '../utils/access'
 import { setAdminAuth } from '../utils/auth'
-import { resolveAdminRouteRedirect } from '../utils/access'
+import { adminPageMeta } from '../router/navigation'
 
 function resolveRedirectPath(value) {
   return typeof value === 'string' && value.indexOf('/') === 0 ? value : '/overview'
@@ -75,11 +75,16 @@ function resolveRedirectPath(value) {
 
 function resolvePostLoginPath(value, user) {
   const requestedPath = resolveRedirectPath(value)
-  if (!isStatisticsOnlyUser(user)) {
+  if (!isRestrictedBbpUser(user)) {
     return requestedPath
   }
   const path = requestedPath.split('?')[0]
-  return ['/analytics', '/function-usage', '/user-activity'].includes(path) ? requestedPath : '/analytics'
+  try {
+    const redirect = resolveAdminRouteRedirect({ matched: [{ meta: adminPageMeta(path) }] }, user)
+    return redirect || requestedPath
+  } catch (error) {
+    return defaultAdminLandingPath(user)
+  }
 }
 
 export default {

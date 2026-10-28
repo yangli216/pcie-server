@@ -65,6 +65,12 @@ public class BbpAdminAccessAuditService {
     }
 
     private String roleName(String roleCode) {
-        return BbpAdminAccessService.ORG_ANALYST.equals(roleCode) ? "机构统计员" : "机构管理员";
+        if (BbpAdminAccessService.ORG_ANALYST.equals(roleCode)) {
+            return "机构统计员";
+        }
+        if (BbpAdminAccessService.EMR_QC_REVIEWER.equals(roleCode)) {
+            return "门诊病历质控员";
+        }
+        return "机构管理员";
     }
 }

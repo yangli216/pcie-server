@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
+import java.util.Collections;
 import java.util.List;
 
 @RestController
@@ -126,6 +127,11 @@ public class AdminEmrQcController {
         AdminCurrentUser user = AdminContextHolder.get();
         if (user == null) {
             throw new ForbiddenException("AUTH-403", "当前登录状态无效，请重新登录后台");
+        }
+        List<String> roles = user.getRoles() == null ? Collections.<String>emptyList() : user.getRoles();
+        if (!roles.contains("SYSTEM_ADMIN") && !roles.contains("ORG_ADMIN")
+            && !roles.contains("EMR_QC_REVIEWER")) {
+            throw new ForbiddenException("AUTH-403", "当前账号未获得门诊病历质控权限");
         }
         return user;
     }

@@ -57,6 +57,28 @@ class BbpStatisticsScopeTest {
         assertTrue(scope.isAllowedStatisticsApi("/admin/api/xiaoshan-analytics/function-usage/export"));
     }
 
+    @Test
+    void emrReviewerShouldOnlyReachEmrQualityControlApis() {
+        AdminCurrentUser reviewer = user("EMR_QC_REVIEWER");
+
+        assertTrue(scope.isRestrictedToAssignedFunctions(reviewer));
+        assertTrue(scope.isAllowedRestrictedApi(reviewer, "/admin/api/emr-qc/records"));
+        assertTrue(scope.isAllowedRestrictedApi(reviewer, "/admin/api/auth/me"));
+        assertFalse(scope.isAllowedRestrictedApi(reviewer, "/admin/api/users"));
+        assertFalse(scope.isAllowedRestrictedApi(reviewer, "/admin/api/analytics/summary"));
+    }
+
+    @Test
+    void analystAndEmrReviewerShouldReceiveUnionWithoutAdministrativeApis() {
+        AdminCurrentUser mixed = user("ORG_ANALYST");
+        mixed.setRoles(Arrays.asList("ORG_ANALYST", "EMR_QC_REVIEWER"));
+
+        assertTrue(scope.isRestrictedToAssignedFunctions(mixed));
+        assertTrue(scope.isAllowedRestrictedApi(mixed, "/admin/api/analytics/summary"));
+        assertTrue(scope.isAllowedRestrictedApi(mixed, "/admin/api/emr-qc/session"));
+        assertFalse(scope.isAllowedRestrictedApi(mixed, "/admin/api/configs"));
+    }
+
     private AdminCurrentUser user(String role) {
         AdminCurrentUser user = new AdminCurrentUser();
         user.setAuthProvider("BBP");

@@ -1,4 +1,4 @@
-import { isStatisticsOnlyUser } from '../utils/access.js'
+import { canAccessRestrictedPage } from '../utils/access.js'
 
 // 页面名称与可见性在这里维护，路由和导航共同使用。
 export const adminMenu = [
@@ -16,7 +16,7 @@ export const adminMenu = [
   {
     id: 'clinical', label: '临床业务', icon: 'el-icon-first-aid-kit',
     children: [
-      { path: '/emr-qc', label: '门诊病历质控', icon: 'el-icon-document-checked', bbpOnly: true, containedLayout: true },
+      { path: '/emr-qc', label: '门诊病历质控', icon: 'el-icon-document-checked', bbpOnly: true, containedLayout: true, emrQcPermission: true },
       { path: '/exam-result-entry', label: '检验检查回写', icon: 'el-icon-edit-outline' },
       { path: '/patient-memories', label: '患者记忆', icon: 'el-icon-collection' }
     ]
@@ -71,13 +71,13 @@ export function adminPageMeta(path) {
     title: page.label,
     ...(page.containedLayout ? { containedLayout: true } : {}),
     ...(page.bbpOnly ? { bbpOnly: true } : {}),
+    ...(page.emrQcPermission ? { emrQcPermission: true } : {}),
     ...(page.organizationStatistics ? { organizationStatistics: true } : {})
   }
 }
 
 export function visibleAdminMenu(user) {
-  const statisticsOnly = isStatisticsOnlyUser(user)
-  const canSee = page => (!statisticsOnly || page.organizationStatistics) &&
+  const canSee = page => canAccessRestrictedPage(page, user) &&
     (!page.bbpOnly || Boolean(user && user.authProvider === 'BBP'))
 
   return adminMenu.reduce((result, item) => {

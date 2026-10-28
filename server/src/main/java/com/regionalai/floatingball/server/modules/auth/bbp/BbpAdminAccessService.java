@@ -27,6 +27,7 @@ public class BbpAdminAccessService {
 
     public static final String ORG_ADMIN = "ORG_ADMIN";
     public static final String ORG_ANALYST = "ORG_ANALYST";
+    public static final String EMR_QC_REVIEWER = "EMR_QC_REVIEWER";
 
     private static final Logger log = LoggerFactory.getLogger(BbpAdminAccessService.class);
 
@@ -222,13 +223,13 @@ public class BbpAdminAccessService {
     private String normalizeRoleCode(String roleCode) {
         String normalized = StringUtils.hasText(roleCode) ? roleCode.trim().toUpperCase() : ORG_ADMIN;
         if (!isSupportedRole(normalized)) {
-            throw new BusinessException("仅支持配置 ORG_ADMIN 或 ORG_ANALYST 后台角色");
+            throw new BusinessException("仅支持配置 ORG_ADMIN、ORG_ANALYST 或 EMR_QC_REVIEWER 后台角色");
         }
         return normalized;
     }
 
     private boolean isSupportedRole(String roleCode) {
-        return ORG_ADMIN.equals(roleCode) || ORG_ANALYST.equals(roleCode);
+        return ORG_ADMIN.equals(roleCode) || ORG_ANALYST.equals(roleCode) || EMR_QC_REVIEWER.equals(roleCode);
     }
 
     private String text(String... values) {

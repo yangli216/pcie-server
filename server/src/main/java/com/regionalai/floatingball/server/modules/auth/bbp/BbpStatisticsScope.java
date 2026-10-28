@@ -14,6 +14,7 @@ public class BbpStatisticsScope {
     public static final String SYSTEM_ADMIN = "SYSTEM_ADMIN";
     public static final String ORG_ADMIN = "ORG_ADMIN";
     public static final String ORG_ANALYST = "ORG_ANALYST";
+    public static final String EMR_QC_REVIEWER = "EMR_QC_REVIEWER";
 
     public Scope resolve(AdminCurrentUser currentUser, String requestedHisOrgId) {
         if (!isBbpOrganizationScoped(currentUser)) {
@@ -35,13 +36,37 @@ public class BbpStatisticsScope {
             && "BBP".equals(currentUser.getAuthProvider())
             && roles.contains(ORG_ANALYST)
             && !roles.contains(SYSTEM_ADMIN)
-            && !roles.contains(ORG_ADMIN);
+            && !roles.contains(ORG_ADMIN)
+            && !roles.contains(EMR_QC_REVIEWER);
+    }
+
+    public boolean isRestrictedToAssignedFunctions(AdminCurrentUser currentUser) {
+        List<String> roles = roles(currentUser);
+        return currentUser != null
+            && "BBP".equals(currentUser.getAuthProvider())
+            && !roles.contains(SYSTEM_ADMIN)
+            && !roles.contains(ORG_ADMIN)
+            && (roles.contains(ORG_ANALYST) || roles.contains(EMR_QC_REVIEWER));
+    }
+
+    public boolean isAllowedRestrictedApi(AdminCurrentUser currentUser, String uri) {
+        List<String> roles = roles(currentUser);
+        return isCommonRestrictedApi(uri)
+            || (roles.contains(ORG_ANALYST) && isStatisticsApi(uri))
+            || (roles.contains(EMR_QC_REVIEWER) && uri.startsWith("/admin/api/emr-qc/"));
     }
 
     public boolean isAllowedStatisticsApi(String uri) {
+        return isCommonRestrictedApi(uri) || isStatisticsApi(uri);
+    }
+
+    private boolean isCommonRestrictedApi(String uri) {
         return "/admin/api/auth/me".equals(uri)
-            || "/admin/api/auth/logout".equals(uri)
-            || uri.startsWith("/admin/api/analytics/")
+            || "/admin/api/auth/logout".equals(uri);
+    }
+
+    private boolean isStatisticsApi(String uri) {
+        return uri.startsWith("/admin/api/analytics/")
             || uri.startsWith("/admin/api/xiaoshan-analytics/")
             || uri.startsWith("/admin/api/user-activity/");
     }

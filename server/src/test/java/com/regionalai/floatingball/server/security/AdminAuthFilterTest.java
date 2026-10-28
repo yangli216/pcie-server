@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Collections;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -143,6 +144,45 @@ class AdminAuthFilterTest {
             .andExpect(jsonPath("$.requestId").value("RID-analyst-forbidden"));
     }
 
+    @Test
+    void emrReviewerShouldOnlyReachEmrQualityControlApis() throws Exception {
+        AdminCurrentUser user = new AdminCurrentUser();
+        user.setAuthProvider("BBP");
+        user.setBbpUserId("USER-QC");
+        user.setBbpOrgId("ORG-A");
+        user.setRoles(Collections.singletonList("EMR_QC_REVIEWER"));
+        when(adminTokenService.parse("qc-token")).thenReturn(user);
+
+        mockMvc.perform(get("/admin/api/emr-qc/session")
+                .header("Authorization", "Bearer qc-token"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/admin/api/stats/overview")
+                .header("Authorization", "Bearer qc-token"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.code").value("AUTH-403"));
+    }
+
+    @Test
+    void analystAndEmrReviewerShouldReceiveOnlyTheirCombinedApis() throws Exception {
+        AdminCurrentUser user = new AdminCurrentUser();
+        user.setAuthProvider("BBP");
+        user.setBbpUserId("USER-MIXED");
+        user.setBbpOrgId("ORG-A");
+        user.setRoles(Arrays.asList("ORG_ANALYST", "EMR_QC_REVIEWER"));
+        when(adminTokenService.parse("mixed-token")).thenReturn(user);
+
+        mockMvc.perform(get("/admin/api/analytics/summary")
+                .header("Authorization", "Bearer mixed-token"))
+            .andExpect(status().isOk());
+        mockMvc.perform(get("/admin/api/emr-qc/session")
+                .header("Authorization", "Bearer mixed-token"))
+            .andExpect(status().isOk());
+        mockMvc.perform(get("/admin/api/stats/overview")
+                .header("Authorization", "Bearer mixed-token"))
+            .andExpect(status().isForbidden());
+    }
+
     @RestController
     static class ProtectedAdminController {
 
@@ -162,6 +202,11 @@ class AdminAuthFilterTest {
 
         @GetMapping("/admin/api/xiaoshan-analytics/function-usage")
         public Map<String, String> xiaoshanFunctionUsage() {
+            return Collections.singletonMap("status", "ok");
+        }
+
+        @GetMapping("/admin/api/emr-qc/session")
+        public Map<String, String> emrQcSession() {
             return Collections.singletonMap("status", "ok");
         }
 

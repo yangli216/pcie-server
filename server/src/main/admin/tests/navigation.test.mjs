@@ -4,7 +4,7 @@ import test from 'node:test'
 import Vue from 'vue'
 import * as compiler from 'vue/compiler-sfc'
 import { adminMenu, adminPageMeta, visibleAdminMenu } from '../src/router/navigation.js'
-import { resolveAdminRouteRedirect } from '../src/utils/access.js'
+import { defaultAdminLandingPath, resolveAdminRouteRedirect } from '../src/utils/access.js'
 import { registerRouteErrorHandler } from '../src/router/errors.js'
 import viteConfig from '../vite.config.js'
 
@@ -12,6 +12,8 @@ const pagesOf = menu => menu.flatMap(item => item.children || [item])
 const pathsOf = menu => pagesOf(menu).map(page => page.path)
 const bbpAdmin = { authProvider: 'BBP', roles: ['SYSTEM_ADMIN'] }
 const analyst = { authProvider: 'BBP', roles: ['ORG_ANALYST'] }
+const emrReviewer = { authProvider: 'BBP', roles: ['EMR_QC_REVIEWER'] }
+const analystAndReviewer = { authProvider: 'BBP', roles: ['ORG_ANALYST', 'EMR_QC_REVIEWER'] }
 const analystPaths = ['/analytics', '/function-usage', '/user-activity']
 
 test('all existing menu pages appear exactly once in six distinct directories and the home entry', () => {
@@ -58,12 +60,30 @@ test('organization analysts only see their three statistics pages and no empty d
   assert.ok(!pathsOf(menu).includes('/emr-qc'))
 })
 
+test('EMR quality control reviewers only see the outpatient quality control page', () => {
+  const menu = visibleAdminMenu(emrReviewer)
+  assert.equal(menu.length, 1)
+  assert.equal(menu[0].id, 'clinical')
+  assert.deepEqual(pathsOf(menu), ['/emr-qc'])
+})
+
+test('analyst and EMR reviewer roles receive the union without other admin pages', () => {
+  assert.deepEqual(pathsOf(visibleAdminMenu(analystAndReviewer)), [...analystPaths, '/emr-qc'])
+  assert.equal(defaultAdminLandingPath(analyst), '/analytics')
+  assert.equal(defaultAdminLandingPath(emrReviewer), '/emr-qc')
+  assert.equal(defaultAdminLandingPath(analystAndReviewer), '/analytics')
+  assert.equal(defaultAdminLandingPath(bbpAdmin), '/overview')
+})
+
 test('shared titles and access metadata preserve direct route restrictions', () => {
   for (const page of pagesOf(adminMenu)) {
     const meta = adminPageMeta(page.path)
     const route = { matched: [{ meta }] }
     assert.equal(meta.title, page.label)
     assert.equal(resolveAdminRouteRedirect(route, analyst), analystPaths.includes(page.path) ? '' : '/analytics')
+    assert.equal(resolveAdminRouteRedirect(route, emrReviewer), page.path === '/emr-qc' ? '' : '/emr-qc')
+    assert.equal(resolveAdminRouteRedirect(route, analystAndReviewer),
+      [...analystPaths, '/emr-qc'].includes(page.path) ? '' : '/analytics')
     assert.equal(resolveAdminRouteRedirect(route, { authProvider: 'LOCAL' }), page.bbpOnly ? '/overview' : '')
     assert.equal(resolveAdminRouteRedirect(route, bbpAdmin), '')
   }
@@ -138,4 +158,10 @@ test('development dependency cache survives npm ci and lazy-only dependencies ar
   for (const dependency of ['echarts', 'element-ui/lib/timeline', 'element-ui/lib/timeline-item']) {
     assert.ok(viteConfig.optimizeDeps.include.includes(dependency))
   }
+})
+
+test('BBP user management exposes the dedicated EMR quality control reviewer grant', async () => {
+  const source = await readFile(new URL('../src/views/UserView.vue', import.meta.url), 'utf8')
+  assert.ok(source.includes('label="门诊病历质控员" value="EMR_QC_REVIEWER"'))
+  assert.ok(source.includes("this.accessRoleCode === 'EMR_QC_REVIEWER'"))
 })

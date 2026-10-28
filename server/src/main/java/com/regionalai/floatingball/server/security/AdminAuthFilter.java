@@ -63,11 +63,11 @@ public class AdminAuthFilter extends OncePerRequestFilter {
             writeUnauthorized(response, request, "管理员令牌无效或已过期");
             return;
         }
-        if (statisticsScope.isStatisticsOnly(user)
-            && !statisticsScope.isAllowedStatisticsApi(request.getRequestURI())) {
-            log.warn("admin auth failed: organization analyst attempted forbidden API. uri={}, bbpUserId={}, orgId={}",
+        if (statisticsScope.isRestrictedToAssignedFunctions(user)
+            && !statisticsScope.isAllowedRestrictedApi(user, request.getRequestURI())) {
+            log.warn("admin auth failed: restricted BBP role attempted forbidden API. uri={}, bbpUserId={}, orgId={}",
                 request.getRequestURI(), user.getBbpUserId(), user.getBbpOrgId());
-            writeForbidden(response, request, "机构统计账号无权访问该后台功能");
+            writeForbidden(response, request, "当前账号无权访问该后台功能");
             return;
         }
 

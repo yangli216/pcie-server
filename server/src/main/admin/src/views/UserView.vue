@@ -46,6 +46,7 @@
         >
           <el-option label="机构权限管理员" value="ORG_ADMIN" />
           <el-option label="机构统计员" value="ORG_ANALYST" />
+          <el-option label="门诊病历质控员" value="EMR_QC_REVIEWER" />
         </el-select>
         <el-select
           v-if="!bbpMode"
@@ -295,10 +296,14 @@ export default {
       return this.accessManageAvailable ? 'BBP 人员只读 · PCIE 后台权限可维护' : 'BBP 人员只读'
     },
     accessRoleLabel() {
-      return this.accessRoleCode === 'ORG_ANALYST' ? '机构统计员' : '机构管理员'
+      if (this.accessRoleCode === 'ORG_ANALYST') return '机构统计员'
+      if (this.accessRoleCode === 'EMR_QC_REVIEWER') return '门诊病历质控员'
+      return '机构管理员'
     },
     accessGrantActionLabel() {
-      return this.accessRoleCode === 'ORG_ANALYST' ? '设为统计员' : '设为管理员'
+      if (this.accessRoleCode === 'ORG_ANALYST') return '设为统计员'
+      if (this.accessRoleCode === 'EMR_QC_REVIEWER') return '授予质控权限'
+      return '设为管理员'
     },
     userEmptyText() {
       if (this.bbpMode && !this.filters.idOrg) {

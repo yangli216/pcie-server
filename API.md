@@ -1678,7 +1678,7 @@ productId 为视图药品 ID（最多 64 字符）。响应 data 包含列表条
 
 ### 5.1.2 POST `/admin/api/auth/bbp/login`
 
-用途：使用 BBP 账号密码完成统一账号登录。密码只用于本次 BBP 出站认证，不落库。登录页不查询、不展示也不提交 BBP 角色；服务端根据 `c_ai_bbp_admin_grant` 自动匹配唯一的 PCIE 授权身份，BBP 业务角色仅用于内部建立 BBP Cookie 会话，不能决定 PCIE 菜单或操作权限。BBP `system` 自动使用 `tenantSystem` 身份并映射到本地 `admin`；普通 BBP 人员必须命中启用的 `ORG_ADMIN` 或 `ORG_ANALYST` 授权，不再按登录名回退本地角色。仅具备 `ORG_ANALYST` 的账号登录后默认进入“统计分析”，只显示“统计分析、辅诊功能、用户活跃度”。
+用途：使用 BBP 账号密码完成统一账号登录。密码只用于本次 BBP 出站认证，不落库。登录页不查询、不展示也不提交 BBP 角色；服务端根据 `c_ai_bbp_admin_grant` 自动匹配唯一的 PCIE 授权身份，BBP 业务角色仅用于内部建立 BBP Cookie 会话，不能决定 PCIE 菜单或操作权限。BBP `system` 自动使用 `tenantSystem` 身份并映射到本地 `admin`；普通 BBP 人员必须命中启用的 `ORG_ADMIN`、`ORG_ANALYST` 或 `EMR_QC_REVIEWER` 授权，不再按登录名回退本地角色。仅具备 `ORG_ANALYST` 的账号登录后默认进入统计分析，仅具备 `EMR_QC_REVIEWER` 的账号进入门诊病历质控；同时具备两种受限角色时按白名单并集开放。
 
 请求：
 
@@ -1732,13 +1732,13 @@ productId 为视图药品 ID（最多 64 字符）。响应 data 包含列表条
 
 ### 5.3.4 GET `/admin/api/bbp/admin-access`
 
-用途：系统管理员按机构和 PCIE 角色读取 BBP 人员，并与后台访问授权合并。查询参数 `orgId` 必填，`roleCode` 可选且只允许 `ORG_ADMIN`、`ORG_ANALYST`，默认 `ORG_ADMIN`。返回人员稳定 `bbpUserId/personId`、姓名、工号、科室、人员类型、职称、`directoryPresent`、BBP `active` 状态，以及 `adminAccessEnabled`、`roleCode`、`grantId`、`grantRisk`、`updateTime` 和操作人。仅 BBP 登录的 `SYSTEM_ADMIN` 可调用。
+用途：系统管理员按机构和 PCIE 角色读取 BBP 人员，并与后台访问授权合并。查询参数 `orgId` 必填，`roleCode` 可选且只允许 `ORG_ADMIN`、`ORG_ANALYST`、`EMR_QC_REVIEWER`，默认 `ORG_ADMIN`。返回人员稳定 `bbpUserId/personId`、姓名、工号、科室、人员类型、职称、`directoryPresent`、BBP `active` 状态，以及 `adminAccessEnabled`、`roleCode`、`grantId`、`grantRisk`、`updateTime` 和操作人。仅 BBP 登录的 `SYSTEM_ADMIN` 可调用。
 
 BBP 已停用、未明确返回 `active=true`、已移出当前机构目录但仍保留授权的记录也会返回，并以 `grantRisk=true` 标记，便于撤销。人员主数据始终来自 BBP 或既有授权快照，本接口不会反向修改 BBP。
 
 ### 5.3.5 PUT `/admin/api/bbp/admin-access/{bbpUserId}`
 
-用途：授予或撤销指定 BBP 人员的 PCIE 后台角色。仅 BBP 登录的 `SYSTEM_ADMIN` 可调用；`roleCode` 只允许 `ORG_ADMIN`（机构权限管理员）或 `ORG_ANALYST`（机构统计员），缺省兼容为 `ORG_ADMIN`。
+用途：授予或撤销指定 BBP 人员的 PCIE 后台角色。仅 BBP 登录的 `SYSTEM_ADMIN` 可调用；`roleCode` 只允许 `ORG_ADMIN`（机构权限管理员）、`ORG_ANALYST`（机构统计员）或 `EMR_QC_REVIEWER`（门诊病历质控员），缺省兼容为 `ORG_ADMIN`。
 
 请求：
 
@@ -1765,6 +1765,10 @@ BBP 已停用、未明确返回 `active=true`、已移出当前机构目录但�
 - `/admin/api/user-activity/**`
 
 访问其他 `/admin/api/**` 返回 HTTP 403、错误码 `AUTH-403`。通用统计与萧山专版统计接口的汇总、趋势、分布、辅诊功能、用户活跃度和导出请求均由服务端锁定 `hisOrgId=currentUser.bbpOrgId`；缺少 `hisOrgId` 时自动补入，传入其他机构时拒绝，并清空客户端传入的区域和后台机构筛选。`GET /admin/api/analytics/his-org-options` 对机构统计员只返回本机构。
+
+### 5.3.5.2 BBP 门诊病历质控员约束
+
+仅具备 `EMR_QC_REVIEWER` 的账号只允许访问 `/admin/api/auth/me`、`/admin/api/auth/logout` 和 `/admin/api/emr-qc/**`，管理端只显示“门诊病历质控”。访问其他 `/admin/api/**` 返回 HTTP 403、错误码 `AUTH-403`。同时具备 `ORG_ANALYST` 时额外开放 5.3.5.1 的统计接口，但不开放用户、角色、配置、日志等其他后台功能。`SYSTEM_ADMIN` 与 `ORG_ADMIN` 继续保留门诊病历质控访问权。
 
 ### 5.3.6 GET `/admin/api/ai-user-permissions`
 
@@ -3933,7 +3937,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 ## PHIS 门诊病历质控（管理端）
 
-接口前缀 `/admin/api/emr-qc`，均需 `Authorization: Bearer {adminToken}`。仅 `bbp` 认证模式可用，不限制 PHIS 角色类型，能否查询由登录管理员的 PHIS `tk` 会话决定；`ORG_ANALYST` 只读统计账号禁止访问。服务端复用管理员 BBP 登录会话中与 12 小时令牌同生命周期的 `tk` Cookie，不接受、不回传 PHIS 凭据、ServiceId、ServiceMethod、上游地址或机构 ID 列表。PHIS 全程只读，不写回、不打印、不导出 PDF。完整的边界与数据模型见 [ARCHITECTURE.md](./ARCHITECTURE.md) 3.1.4 与第 7 节。
+接口前缀 `/admin/api/emr-qc`，均需 `Authorization: Bearer {adminToken}`。仅 `bbp` 认证模式可用，不限制 PHIS 角色类型，能否查询由登录管理员的 PHIS `tk` 会话决定；PCIE 角色必须包含 `SYSTEM_ADMIN`、`ORG_ADMIN` 或 `EMR_QC_REVIEWER`，仅有 `ORG_ANALYST` 或其他角色时拒绝。服务端复用管理员 BBP 登录会话中与 12 小时令牌同生命周期的 `tk` Cookie，不接受、不回传 PHIS 凭据、ServiceId、ServiceMethod、上游地址或机构 ID 列表。PHIS 全程只读，不写回、不打印、不导出 PDF。完整的边界与数据模型见 [ARCHITECTURE.md](./ARCHITECTURE.md) 3.1.4 与第 7 节。
 
 ### GET `/admin/api/emr-qc/session`
 
@@ -4257,7 +4261,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 | HTTP | code | 场景 |
 | --- | --- | --- |
 | 400 | `EMR-QC-400` | 日期、分页、身份证号、开立医生、记录 ID 或批量参数非法 |
-| 403 | `AUTH-403` | 统计专用账号或角色无权访问 |
+| 403 | `AUTH-403` | 当前账号未获得门诊病历质控权限 |
 | 404 | `EMR-RECORD-NOT-FOUND` | 文书不存在或不在当前会话列表范围 |
 | 409 | `EMR-QC-CONFLICT` | 结果版本、评分规则或病历内容已变化，需刷新或重新质控 |
 | 409 | `EMR-QC-TASK-BUSY` | 当前管理员已有进行中的批量任务 |

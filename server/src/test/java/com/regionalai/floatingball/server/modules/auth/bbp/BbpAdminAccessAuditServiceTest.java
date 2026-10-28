@@ -63,4 +63,22 @@ class BbpAdminAccessAuditServiceTest {
         verify(opLogMapper).insert(captor.capture());
         assertEquals("授予 PCIE 机构统计员权限：张三", captor.getValue().getOpTitle());
     }
+
+    @Test
+    void shouldNameEmrQualityControlReviewerInAuditTitle() {
+        BbpAdminAccessAuditService service = new BbpAdminAccessAuditService(opLogMapper, new ObjectMapper());
+        AdminCurrentUser operator = new AdminCurrentUser();
+        operator.setIdUser("ADMIN-1");
+        BbpAdminGrant grant = new BbpAdminGrant();
+        grant.setOrgId("ORG-A");
+        grant.setBbpUserId("USER-1");
+        grant.setPersonName("张三");
+        grant.setRoleCode("EMR_QC_REVIEWER");
+
+        service.record(operator, grant, true);
+
+        ArgumentCaptor<AiOpLog> captor = ArgumentCaptor.forClass(AiOpLog.class);
+        verify(opLogMapper).insert(captor.capture());
+        assertEquals("授予 PCIE 门诊病历质控员权限：张三", captor.getValue().getOpTitle());
+    }
 }

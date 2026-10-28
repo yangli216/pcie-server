@@ -116,6 +116,21 @@ class BbpAdminAccessServiceTest {
     }
 
     @Test
+    void grantShouldSupportEmrQualityControlReviewerRole() {
+        BbpPersonView person = person("USER-1", "PERSON-1", "张三", true);
+        when(directoryService.persons(systemAdmin, "ORG-A")).thenReturn(Collections.singletonList(person));
+        when(grantMapper.selectOne(any())).thenReturn(null);
+        BbpAdminAccessUpdateRequest request = request("ORG-A", true);
+        request.setRoleCode("EMR_QC_REVIEWER");
+
+        service.update(systemAdmin, "USER-1", request);
+
+        ArgumentCaptor<BbpAdminGrant> captor = ArgumentCaptor.forClass(BbpAdminGrant.class);
+        verify(grantMapper).insert(captor.capture());
+        assertEquals("EMR_QC_REVIEWER", captor.getValue().getRoleCode());
+    }
+
+    @Test
     void grantShouldFailClosedWhenBbpActiveStateIsUnknown() {
         BbpPersonView person = person("USER-1", "PERSON-1", "张三", true);
         person.setActive(null);
@@ -168,6 +183,20 @@ class BbpAdminAccessServiceTest {
         role.setUserId("USER-1");
 
         assertEquals(Collections.singletonList("ORG_ADMIN"), service.findActiveRoleCodes(role));
+    }
+
+    @Test
+    void loginLookupShouldReturnEmrQualityControlReviewerRole() {
+        when(schemaService.isReady()).thenReturn(true);
+        BbpAdminGrant grant = grant("GRANT-QC", "USER-QC", "质控员", "1");
+        grant.setRoleCode("EMR_QC_REVIEWER");
+        when(grantMapper.selectList(any())).thenReturn(Collections.singletonList(grant));
+        BbpRoleView role = new BbpRoleView();
+        role.setTenantId("TENANT-A");
+        role.setOrgId("ORG-A");
+        role.setUserId("USER-QC");
+
+        assertEquals(Collections.singletonList("EMR_QC_REVIEWER"), service.findActiveRoleCodes(role));
     }
 
     private BbpAdminAccessUpdateRequest request(String orgId, boolean enabled) {

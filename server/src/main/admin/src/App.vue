@@ -79,7 +79,7 @@ import {
   getAdminUser,
   setAdminUser
 } from './utils/auth'
-import { isStatisticsOnlyUser } from './utils/access'
+import { defaultAdminLandingPath, isRestrictedBbpUser } from './utils/access'
 import { adminPageMeta, visibleAdminMenu } from './router/navigation'
 
 export default {
@@ -122,11 +122,8 @@ export default {
     canChangePassword() {
       return !this.currentUser || this.currentUser.authProvider !== 'BBP'
     },
-    statisticsOnly() {
-      return isStatisticsOnlyUser(this.currentUser)
-    },
     landingPath() {
-      return this.statisticsOnly ? '/analytics' : '/overview'
+      return defaultAdminLandingPath(this.currentUser)
     },
     visibleMenuItems() {
       return visibleAdminMenu(this.currentUser)
@@ -157,8 +154,8 @@ export default {
     syncAuthState() {
       this.hasToken = Boolean(getAdminToken())
       this.currentUser = getAdminUser()
-      if (isStatisticsOnlyUser(this.currentUser)) {
-        const allowedPaths = ['/analytics', '/function-usage', '/user-activity']
+      if (isRestrictedBbpUser(this.currentUser)) {
+        const allowedPaths = this.visibleMenuItems.flatMap(item => item.children || [item]).map(item => item.path)
         this.visitedTags = this.visitedTags.filter(tag => allowedPaths.includes(tag.path))
       }
     },
