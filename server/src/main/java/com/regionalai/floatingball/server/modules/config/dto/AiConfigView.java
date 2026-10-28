@@ -20,6 +20,8 @@ public class AiConfigView {
     private String speechProvider;
     private String speechRealtimeUrl;
     private String speechModel;
+    private String speechTranscriptionMode;
+    private Integer speechSegmentDurationMs;
     private String knowledgeBaseEnabled;
     private String knowledgeBaseBaseUrl;
     private String pmphaiEnabled;

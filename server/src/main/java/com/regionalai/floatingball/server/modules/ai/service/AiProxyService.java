@@ -42,6 +42,7 @@ import java.util.LinkedHashMap;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
@@ -821,6 +822,10 @@ public class AiProxyService {
         payload.put("messages", messages);
         payload.put("stream", stream);
         payload.put("enable_thinking", enableThinking);
+        String modelId = model.substring(model.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
+        if ("qwen3".equals(modelId) || modelId.startsWith("qwen3-")) {
+            payload.put("chat_template_kwargs", Collections.singletonMap("enable_thinking", enableThinking));
+        }
         if (enableSearch) {
             payload.put("enable_search", true);
         }

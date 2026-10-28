@@ -7,13 +7,22 @@ import com.regionalai.floatingball.server.modules.analytics.dto.FunctionUsageQue
 import com.regionalai.floatingball.server.modules.analytics.dto.HisOrgOptionVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.ResultType;
 import org.apache.ibatis.annotations.SelectProvider;
+import org.apache.ibatis.mapping.ResultSetType;
+import org.apache.ibatis.session.ResultHandler;
 
 import java.util.List;
 import java.util.Map;
 
 @Mapper
 public interface AnalyticsMapper {
+
+    @SelectProvider(type = AnalyticsSqlProvider.class, method = "queryFinalizedChangeSummaries")
+    @Options(fetchSize = 100, resultSetType = ResultSetType.FORWARD_ONLY)
+    @ResultType(String.class)
+    void visitFinalizedChangeSummaries(@Param("query") AnalyticsQueryDTO query, ResultHandler<String> handler);
 
     @SelectProvider(type = AnalyticsSqlProvider.class, method = "countAiService")
     long countAiService(@Param("query") AnalyticsQueryDTO query);

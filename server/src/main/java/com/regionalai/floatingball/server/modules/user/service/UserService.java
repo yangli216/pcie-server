@@ -1,6 +1,7 @@
 package com.regionalai.floatingball.server.modules.user.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.api.PageRequest;
@@ -27,6 +28,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.LocalDateTime;
 import java.util.stream.Collectors;
 
 @Service
@@ -140,14 +142,16 @@ public class UserService {
         AiUser user = requireActiveUser(idUser);
         user.setFgActive("0");
         user.setSdStatus("0");
-        aiUserMapper.updateById(user);
+        aiUserMapper.update(null, new UpdateWrapper<AiUser>()
+            .eq("id_user", idUser)
+            .set("fg_active", "0").set("sd_status", "0")
+            .set("update_time", LocalDateTime.now()));
 
         List<AiUserRole> mappings = aiUserRoleMapper.selectList(new LambdaQueryWrapper<AiUserRole>()
             .eq(AiUserRole::getIdUser, idUser)
             .eq(AiUserRole::getFgActive, "1"));
         for (AiUserRole mapping : mappings) {
-            mapping.setFgActive("0");
-            aiUserRoleMapper.updateById(mapping);
+            aiUserRoleMapper.deleteById(mapping.getIdUserRole());
         }
     }
 
@@ -253,8 +257,7 @@ public class UserService {
             .eq(AiUserRole::getIdUser, idUser)
             .eq(AiUserRole::getFgActive, "1"));
         for (AiUserRole item : existing) {
-            item.setFgActive("0");
-            aiUserRoleMapper.updateById(item);
+            aiUserRoleMapper.deleteById(item.getIdUserRole());
         }
 
         for (AiRole role : roles) {

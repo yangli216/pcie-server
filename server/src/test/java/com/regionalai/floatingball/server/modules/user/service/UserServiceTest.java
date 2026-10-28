@@ -1,6 +1,7 @@
 package com.regionalai.floatingball.server.modules.user.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.db.DatabaseDialect;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
@@ -33,6 +34,9 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.inOrder;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.isNull;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -126,6 +130,56 @@ class UserServiceTest {
 
         assertEquals("登录账号已存在", ex.getMessage());
         verify(aiUserRoleMapper, never()).insert(any(AiUserRole.class));
+    }
+
+    @Test
+    void updateShouldReleaseOldActiveRoleBeforeInsertingReplacement() {
+        AiUser user = activeUser("USER001", "1");
+        user.setPasswordHash("unchanged-password-hash");
+        AiUserRole old = new AiUserRole();
+        old.setIdUserRole("OLD-MAPPING");
+        old.setIdUser("USER001");
+        old.setIdRole("ROLE001");
+        old.setFgActive("1");
+        when(aiUserMapper.selectById("USER001")).thenReturn(user);
+        when(aiUserMapper.selectOne(any())).thenReturn(null);
+        when(aiOrgMapper.selectOne(any())).thenReturn(activeOrg("ORG001", "机构"));
+        when(aiRoleMapper.selectBatchIds(any())).thenReturn(Collections.singletonList(activeRole("ROLE001", "角色")));
+        when(aiUserRoleMapper.selectList(any())).thenReturn(Collections.singletonList(old));
+        AdminUserSaveRequest request = saveRequest();
+        request.setPassword(null);
+
+        userService.update("USER001", request);
+
+        org.mockito.InOrder order = inOrder(aiUserRoleMapper);
+        order.verify(aiUserRoleMapper).deleteById("OLD-MAPPING");
+        ArgumentCaptor<AiUserRole> replacement = ArgumentCaptor.forClass(AiUserRole.class);
+        order.verify(aiUserRoleMapper).insert(replacement.capture());
+        assertEquals("USER001", replacement.getValue().getIdUser());
+        assertEquals("ROLE001", replacement.getValue().getIdRole());
+        assertEquals("1", replacement.getValue().getFgActive());
+        assertEquals("unchanged-password-hash", user.getPasswordHash());
+        verify(aiUserRoleMapper, never()).updateById(any(AiUserRole.class));
+    }
+
+    @Test
+    void invalidateShouldExplicitlyDeactivateUserAndReleaseRoleMappings() {
+        when(aiUserMapper.selectById("USER001")).thenReturn(activeUser("USER001", "1"));
+        AiUserRole mapping = new AiUserRole();
+        mapping.setIdUserRole("MAPPING001");
+        when(aiUserRoleMapper.selectList(any())).thenReturn(Collections.singletonList(mapping));
+
+        userService.invalidate("USER001");
+
+        ArgumentCaptor<UpdateWrapper<AiUser>> update = ArgumentCaptor.forClass(UpdateWrapper.class);
+        verify(aiUserMapper).update(isNull(), update.capture());
+        assertTrue(update.getValue().getSqlSet().contains("fg_active="));
+        assertTrue(update.getValue().getSqlSet().contains("sd_status="));
+        assertTrue(update.getValue().getSqlSegment().contains("id_user ="));
+        assertTrue(update.getValue().getParamNameValuePairs().containsValue("USER001"));
+        assertTrue(update.getValue().getParamNameValuePairs().containsValue("0"));
+        verify(aiUserRoleMapper).deleteById("MAPPING001");
+        verify(aiUserMapper, never()).updateById(any(AiUser.class));
     }
 
     @Test

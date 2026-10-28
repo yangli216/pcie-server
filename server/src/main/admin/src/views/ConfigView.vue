@@ -112,7 +112,7 @@
 
           <section class="config-section">
             <h3>语音识别</h3>
-            <p class="config-section__summary">桌面端优先使用实时流式识别；实时连接不可用时，录音结束后自动改用整段转写。</p>
+            <p class="config-section__summary">选择整段、分段准实时或 WebSocket 识别。分段模式停止后完整转写校正，WebSocket 连接异常时保留整段兜底。</p>
 
             <div class="form-grid">
               <el-form-item label="语音提供方">
@@ -132,6 +132,11 @@
               </el-form-item>
             </div>
 
+            <speech-transcription-fields
+              :provider="form.speechProvider"
+              :mode.sync="form.speechTranscriptionMode"
+              :duration-ms.sync="form.speechSegmentDurationMs"
+            />
             <div class="config-subsection">
               <div class="config-subsection__title">
                 <span>实时流式识别（优先）</span>
@@ -312,6 +317,7 @@ import {
   truncate
 } from '../utils/admin'
 import { CodeTag, SegmentedSwitch, StatusPill, TableAction } from '../components/ui'
+import SpeechTranscriptionFields from '../components/SpeechTranscriptionFields.vue'
 
 const DEFAULT_AUDIO_MODEL = 'whisper-1'
 const DEFAULT_DASHSCOPE_AUDIO_MODEL = 'qwen3-asr-flash'
@@ -326,7 +332,7 @@ const SPEECH_PROVIDER_OPTIONS = [
   {
     value: DEFAULT_SPEECH_PROVIDER,
     label: 'OpenAI 兼容接口',
-    description: '仅在录音结束后进行整段转写，不启用实时 WebSocket。'
+    description: '可选择录音结束后识别或分段准实时识别，复用同一文件转写模型，不需要 WebSocket。'
   },
   {
     value: ALIYUN_SPEECH_PROVIDER,
@@ -389,6 +395,8 @@ function createDefaultForm() {
     speechProvider: DEFAULT_SPEECH_PROVIDER,
     speechRealtimeUrl: '',
     speechModel: DEFAULT_AUDIO_MODEL,
+    speechTranscriptionMode: 'batch',
+    speechSegmentDurationMs: 4000,
     knowledgeBaseEnabled: false,
     knowledgeBaseBaseUrl: '',
     pmphaiEnabled: false,
@@ -409,6 +417,7 @@ function createDefaultForm() {
 
 export default {
   components: {
+    SpeechTranscriptionFields,
     CodeTag,
     SegmentedSwitch,
     StatusPill,
@@ -652,6 +661,8 @@ export default {
         speechProvider,
         speechRealtimeUrl: row.speechRealtimeUrl || '',
         speechModel: resolveSpeechModel(speechProvider, row.speechModel || '', audioModel),
+        speechTranscriptionMode: row.speechTranscriptionMode || 'batch',
+        speechSegmentDurationMs: row.speechSegmentDurationMs || 4000,
         knowledgeBaseEnabled: flagToBoolean(row.knowledgeBaseEnabled),
         knowledgeBaseBaseUrl: row.knowledgeBaseBaseUrl || '',
         pmphaiEnabled: flagToBoolean(row.pmphaiEnabled),
@@ -826,6 +837,8 @@ export default {
             speechProvider,
             speechRealtimeUrl: this.form.speechRealtimeUrl,
             speechModel: resolveSpeechModel(speechProvider, this.form.speechModel, audioModel),
+            speechTranscriptionMode: this.form.speechTranscriptionMode,
+            speechSegmentDurationMs: this.form.speechSegmentDurationMs,
             knowledgeBaseEnabled: this.form.knowledgeBaseEnabled,
             knowledgeBaseBaseUrl: this.form.knowledgeBaseBaseUrl,
             pmphaiEnabled: this.form.pmphaiEnabled,
@@ -890,6 +903,8 @@ export default {
         speechProvider,
         speechRealtimeUrl: row.speechRealtimeUrl || '',
         speechModel: resolveSpeechModel(speechProvider, row.speechModel || '', audioModel),
+        speechTranscriptionMode: row.speechTranscriptionMode || 'batch',
+        speechSegmentDurationMs: row.speechSegmentDurationMs || 4000,
         knowledgeBaseEnabled: flagToBoolean(row.knowledgeBaseEnabled),
         knowledgeBaseBaseUrl: row.knowledgeBaseBaseUrl || '',
         pmphaiEnabled: flagToBoolean(row.pmphaiEnabled),

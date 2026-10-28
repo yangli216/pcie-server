@@ -1,6 +1,7 @@
 package com.regionalai.floatingball.server.modules.device.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.api.PageRequest;
@@ -129,10 +130,9 @@ public class DeviceService {
             return new RegisterDeviceResponse(existing.getIdDevice(), existing.getDeviceToken(), DEFAULT_HEARTBEAT_INTERVAL, StringUtils.hasText(existing.getDevicePublicKey()));
         }
 
-        AiDevice disabled = findDeviceByCodeAndOrg(request.getCdDevice(), org.getIdOrg(), "0");
-        if (disabled != null) {
-            log.warn("device register rejected: disabled device code. disabledIdDevice={}, cdDevice={}, idOrg={}",
-                disabled.getIdDevice(), disabled.getCdDevice(), org.getIdOrg());
+        if (aiDeviceMapper.countDisabledByCodeAndOrg(request.getCdDevice(), org.getIdOrg()) > 0L) {
+            log.warn("device register rejected: disabled device code. cdDevice={}, idOrg={}",
+                request.getCdDevice(), org.getIdOrg());
             throw new BusinessException(DEVICE_DISABLED_CODE, DEVICE_DISABLED_MESSAGE);
         }
 
@@ -255,16 +255,17 @@ public class DeviceService {
         }
         device.setFgActive("0");
         device.setSdStatus("0");
-        aiDeviceMapper.updateById(device);
+        aiDeviceMapper.update(null, new UpdateWrapper<AiDevice>()
+            .eq("id_device", idDevice)
+            .set("fg_active", "0").set("sd_status", "0")
+            .set("update_time", LocalDateTime.now()));
     }
 
     @Transactional
     public void deleteForReset(String idDevice) {
-        AiDevice device = aiDeviceMapper.selectById(idDevice);
-        if (device == null) {
+        if (aiDeviceMapper.deleteForResetById(idDevice) == 0) {
             throw new BusinessException("设备不存在");
         }
-        aiDeviceMapper.deleteById(idDevice);
     }
 
     private void validateSaveRequest(AiDeviceSaveRequest request) {

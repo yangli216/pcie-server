@@ -11,6 +11,7 @@ import com.regionalai.floatingball.server.modules.analytics.dto.FunctionUsageTre
 import com.regionalai.floatingball.server.modules.analytics.dto.TrendDataVO;
 import com.regionalai.floatingball.server.modules.analytics.mapper.AnalyticsMapper;
 import com.regionalai.floatingball.server.modules.audit.service.AuditLogDisplayCatalog;
+import com.regionalai.floatingball.server.common.db.DatabaseDialect;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,8 @@ class AnalyticsServiceTest {
 
     @BeforeEach
     void setUp() {
-        analyticsService = new AnalyticsService(analyticsMapper, new AuditLogDisplayCatalog());
+        analyticsService = new AnalyticsService(analyticsMapper, new AuditLogDisplayCatalog(),
+            new DatabaseDialect(DatabaseDialect.Kind.ORACLE));
     }
 
     @Test

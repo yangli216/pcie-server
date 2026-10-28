@@ -9,6 +9,8 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.SelectProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
@@ -18,6 +20,24 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AnalyticsMapperTest {
+
+    @ParameterizedTest
+    @EnumSource(value = DatabaseDialect.Kind.class, names = {"OPENGAUSS", "POSTGRESQL", "GBASE_POSTGRESQL"})
+    void finalizedJsonReadShouldKeepAllScopeAndPeriodFiltersWithoutCasting(DatabaseDialect.Kind kind) {
+        DatabaseDialectHolder.set(new DatabaseDialect(kind));
+        String sql = new AnalyticsSqlProvider().queryFinalizedChangeSummaries();
+        assertTrue(sql.contains("SELECT ucl.change_summary_json FROM c_ai_user_consultation_log"));
+        assertTrue(sql.contains("ucl.status IN ('completed','abandoned')"));
+        assertTrue(sql.contains("ucl.fg_active = '1'"));
+        assertTrue(sql.contains("o.fg_active = '1' AND o.sd_status = '1'"));
+        assertTrue(sql.contains("r.fg_active = '1' AND r.sd_status = '1'"));
+        for (String parameter : new String[]{"idOrg", "idRegion", "hisOrgId", "dateFromTime", "dateToExclusiveTime"}) {
+            assertTrue(sql.contains("#{query." + parameter + "}"), parameter);
+        }
+        assertFalse(sql.contains("::json"));
+        assertFalse(sql.contains("JSON_VALUE"));
+        assertFalse(sql.contains("SUBSTR"));
+    }
 
     @AfterEach
     void tearDown() {

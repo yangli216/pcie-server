@@ -1,6 +1,7 @@
 package com.regionalai.floatingball.server.modules.prompt.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.regionalai.floatingball.server.common.api.PageRequest;
 import com.regionalai.floatingball.server.common.api.PageResponse;
@@ -164,7 +165,9 @@ public class PromptService {
         AiPrompt entity = loadPrompt(idPrompt);
         entity.setFgActive("0");
         entity.setUpdateTime(LocalDateTime.now());
-        aiPromptMapper.updateById(entity);
+        aiPromptMapper.update(null, new UpdateWrapper<AiPrompt>()
+            .eq("id_prompt", idPrompt).set("fg_active", "0")
+            .set("update_time", entity.getUpdateTime()));
     }
 
     private void archivePublishedSiblings(AiPrompt entity) {

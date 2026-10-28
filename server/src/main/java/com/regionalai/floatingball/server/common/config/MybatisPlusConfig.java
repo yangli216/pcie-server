@@ -7,6 +7,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.util.StringUtils;
 
+import java.util.Locale;
+
 @Configuration
 public class MybatisPlusConfig {
 
@@ -30,7 +32,10 @@ public class MybatisPlusConfig {
         if (!StringUtils.hasText(configured)) {
             return DbType.ORACLE;
         }
-        String normalized = configured.trim().toLowerCase();
+        String normalized = configured.trim().toLowerCase(Locale.ROOT);
+        if ("gbase-postgresql".equals(normalized)) {
+            return DbType.POSTGRE_SQL;
+        }
         if ("gauss".equals(normalized) || "gaussdb".equals(normalized) || "opengauss".equals(normalized)) {
             return DbType.OPENGAUSS;
         }

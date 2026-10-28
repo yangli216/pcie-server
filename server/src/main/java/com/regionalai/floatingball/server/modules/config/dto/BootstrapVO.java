@@ -29,6 +29,8 @@ public class BootstrapVO {
     public static class SpeechConfig {
         private String provider;
         private String model;
+        private String transcriptionMode;
+        private Integer segmentDurationMs;
     }
 
     @Data

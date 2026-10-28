@@ -1,8 +1,8 @@
 package com.regionalai.floatingball.server.modules.config.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.api.PageRequest;
@@ -24,7 +24,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Collections;
@@ -80,6 +79,8 @@ public class ConfigService {
         BootstrapVO.SpeechConfig speech = new BootstrapVO.SpeechConfig();
         speech.setProvider(resolved.getSpeechProvider());
         speech.setModel(resolved.getSpeechModel());
+        speech.setTranscriptionMode(resolved.getSpeechTranscriptionMode());
+        speech.setSegmentDurationMs(resolved.getSpeechSegmentDurationMs());
         vo.setSpeech(speech);
 
         BootstrapVO.KnowledgeBaseConfig knowledgeBase = new BootstrapVO.KnowledgeBaseConfig();
@@ -158,7 +159,9 @@ public class ConfigService {
             throw new BusinessException("配置不存在");
         }
         config.setFgActive("0");
-        aiConfigMapper.updateById(config);
+        aiConfigMapper.update(null, new UpdateWrapper<AiConfig>()
+            .eq("id_config", idConfig).set("fg_active", "0")
+            .set("update_time", java.time.LocalDateTime.now()));
         log.info("ai config invalidated. configId={}", idConfig);
     }
 
@@ -185,7 +188,9 @@ public class ConfigService {
         target.setReviewerBaseUrl(request.getReviewerBaseUrl());
         target.setReviewerModel(request.getReviewerModel());
         target.setReviewerCheckExaminationEnabled(Boolean.FALSE.equals(request.getReviewerCheckExaminationEnabled()) ? "0" : "1");
-        target.setFeaturesJson(request.getFeaturesJson());
+        target.setFeaturesJson(SpeechTranscriptionSettings.merge(objectMapper, request.getFeaturesJson(),
+            request.getSpeechTranscriptionMode(), request.getSpeechSegmentDurationMs(),
+            existing == null ? null : existing.getFeaturesJson()));
         target.setIdOrg(request.getIdOrg());
         target.setIdRegion(request.getIdRegion());
         target.setSdStatus(request.getSdStatus());
@@ -229,13 +234,8 @@ public class ConfigService {
         if (!StringUtils.hasText(request.getModelName())) {
             throw new BusinessException("模型名称不能为空");
         }
-        if (StringUtils.hasText(request.getFeaturesJson())) {
-            try {
-                objectMapper.readValue(request.getFeaturesJson(), new TypeReference<Map<String, Boolean>>() {});
-            } catch (IOException ex) {
-                throw new BusinessException("featuresJson 必须是合法 JSON");
-            }
-        }
+        SpeechTranscriptionSettings.merge(objectMapper, request.getFeaturesJson(),
+            request.getSpeechTranscriptionMode(), request.getSpeechSegmentDurationMs());
         if (StringUtils.hasText(request.getSpeechProvider()) && normalizeSpeechProviderOrNull(request.getSpeechProvider()) == null) {
             throw new BusinessException("语音服务提供方必须是 openai-compatible、aliyun-dashscope 或 funasr-websocket");
         }
@@ -301,6 +301,9 @@ public class ConfigService {
         resolved.setSpeechProvider(speechProvider);
         resolved.setSpeechRealtimeUrl(normalizeOptionalUrl(config.getSpeechRealtimeUrl()));
         resolved.setSpeechModel(resolveSpeechModel(speechProvider, config.getSpeechModel(), audioModel));
+        SpeechTranscriptionSettings transcription = SpeechTranscriptionSettings.read(objectMapper, config.getFeaturesJson());
+        resolved.setSpeechTranscriptionMode(transcription.getMode());
+        resolved.setSpeechSegmentDurationMs(transcription.getDurationMs());
         resolved.setKnowledgeBaseEnabled("1".equals(config.getKnowledgeBaseEnabled()));
         resolved.setKnowledgeBaseBaseUrl(config.getKnowledgeBaseBaseUrl());
         resolved.setPmphaiEnabled("1".equals(config.getPmphaiEnabled()));
@@ -317,14 +320,7 @@ public class ConfigService {
     }
 
     private Map<String, Boolean> parseFeatures(String featuresJson) {
-        if (!StringUtils.hasText(featuresJson)) {
-            return Collections.emptyMap();
-        }
-        try {
-            return objectMapper.readValue(featuresJson, new TypeReference<Map<String, Boolean>>() {});
-        } catch (IOException ex) {
-            throw new BusinessException("features_json 解析失败");
-        }
+        return SpeechTranscriptionSettings.features(objectMapper, featuresJson);
     }
 
     private AiConfigView toView(AiConfig config) {
@@ -346,6 +342,9 @@ public class ConfigService {
         view.setSpeechProvider(speechProvider);
         view.setSpeechRealtimeUrl(config.getSpeechRealtimeUrl());
         view.setSpeechModel(resolveSpeechModel(speechProvider, config.getSpeechModel(), audioModel));
+        SpeechTranscriptionSettings transcription = SpeechTranscriptionSettings.read(objectMapper, config.getFeaturesJson());
+        view.setSpeechTranscriptionMode(transcription.getMode());
+        view.setSpeechSegmentDurationMs(transcription.getDurationMs());
         view.setKnowledgeBaseEnabled(config.getKnowledgeBaseEnabled());
         view.setKnowledgeBaseBaseUrl(config.getKnowledgeBaseBaseUrl());
         view.setPmphaiEnabled(config.getPmphaiEnabled());

@@ -64,7 +64,7 @@
         <logger name="com.regionalai.floatingball.server" level="INFO"/>
     </springProfile>
 
-    <springProfile name="gaussdb">
+    <springProfile name="gaussdb | gbase-postgresql">
         <root level="${FB_LOG_ROOT_LEVEL:-INFO}">
             <appender-ref ref="CONSOLE"/>
             <appender-ref ref="FILE"/>

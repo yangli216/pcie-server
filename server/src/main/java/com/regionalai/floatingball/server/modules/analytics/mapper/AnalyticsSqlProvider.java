@@ -59,6 +59,10 @@ public class AnalyticsSqlProvider {
         );
     }
 
+    public String queryFinalizedChangeSummaries() {
+        return consultationBaseCountSql("ucl.change_summary_json", "AND ucl.status IN ('completed','abandoned')");
+    }
+
     public String queryAiServiceTrend() {
         DatabaseDialect dialect = dialect();
         String day = dialect.dayText("e.event_time");

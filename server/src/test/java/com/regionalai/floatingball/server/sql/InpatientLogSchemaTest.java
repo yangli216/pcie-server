@@ -6,8 +6,8 @@ import java.util.*;
 import java.util.regex.*;
 import static org.assertj.core.api.Assertions.*;
 class InpatientLogSchemaTest {
- @Test void bothBaselinesHaveRoundAndEventConstraintsAndCommentsWithoutNewUpgradeFiles() throws Exception {
-  for(String dialect:new String[]{"oracle","gaussdb"}){
+ @Test void allBaselinesHaveRoundAndEventConstraintsAndCommentsWithoutNewUpgradeFiles() throws Exception {
+  for(String dialect:new String[]{"oracle","gaussdb","gbase-postgresql"}){
    Path dir=Paths.get("src/main/resources/sql",dialect);String sql=new String(Files.readAllBytes(dir.resolve("init.sql")),StandardCharsets.UTF_8);
    assertThat(sql).contains("CREATE TABLE c_ai_inpatient_emr_log (","CREATE TABLE c_ai_inpatient_emr_log_event (",
     "(id_device, generation_id)","(id_device, event_id)","(id_log, event_sequence)","REFERENCES c_ai_inpatient_emr_log(id_log)",
