@@ -1761,6 +1761,9 @@ VALUES ('ROLE002', 'ORG_ADMIN', '机构管理员', '管理所属 BBP 机构的 A
 INSERT INTO c_ai_role (id_role, cd_role, na_role, des_role, sd_status, fg_active)
 VALUES ('ROLE003', 'ORG_ANALYST', '机构统计员', '只读查看所属 BBP 机构的统计分析、辅诊功能和用户活跃度', '1', '1');
 
+INSERT INTO c_ai_role (id_role, cd_role, na_role, des_role, sd_status, fg_active)
+VALUES ('ROLE004', 'EMR_QC_REVIEWER', '门诊病历质控员', '只读查询所属机构门诊病历并执行 AI 书写质控', '1', '1');
+
 INSERT INTO c_ai_user (id_user, cd_user, na_user, password_hash, id_org, sd_status, fg_active)
 VALUES ('USER001', 'admin', '系统管理员', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', 'ORG001', '1', '1');
 

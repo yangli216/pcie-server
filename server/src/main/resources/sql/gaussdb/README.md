@@ -84,8 +84,9 @@ FB_DB_PASSWORD=Rbmh_ai@123
 2. `c_ai_emr_qc_finding` 按 `id_analysis + sort_no` 保存一次分析的问题明细，同一分析内唯一；`deduction` 保存单条问题扣分，`ignored` 保存人工忽略状态，忽略项保留明细用于追溯和恢复，但不计入有效问题数及高危数。
 3. `c_ai_emr_qc_task` 保存批量质控的机构、创建管理员、`record_ids_json` 与逐份进度 `items_json`，用于进度查询与服务重启后的中断收口。
 4. `c_ai_emr_qc_review_log` 仅记录 `view_detail / analyze / batch_analyze` 等操作审计，不落库 Cookie、`tk` 或病历原文。
+5. `c_ai_role` 默认种子包含 `EMR_QC_REVIEWER`（门诊病历质控员），用于角色管理展示；普通 BBP 人员的实际后台授权仍写入 `c_ai_bbp_admin_grant`，不通过本地用户角色映射替代。
 
-新库直接执行 `init.sql`。存量库由 DBA 基于当前 `init.sql` 与现场结构生成一次性迁移脚本，不保留常驻补丁；迁移前需备份，并确认四表、`uk_c_ai_emr_qc_record_active`、`uk_c_ai_emr_qc_finding_active`、`idx_c_ai_emr_qc_record_org`、`idx_c_ai_emr_qc_task_creator`、`idx_c_ai_emr_qc_review_org` 与全部列注释已补齐。质控功能随服务默认启用；仅在需要紧急停用时显式配置 `FB_EMR_QC_ENABLED=false`，默认启用不绕过数据库 schema、BBP 会话或权限校验。
+新库直接执行 `init.sql`。存量库由 DBA 基于当前 `init.sql` 与现场结构生成一次性迁移脚本，不保留常驻补丁；迁移前需备份，并确认四表、`EMR_QC_REVIEWER` 角色种子、`uk_c_ai_emr_qc_record_active`、`uk_c_ai_emr_qc_finding_active`、`idx_c_ai_emr_qc_record_org`、`idx_c_ai_emr_qc_task_creator`、`idx_c_ai_emr_qc_review_org` 与全部列注释已补齐。质控功能随服务默认启用；仅在需要紧急停用时显式配置 `FB_EMR_QC_ENABLED=false`，默认启用不绕过数据库 schema、BBP 会话或权限校验。
 
 ## 住院病历日志
 

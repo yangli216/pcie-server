@@ -31,7 +31,11 @@ class EmrQcSchemaTest {
             assertThat(sql).contains("CREATE UNIQUE INDEX uk_c_ai_emr_qc_finding_active ON c_ai_emr_qc_finding (");
             assertThat(sql).contains("CREATE INDEX idx_c_ai_emr_qc_task_creator ON c_ai_emr_qc_task (id_org, created_by, status, insert_time)");
             assertThat(sql).contains("CREATE INDEX idx_c_ai_emr_qc_review_org ON c_ai_emr_qc_review_log (id_org, insert_time)");
-            assertThat(read(dir.resolve("README.md"))).contains(TABLES[0], TABLES[1], TABLES[2], TABLES[3]);
+            assertThat(sql).contains(
+                "VALUES ('ROLE004', 'EMR_QC_REVIEWER', '门诊病历质控员', " +
+                    "'只读查询所属机构门诊病历并执行 AI 书写质控', '1', '1')");
+            assertThat(read(dir.resolve("README.md")))
+                .contains(TABLES[0], TABLES[1], TABLES[2], TABLES[3], "EMR_QC_REVIEWER");
             try (DirectoryStream<Path> upgrade = Files.newDirectoryStream(dir, "upgrade_*.sql")) {
                 assertThat(upgrade.iterator().hasNext()).isFalse();
             }
