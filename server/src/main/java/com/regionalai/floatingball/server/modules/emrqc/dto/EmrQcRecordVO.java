@@ -24,4 +24,6 @@ public class EmrQcRecordVO {
     private LocalDateTime analyzedAt;
     private String resultSource;
     private boolean stale;
+    private boolean snapshot;
+    private boolean snapshotIncomplete;
 }

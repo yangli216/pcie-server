@@ -38,6 +38,10 @@ public class EmrQcSchemaService {
         }
         try {
             recordMapper.selectCount(new QueryWrapper<>());
+            recordMapper.selectCount(new QueryWrapper<com.regionalai.floatingball.server.modules.emrqc.entity.AiEmrQcRecord>()
+                .isNull("patient_name").isNull("gender_code").isNull("patient_age")
+                .isNull("id_card_encrypted").isNull("archives_encrypted").isNull("doctor_user_id")
+                .isNull("phis_create_time").isNull("snapshot_complete"));
             findingMapper.selectCount(new QueryWrapper<>());
             taskMapper.selectCount(new QueryWrapper<>());
             reviewLogMapper.selectCount(new QueryWrapper<>());

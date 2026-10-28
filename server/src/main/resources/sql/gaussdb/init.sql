@@ -1779,6 +1779,14 @@ CREATE TABLE c_ai_emr_qc_record (
     id_tep               VARCHAR(64),
     template_name        VARCHAR(256),
     patient_name_masked  VARCHAR(128),
+    patient_name         VARCHAR(128),
+    gender_code          VARCHAR(16),
+    patient_age          VARCHAR(32),
+    id_card_encrypted    VARCHAR(1000),
+    archives_encrypted   VARCHAR(1000),
+    doctor_user_id       VARCHAR(128),
+    phis_create_time     TIMESTAMP,
+    snapshot_complete    SMALLINT DEFAULT 0 NOT NULL,
     id_card_masked       VARCHAR(64),
     doctor_name          VARCHAR(128),
     dept_name            VARCHAR(128),
@@ -1813,6 +1821,14 @@ COMMENT ON COLUMN c_ai_emr_qc_record.his_org_id IS 'PHIS机构编码快照';
 COMMENT ON COLUMN c_ai_emr_qc_record.id_tep IS 'PHIS模板ID';
 COMMENT ON COLUMN c_ai_emr_qc_record.template_name IS '模板名称快照';
 COMMENT ON COLUMN c_ai_emr_qc_record.patient_name_masked IS '患者姓名掩码';
+COMMENT ON COLUMN c_ai_emr_qc_record.patient_name IS '患者姓名快照';
+COMMENT ON COLUMN c_ai_emr_qc_record.gender_code IS '患者性别编码快照';
+COMMENT ON COLUMN c_ai_emr_qc_record.patient_age IS '就诊时年龄快照';
+COMMENT ON COLUMN c_ai_emr_qc_record.id_card_encrypted IS '加密身份证号，用于精确查询及脱敏';
+COMMENT ON COLUMN c_ai_emr_qc_record.archives_encrypted IS '加密病案号，用于脱敏';
+COMMENT ON COLUMN c_ai_emr_qc_record.doctor_user_id IS 'PHIS开立医生查询标识';
+COMMENT ON COLUMN c_ai_emr_qc_record.phis_create_time IS 'PHIS病历创建时间';
+COMMENT ON COLUMN c_ai_emr_qc_record.snapshot_complete IS '病历基础快照是否可用于查看和重新质控';
 COMMENT ON COLUMN c_ai_emr_qc_record.id_card_masked IS '身份证号掩码';
 COMMENT ON COLUMN c_ai_emr_qc_record.doctor_name IS '开立医生姓名快照';
 COMMENT ON COLUMN c_ai_emr_qc_record.dept_name IS '开立科室名称快照';
@@ -1839,6 +1855,7 @@ COMMENT ON COLUMN c_ai_emr_qc_record.insert_time IS '创建时间';
 COMMENT ON COLUMN c_ai_emr_qc_record.update_time IS '更新时间';
 
 CREATE INDEX idx_c_ai_emr_qc_record_org ON c_ai_emr_qc_record (id_org, analyzed_at);
+CREATE INDEX idx_c_ai_emr_qc_search ON c_ai_emr_qc_record (id_org, phis_create_time);
 CREATE UNIQUE INDEX uk_c_ai_emr_qc_record_active ON c_ai_emr_qc_record (
     (CASE WHEN fg_active = '1' THEN id_org END),
     (CASE WHEN fg_active = '1' THEN id_medrecdoc END)

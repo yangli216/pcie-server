@@ -28,6 +28,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -113,8 +115,10 @@ public class EmrQcTaskService {
         }
 
         List<EmrQcTaskVO.Item> items = new ArrayList<EmrQcTaskVO.Item>();
+        Map<String, PhisEmrRecord> authorizedRecords = new LinkedHashMap<String, PhisEmrRecord>();
         for (String id : uniqueIds) {
             PhisEmrRecord record = emrQcService.requireRecord(context, id);
+            authorizedRecords.put(id, record);
             EmrQcTaskVO.Item item = new EmrQcTaskVO.Item();
             item.setIdMedrecdoc(id);
             item.setPatientName(masker.maskName(record.getPatientName()));
@@ -147,7 +151,7 @@ public class EmrQcTaskService {
         final EmrQcContext taskContext = context;
         final List<String> ids = new ArrayList<String>(uniqueIds);
         final boolean force = request.forceEnabled();
-        executor.submit(() -> run(task.getIdTask(), taskContext, ids, force));
+        executor.submit(() -> run(task.getIdTask(), taskContext, ids, authorizedRecords, force));
 
         EmrQcTaskCreateVO vo = new EmrQcTaskCreateVO();
         vo.setTaskId(task.getIdTask());
@@ -185,7 +189,8 @@ public class EmrQcTaskService {
         return tasks.isEmpty() ? null : toVO(tasks.get(0));
     }
 
-    private void run(String taskId, EmrQcContext context, List<String> ids, boolean force) {
+    private void run(String taskId, EmrQcContext context, List<String> ids,
+                     Map<String, PhisEmrRecord> authorizedRecords, boolean force) {
         AiEmrQcTask task = taskMapper.selectById(taskId);
         if (task == null) {
             return;
@@ -200,7 +205,7 @@ public class EmrQcTaskService {
         int failed = 0;
         for (EmrQcTaskVO.Item item : items) {
             try {
-                EmrQcAnalysisVO analysis = emrQcService.analyzeForTask(context, item.getIdMedrecdoc(), force);
+                EmrQcAnalysisVO analysis = emrQcService.analyzeForTask(context, authorizedRecords.get(item.getIdMedrecdoc()), force);
                 item.setStatus("succeeded");
                 item.setScore(analysis.getScore());
                 item.setFindingCount(analysis.getFindingCount());

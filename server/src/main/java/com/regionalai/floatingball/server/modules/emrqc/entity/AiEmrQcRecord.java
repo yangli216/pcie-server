@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.regionalai.floatingball.server.common.model.BaseEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.ToString;
 
 import java.time.LocalDateTime;
 
@@ -35,6 +36,26 @@ public class AiEmrQcRecord extends BaseEntity {
 
     @TableField("patient_name_masked")
     private String patientNameMasked;
+
+    @TableField("patient_name")
+    @ToString.Exclude
+    private String patientName;
+    @TableField("gender_code")
+    private String genderCode;
+    @TableField("patient_age")
+    private String patientAge;
+    @TableField("id_card_encrypted")
+    @ToString.Exclude
+    private String idCardEncrypted;
+    @TableField("archives_encrypted")
+    @ToString.Exclude
+    private String archivesEncrypted;
+    @TableField("doctor_user_id")
+    private String doctorUserId;
+    @TableField("phis_create_time")
+    private LocalDateTime phisCreateTime;
+    @TableField("snapshot_complete")
+    private Integer snapshotComplete;
 
     @TableField("id_card_masked")
     private String idCardMasked;

@@ -80,7 +80,9 @@ FB_DB_PASSWORD=Rbmh_ai@123
 
 初始化基线包含 `c_ai_emr_qc_record`、`c_ai_emr_qc_finding`、`c_ai_emr_qc_task` 与 `c_ai_emr_qc_review_log`：
 
-1. `c_ai_emr_qc_record` 按 `id_org + id_medrecdoc` 保存当前机构最近一次质控投影，`content_hash` 固化归一化正文 SHA-256，用于判断 PHIS 正文是否变化；只保存患者姓名/身份证掩码，不保存完整身份或病历正文。2026-10-26 起新增 `result_source / ai_score / ai_analysis_id / reviewed_by / reviewed_by_name / reviewed_at / review_reason`，支持人工调整结果并保留 AI 原始总分与分析 ID；`dimensions_json` 为 9 维度评分（`score` 为维度得分、`weight` 为维度满分，满分合计 100），`finding_count / high_severity_count` 只统计未忽略问题。
+1. `c_ai_emr_qc_record` 按 `id_org + id_medrecdoc` 保存当前机构最近一次质控投影及查询所需基本信息快照；患者姓名可用于机构内查询，身份证号和病案号仅加密保存，不保存病历正文。`snapshot_complete` 区分新旧数据，旧数据不能凭缺失快照重新质控；`content_hash` 用于判断正文变化。2026-10-26 起新增 `result_source / ai_score / ai_analysis_id / reviewed_by / reviewed_by_name / reviewed_at / review_reason`，支持人工调整结果并保留 AI 原始总分与分析 ID；`dimensions_json` 为 9 维度评分（`score` 为维度得分、`weight` 为维度满分，满分合计 100），`finding_count / high_severity_count` 只统计未忽略问题。
+
+已质控列表使用 `idx_c_ai_emr_qc_search`；存量数据缺少快照时以就诊时间近似筛选、显示掩码且不可操作，须重新质控或经授权从 PHIS 回填。旧库应由 DBA 根据初始化基线迁移新增列和索引。
 2. `c_ai_emr_qc_finding` 按 `id_analysis + sort_no` 保存一次分析的问题明细，同一分析内唯一；`deduction` 保存单条问题扣分，`ignored` 保存人工忽略状态，忽略项保留明细用于追溯和恢复，但不计入有效问题数及高危数。
 3. `c_ai_emr_qc_task` 保存批量质控的机构、创建管理员、`record_ids_json` 与逐份进度 `items_json`，用于进度查询与服务重启后的中断收口。
 4. `c_ai_emr_qc_review_log` 仅记录 `view_detail / analyze / batch_analyze` 等操作审计，不落库 Cookie、`tk` 或病历原文。

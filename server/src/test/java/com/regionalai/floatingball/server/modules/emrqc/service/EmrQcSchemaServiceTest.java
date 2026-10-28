@@ -54,10 +54,18 @@ class EmrQcSchemaServiceTest {
         service.requireReady();
         service.requireReady();
 
-        verify(recordMapper, times(1)).selectCount(any());
+        verify(recordMapper, times(2)).selectCount(any());
         verify(findingMapper, times(1)).selectCount(any());
         verify(taskMapper, times(1)).selectCount(any());
         verify(reviewLogMapper, times(1)).selectCount(any());
+    }
+
+    @Test
+    void missingSnapshotColumnsReturnSchemaError() {
+        when(recordMapper.selectCount(any())).thenReturn(0L)
+            .thenThrow(new DataAccessResourceFailureException("column missing"));
+        ServiceUnavailableException exception = assertThrows(ServiceUnavailableException.class, service()::requireReady);
+        assertEquals("EMR-QC-SCHEMA", exception.getCode());
     }
 
     private EmrQcSchemaService service() {

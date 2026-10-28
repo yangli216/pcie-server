@@ -16,6 +16,13 @@ public class EmrQcDraft {
     private String idTep;
     private String templateName;
     private String patientNameMasked;
+    private String patientName;
+    private String genderCode;
+    private String patientAge;
+    private String idCardEncrypted;
+    private String archivesEncrypted;
+    private String doctorUserId;
+    private LocalDateTime phisCreateTime;
     private String idCardMasked;
     private String doctorName;
     private String deptName;

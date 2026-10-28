@@ -43,14 +43,15 @@ class EmrQcSchemaTest {
     }
 
     @Test
-    void baselinesPersistOnlyMaskedIdentityAndProgressItems() throws Exception {
+    void baselinesPersistEncryptedIdentifiersAndProgressItems() throws Exception {
         for (String dialect : new String[]{"oracle", "gaussdb"}) {
             String sql = read(Paths.get("src/main/resources/sql", dialect).resolve("init.sql"));
             assertThat(sql).contains("patient_name_masked", "id_card_masked", "content_hash");
             assertThat(sql).contains("record_ids_json", "items_json", "processed_count", "succeeded_count", "failed_count");
             assertThat(sql).contains("operator_id", "request_id", "result_status");
             String qcSchema = sql.substring(sql.indexOf("CREATE TABLE c_ai_emr_qc_record ("), sql.indexOf("COMMIT;"));
-            assertThat(qcSchema).doesNotContain("html_content", "xml_content", "patient_name ", "id_card ");
+            assertThat(qcSchema).contains("patient_name ", "id_card_encrypted", "archives_encrypted", "snapshot_complete", "phis_create_time", "doctor_user_id", "idx_c_ai_emr_qc_search");
+            assertThat(qcSchema).doesNotContain("html_content", "xml_content", "id_card ");
         }
     }
 

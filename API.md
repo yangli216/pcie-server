@@ -3964,9 +3964,9 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 ### GET `/admin/api/emr-qc/doctors`
 
-用途：返回当前登录管理员所在机构可筛选的开立医生清单，供列表「开立医生」下拉使用。服务端从 BBP 人员目录按登录机构（`bbpOrgId`）读取，仅保留启用状态且人员类型为医师 / 乡村医生的人员，不返回患者信息。
+用途：返回当前登录管理员所在机构可筛选的开立医生清单，供列表「开立医生」下拉使用。服务端使用当前 PHIS 会话调用全院查询的 `getInitDataUser`，固定传入 `userType=0` 与空关键字，并按登录机构（`bbpOrgId`）裁剪，不返回患者信息。
 
-响应 `data` 为数组，字段：`userId`（BBP 用户 ID，用于 `records.doctorUserId`）、`name`、`deptId`、`deptName`。登录机构缺失时返回空数组；会话失效返回 `EMR-PHIS-SESSION`。
+响应 `data` 为数组，字段：`userId`（PHIS 候选用户 ID，用于 `records.doctorUserId`）、`name`、`code`（人员编码）、`deptId`、`deptName`。登录机构缺失时返回空数组；会话失效返回 `EMR-PHIS-SESSION`。
 
 ### GET `/admin/api/emr-qc/records`
 
@@ -3980,11 +3980,11 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 | dateTo | string | 否 | 截止日期 yyyy-MM-dd |
 | patientName | string | 否 | 患者姓名，按上游字面匹配，最长 64 字符 |
 | idCard | string | 否 | 18 位居民身份证号，仅用于上游精确查询，不落库、不回显；格式非法返回 400 |
-| doctorUserId | string | 否 | 开立医生 BBP 用户 ID，必须属于当前登录机构（取自 `/doctors`）；服务端校验通过后取其 BBP 登录账号（`loginName`，回退人员编码 `cd`/`userId`）映射为上游 `insertUser`（上游按登录账号匹配，`userIdList` 留空），不属于本机构返回 400。未填写时不限制医生，不默认收窄到当前登录人 |
-| deptName | string | 否 | 开立科室名称，必须来自当前登录机构启用医生的 `/doctors` 目录；服务端按 PHIS 返回的 `insertDept` 名称精确筛选，目录与 PHIS 名称不一致时不会匹配。可独立或与医生条件组合使用；未填写时不限制科室。科室和医生均未填写时查询当前登录机构范围内的门诊病历；上游结果超过 1000 条时拒绝查询并提示缩小范围，避免返回不完整结果 |
-| qcStatus | string | 否 | `all`（默认）/ `pending` / `analyzed` / `stale`，按本平台质控投影筛选 |
+| doctorUserId | string | 否 | 开立医生用户 ID，必须属于当前会话的 `/doctors` 候选集；校验后原样作为上游 `insertUser`，`userIdList` 留空，不属于本机构返回 400。未填写时不限制医生，不默认收窄到当前登录人 |
+| deptName | string | 否 | 已停用；页面不提供科室筛选，非空值返回 400，避免分页结果不完整 |
+| qcStatus | string | 否 | `all`（默认）按 PHIS 分页；`analyzed` 按本机构质控快照分页，含可能过期的结果；本地快照无法核验 PHIS 更新时间，需从 `all` 重新查询并打开病历核验。旧结果没有完整快照时用就诊时间近似查询、姓名掩码展示且不可操作，患者姓名、医生等筛选可能无法命中；不再支持 `pending` / `stale` 筛选 |
 | current | long | 否 | 页码，默认 1 |
-| size | long | 否 | 每页条数，默认 10；上游按 50 条分段拉取后合并，前端统一使用 10 / 20 / 50 / 100 |
+| size | long | 否 | 每页条数，默认 10；直接传给 PHIS，前端统一使用 10 / 20 / 50 / 100 |
 
 响应 `data`：标准分页结构，`records[]` 字段：
 
@@ -4019,10 +4019,10 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 说明：
 
-1. `patientName`、`gender`、`age`、`doctorName`、`deptName` 来自 PHIS 当前查询结果，用于医生识别病历；`idCardMasked` 只返回掩码。服务端数据库只保存姓名与身份证号的掩码值，不保存完整身份字段。
-2. `qcStatus` 由服务端计算：无质控投影为 `pending`；存在投影且归一化文本 SHA-256 与 PHIS `updateTime` 均未变化为 `analyzed`；任一变化为 `stale`。质控失败不入列表状态，只体现在单份或批量接口的错误返回中。
-3. `stale=true` 时列表与详情都必须提示「病历已更新，质控结果可能过期」，并允许重新质控。
-4. 列表结果同时用于建立当前会话的文书 ID 允许集，详情与质控接口只接受该集合内的 `idMedrecdoc`。
+1. `all` 的 `patientName`、`gender`、`age`、`doctorName`、`deptName` 来自 PHIS 当前页；`analyzed` 使用本机构快照，`snapshot=true` 表示需从 PHIS 全部列表核验状态。`snapshotIncomplete=true` 的旧记录仅显示有限信息、不可操作。`idCardMasked` 只返回掩码；服务端保存姓名及查询所需基础快照，身份证号和病案号加密保存，不保存病历正文。
+2. `all` 列表的 `qcStatus` 按质控投影和 PHIS `updateTime` 比较，无投影为 `pending`；有投影且时间一致为 `analyzed`，否则为 `stale`。详情另外读取正文比较 SHA-256；本地快照无法证明 PHIS 未更新，详情返回 `snapshot_unverified`，须从全部列表重新核验。质控失败只体现在单份或批量接口的错误返回中。
+3. `stale=true` 时界面提示核验或重新质控。
+4. 当前页结果用于建立当前会话的文书 ID 允许集，仅完整快照可以加入；详情与质控接口只接受该集合内的 `idMedrecdoc`。批量任务使用创建时已校验的记录快照，不因翻页失效。
 
 ### GET `/admin/api/emr-qc/records/{idMedrecdoc}`
 

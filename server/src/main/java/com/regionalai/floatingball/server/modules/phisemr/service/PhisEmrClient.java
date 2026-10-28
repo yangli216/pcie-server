@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.regionalai.floatingball.server.common.exception.ConflictException;
+import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.exception.ServiceUnavailableException;
 import com.regionalai.floatingball.server.common.outbound.OutboundSecurityService;
 import com.regionalai.floatingball.server.modules.auth.bbp.BbpCookieJar;
@@ -33,6 +34,7 @@ public class PhisEmrClient {
 
     private static final String HISTORY_SERVICE = "otms.emr.rpcHistoryRecordService";
     private static final String HISTORY_METHOD = "queryHistoryRecord";
+    private static final String DOCTORS_METHOD = "getInitDataUser";
     private static final String CONTENT_SERVICE = "otms.mb.rpcElectronicMedicalRecordWritingService";
     private static final String CONTENT_METHOD = "getMedContentPreview";
     private static final String ID_APP_OUTPATIENT = "42";
@@ -91,7 +93,8 @@ public class PhisEmrClient {
         }
 
         JsonNode data = invoke(HISTORY_SERVICE, HISTORY_METHOD, param, cookies);
-        if (data == null || !data.path("list").isArray()) {
+        if (data == null || !data.path("list").isArray() || !data.hasNonNull("total")
+                || data.path("total").asInt(-1) < 0) {
             throw new ServiceUnavailableException("EMR-PHIS-UNAVAILABLE", "PHIS 病历列表返回结构异常");
         }
         List<PhisEmrRecord> records = new ArrayList<PhisEmrRecord>();
@@ -100,7 +103,7 @@ public class PhisEmrClient {
         }
         ListPage page = new ListPage();
         page.setRecords(records);
-        page.setTotal(data.path("total").asInt(records.size()));
+        page.setTotal(data.path("total").asInt());
         return page;
     }
 
@@ -116,11 +119,26 @@ public class PhisEmrClient {
         return data;
     }
 
+    public JsonNode doctorCandidates(BbpCookieJar cookies) {
+        ObjectNode param = objectMapper.createObjectNode();
+        param.put("userType", "0");
+        param.put("keyWord", "");
+        JsonNode data = invoke(HISTORY_SERVICE, DOCTORS_METHOD, param, cookies);
+        if (data == null || !data.isArray()) {
+            throw new ServiceUnavailableException("EMR-PHIS-UNAVAILABLE", "PHIS 医生目录返回结构异常");
+        }
+        return data;
+    }
+
     public JsonNode contentPreview(BbpCookieJar cookies, String idMedrecdoc) {
         return detail(cookies, idMedrecdoc);
     }
 
     private JsonNode invoke(String serviceId, String method, ObjectNode param, BbpCookieJar cookies) {
+        if (!(HISTORY_SERVICE.equals(serviceId) && (HISTORY_METHOD.equals(method) || DOCTORS_METHOD.equals(method)))
+            && !(CONTENT_SERVICE.equals(serviceId) && CONTENT_METHOD.equals(method))) {
+            throw new BusinessException("EMR-QC-400", "PHIS 服务方法不在允许列表中");
+        }
         String url = authMode.normalizeBaseUrl() + "/api/" + serviceId + "/" + method;
         ArrayNode body = objectMapper.createArrayNode().add(param);
         OutboundSecurityService.OutboundCall call = outboundSecurityService.acquireHttp(url, "EMR病历只读查询");
@@ -188,9 +206,11 @@ public class PhisEmrClient {
         record.setIdCard(value(item, "idCard"));
         record.setIdArchives(value(item, "idArchives"));
         record.setDoctorName(value(item, "insertUser"));
+        record.setDoctorUserId(value(item, "insertUser"));
         record.setDeptName(value(item, "insertDept"));
         record.setHisOrgId(value(item, "idOrg"));
         record.setVisitTime(normalizer.parseDateTime(value(item, "titleTime")));
+        record.setCreateTime(normalizer.parseDateTime(value(item, "createTime")));
         record.setUpdateTime(normalizer.parseDateTime(value(item, "updateTime")));
         return record;
     }

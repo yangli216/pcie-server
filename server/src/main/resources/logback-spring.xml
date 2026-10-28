@@ -34,6 +34,8 @@
     <logger name="com.regionalai.floatingball.server.modules.release" level="INFO"/>
     <logger name="com.regionalai.floatingball.server.modules.feedback" level="INFO"/>
     <logger name="com.regionalai.floatingball.server.modules.datapackage" level="INFO"/>
+    <!-- 质控快照包含病历基础信息，禁止 MyBatis 在 DEBUG 下输出查询参数及结果。 -->
+    <logger name="com.regionalai.floatingball.server.modules.emrqc.mapper" level="WARN"/>
 
     <logger name="org.springframework.web.servlet" level="WARN"/>
     <logger name="org.springframework.web.socket" level="WARN"/>

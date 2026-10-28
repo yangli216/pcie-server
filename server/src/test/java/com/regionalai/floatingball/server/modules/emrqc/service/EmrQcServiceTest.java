@@ -107,7 +107,8 @@ class EmrQcServiceTest {
             recordMapper,
             orgMapper,
             objectMapper,
-            directoryService
+            directoryService,
+            new com.regionalai.floatingball.server.common.util.AesUtils("test-secret-key")
         );
     }
 
@@ -118,7 +119,7 @@ class EmrQcServiceTest {
         PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
         page.setRecords(Collections.singletonList(record("A")));
         page.setTotal(1);
-        when(phisClient.list(any(), any(), any(), any(), any(), any(), any(), eq(1), eq(50)))
+        when(phisClient.list(any(), any(), any(), any(), any(), any(), any(), eq(1), eq(10)))
             .thenReturn(page);
         when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
 
@@ -199,18 +200,19 @@ class EmrQcServiceTest {
         when(sessionScope.require(user)).thenReturn(scope());
         when(directoryService.persons(user, "BBP-ORG-1"))
             .thenReturn(Collections.singletonList(person("D-2", "李四", "1", true)));
+        when(phisClient.doctorCandidates(any())).thenReturn(doctorCandidates("D-2", "李四", "BBP-ORG-1"));
         PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
         page.setRecords(Collections.singletonList(record("A")));
         page.setTotal(1);
-        when(phisClient.list(any(), any(), any(), any(), any(), eq("CD-D-2"), eq("4046"),
-            eq(1), eq(50))).thenReturn(page);
+        when(phisClient.list(any(), any(), any(), any(), any(), eq("D-2"), eq("4046"),
+            eq(1), eq(10))).thenReturn(page);
         when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
 
         PageResponse<EmrQcRecordVO> result = service.list(user, null, null, null, null, "D-2", "all", 1, 10);
 
         assertEquals(1, result.getTotal());
-        verify(phisClient).list(any(), any(), any(), any(), any(), eq("CD-D-2"), eq("4046"),
-            eq(1), eq(50));
+        verify(phisClient).list(any(), any(), any(), any(), any(), eq("D-2"), eq("4046"),
+            eq(1), eq(10));
     }
 
     @Test
@@ -221,7 +223,7 @@ class EmrQcServiceTest {
         PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
         page.setRecords(Collections.singletonList(record("A")));
         page.setTotal(1);
-        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(50)))
+        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(10)))
             .thenReturn(page);
         when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
 
@@ -229,7 +231,7 @@ class EmrQcServiceTest {
             user, "2025-10-28", "2026-10-28", null, null, null, "all", 1, 10, null);
 
         assertEquals(1, result.getTotal());
-        verify(phisClient).list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(50));
+        verify(phisClient).list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(10));
         verify(directoryService).persons(user, "BBP-ORG-1");
     }
 
@@ -243,16 +245,18 @@ class EmrQcServiceTest {
         when(directoryService.persons(user, "BBP-ORG-1")).thenReturn(Collections.singletonList(doctor));
         PhisEmrRecord record = record("A");
         record.setDoctorName("PERSON-1");
+        record.setDoctorUserId("PERSON-1");
         PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
         page.setRecords(Collections.singletonList(record));
         page.setTotal(1);
-        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(50))).thenReturn(page);
+        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(10))).thenReturn(page);
         when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
 
         PageResponse<EmrQcRecordVO> result = service.list(user, null, null, null, null, null, "all", 1, 10);
 
         assertEquals("李医生", result.getRecords().get(0).getDoctorName());
         assertEquals("李医生", recordCache.get("s1", "A").getDoctorName());
+        assertEquals("USER-1", recordCache.get("s1", "A").getDoctorUserId());
     }
 
     @Test
@@ -268,7 +272,7 @@ class EmrQcServiceTest {
         PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
         page.setRecords(Collections.singletonList(record));
         page.setTotal(1);
-        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(50))).thenReturn(page);
+        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(10))).thenReturn(page);
         when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
 
         assertEquals("SAME", service.list(user, null, null, null, null, null, "all", 1, 10)
@@ -287,7 +291,7 @@ class EmrQcServiceTest {
         PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
         page.setRecords(Collections.singletonList(record));
         page.setTotal(1);
-        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(50))).thenReturn(page);
+        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(10))).thenReturn(page);
         when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
 
         assertEquals("UNKNOWN-ID", service.list(user, null, null, null, null, null, "all", 1, 10)
@@ -308,19 +312,83 @@ class EmrQcServiceTest {
     }
 
     @Test
-    void unfilteredListDoesNotSilentlyReturnAnIncompleteUpstreamResult() {
+    void unfilteredListPassesRequestedPageAndPreservesUpstreamTotal() {
         AdminCurrentUser user = user();
         when(sessionScope.require(user)).thenReturn(scope());
         PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
-        page.setRecords(Collections.emptyList());
-        page.setTotal(1);
-        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(50)))
+        page.setRecords(Collections.singletonList(record("A")));
+        page.setTotal(17509);
+        when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
+        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(2), eq(20)))
             .thenReturn(page);
+        PageResponse<EmrQcRecordVO> result = service.list(user, null, null, null, null, null, "all", 2, 20);
+        assertEquals(17509, result.getTotal());
+        assertEquals("A", result.getRecords().get(0).getIdMedrecdoc());
+        verify(phisClient).list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(2), eq(20));
+    }
 
-        ServiceUnavailableException exception = assertThrows(ServiceUnavailableException.class,
-            () -> service.list(user, null, null, null, null, null, "all", 1, 10));
+    @Test
+    void analyzedListUsesScopedDatabasePageAndAuthorizesOnlyReturnedSnapshots() {
+        AdminCurrentUser user = user();
+        when(sessionScope.require(user)).thenReturn(scope());
+        AiEmrQcRecord stored = new AiEmrQcRecord();
+        stored.setIdMedrecdoc("QC-A");
+        stored.setIdOrg("ORG001");
+        stored.setPatientName("张三");
+        stored.setGenderCode("1");
+        stored.setPatientAge("36");
+        stored.setIdCardEncrypted(new com.regionalai.floatingball.server.common.util.AesUtils("test-secret-key").encrypt("330102199001011234"));
+        stored.setArchivesEncrypted(new com.regionalai.floatingball.server.common.util.AesUtils("test-secret-key").encrypt("BA0001"));
+        stored.setSnapshotComplete(1);
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AiEmrQcRecord> page =
+            new com.baomidou.mybatisplus.extension.plugins.pagination.Page<AiEmrQcRecord>(2, 10, 25);
+        page.setRecords(Collections.singletonList(stored));
+        when(recordMapper.selectPage(any(), any())).thenReturn(page);
 
-        assertEquals("PHIS 病历列表不完整，请缩小查询范围后重试", exception.getMessage());
+        PageResponse<EmrQcRecordVO> result = service.list(user, "2026-01-01", "2026-10-27", "张", null, null, "analyzed", 2, 10);
+
+        assertEquals(25, result.getTotal());
+        assertEquals("张三", result.getRecords().get(0).getPatientName());
+        assertEquals(true, result.getRecords().get(0).isSnapshot());
+        assertEquals("330102199001011234", recordCache.get("s1", "QC-A").getIdCard());
+        assertEquals("BA0001", recordCache.get("s1", "QC-A").getIdArchives());
+        org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.query.QueryWrapper> query =
+            org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.query.QueryWrapper.class);
+        verify(recordMapper).selectPage(any(), query.capture());
+        String sql = query.getValue().getSqlSegment();
+        org.assertj.core.api.Assertions.assertThat(sql).contains("id_org", "phis_create_time", "visit_time", "patient_name");
+        org.assertj.core.api.Assertions.assertThat(query.getValue().getParamNameValuePairs().values()).contains("ORG001", "%张%");
+        verify(phisClient, never()).list(any(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt());
+        assertThrows(NotFoundException.class, () -> service.detail(user, "NOT-RETURNED", "req"));
+    }
+
+    @Test
+    void legacyStatusesAreExplicitlyRejected() {
+        AdminCurrentUser user = user();
+        when(sessionScope.require(user)).thenReturn(scope());
+        assertThrows(BusinessException.class,
+            () -> service.list(user, null, null, null, null, null, "pending", 1, 10));
+    }
+
+    @Test
+    void oldResultsAreShownAsIncompleteWithoutGrantingDetailAccess() {
+        AdminCurrentUser user = user();
+        when(sessionScope.require(user)).thenReturn(scope());
+        AiEmrQcRecord old = new AiEmrQcRecord();
+        old.setIdMedrecdoc("OLD");
+        old.setPatientNameMasked("张*");
+        old.setIdCardMasked("330****1234");
+        old.setSnapshotComplete(0);
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AiEmrQcRecord> page =
+            new com.baomidou.mybatisplus.extension.plugins.pagination.Page<AiEmrQcRecord>(1, 10, 1);
+        page.setRecords(Collections.singletonList(old));
+        when(recordMapper.selectPage(any(), any())).thenReturn(page);
+
+        PageResponse<EmrQcRecordVO> result = service.list(user, null, null, null, null, null, "analyzed", 1, 10);
+
+        assertEquals("张*", result.getRecords().get(0).getPatientName());
+        assertEquals(true, result.getRecords().get(0).isSnapshotIncomplete());
+        assertThrows(NotFoundException.class, () -> service.detail(user, "OLD", "req"));
     }
 
     @Test
@@ -328,7 +396,7 @@ class EmrQcServiceTest {
         AdminCurrentUser user = user();
         user.setBbpOrgId("BBP-ORG-1");
         when(sessionScope.require(user)).thenReturn(scope());
-        when(directoryService.persons(user, "BBP-ORG-1")).thenReturn(Collections.emptyList());
+        when(phisClient.doctorCandidates(any())).thenReturn(doctorCandidates("OTHER", "其他", "OTHER-ORG"));
 
         BusinessException exception = assertThrows(BusinessException.class,
             () -> service.list(user, null, null, null, null, "OTHER", "all", 1, 10));
@@ -340,78 +408,30 @@ class EmrQcServiceTest {
     }
 
     @Test
-    void departmentFiltersAcrossUpstreamPagesAndScopesRecordCache() {
+    void removedDepartmentFilterIsRejected() {
         AdminCurrentUser user = user();
-        user.setBbpOrgId("BBP-ORG-1");
         when(sessionScope.require(user)).thenReturn(scope());
-        when(directoryService.persons(user, "BBP-ORG-1"))
-            .thenReturn(Collections.singletonList(person("D-1", "张三", "1", true)));
-        PhisEmrRecord a = record("A");
-        PhisEmrRecord b = record("B");
-        b.setDeptName("外科");
-        PhisEmrClient.ListPage first = new PhisEmrClient.ListPage();
-        first.setRecords(Collections.singletonList(b)); first.setTotal(2);
-        PhisEmrClient.ListPage second = new PhisEmrClient.ListPage();
-        second.setRecords(Collections.singletonList(a)); second.setTotal(2);
-        when(phisClient.list(any(), any(), any(), any(), any(), any(), any(), eq(1), eq(50))).thenReturn(first);
-        when(phisClient.list(any(), any(), any(), any(), any(), any(), any(), eq(2), eq(50))).thenReturn(second);
-        when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
-        PageResponse<EmrQcRecordVO> result = service.list(user, null, null, null, null, null, "all", 1, 10, "门诊内科");
-        assertEquals(1, result.getTotal());
-        assertEquals("A", result.getRecords().get(0).getIdMedrecdoc());
-        assertThrows(NotFoundException.class, () -> service.detail(user, "B", "req"));
-    }
-
-    @Test
-    void departmentRejectsUnknownOrInactiveDirectoryAndCombinesWithDoctor() {
-        AdminCurrentUser user = user();
-        user.setBbpOrgId("BBP-ORG-1");
-        when(sessionScope.require(user)).thenReturn(scope());
-        BbpPersonView inactive = person("D-2", "李四", "1", false);
-        inactive.setDepartmentName("外科");
-        when(directoryService.persons(user, "BBP-ORG-1"))
-            .thenReturn(Arrays.asList(person("D-1", "张三", "1", true), inactive));
-        assertThrows(BusinessException.class,
-            () -> service.list(user, null, null, null, null, null, "all", 1, 10, "外科"));
-        verify(phisClient, never()).list(any(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt());
-        PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
-        page.setRecords(Collections.singletonList(record("A"))); page.setTotal(1);
-        when(phisClient.list(any(), any(), any(), any(), any(), eq("CD-D-1"), any(), eq(1), eq(50))).thenReturn(page);
-        when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
-        assertEquals(1, service.list(user, null, null, null, null, "D-1", "all", 1, 10, "门诊内科").getTotal());
-    }
-
-    @Test
-    void departmentRejectsTruncatedUpstreamResults() {
-        AdminCurrentUser user = user();
-        user.setBbpOrgId("BBP-ORG-1");
-        when(sessionScope.require(user)).thenReturn(scope());
-        when(directoryService.persons(user, "BBP-ORG-1"))
-            .thenReturn(Collections.singletonList(person("D-1", "张三", "1", true)));
-        PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
-        page.setRecords(Collections.nCopies(50, record("A"))); page.setTotal(1001);
-        when(phisClient.list(any(), any(), any(), any(), any(), any(), any(), anyInt(), eq(50))).thenReturn(page);
         BusinessException error = assertThrows(BusinessException.class,
             () -> service.list(user, null, null, null, null, null, "all", 1, 10, "门诊内科"));
         assertEquals("EMR-QC-400", error.getCode());
+        verify(phisClient, never()).list(any(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt());
     }
 
     @Test
-    void doctorsListOnlyActivePhysiciansFromLoginOrg() {
+    void doctorsUsePhisCandidatesAndExcludeOtherOrganizations() {
         AdminCurrentUser user = user();
         user.setBbpOrgId("BBP-ORG-1");
         when(sessionScope.require(user)).thenReturn(scope());
-        when(directoryService.persons(user, "BBP-ORG-1")).thenReturn(Arrays.asList(
-            person("D-1", "张三", "1", true),
-            person("N-1", "王护士", "2", true),
-            person("D-2", "李四", "9", false)
-        ));
+        com.fasterxml.jackson.databind.node.ArrayNode candidates = doctorCandidates("D-1", "张三", "BBP-ORG-1");
+        candidates.addObject().put("userId", "OTHER").put("na", "其他").put("orgId", "OTHER-ORG");
+        candidates.addObject().put("userId", "MISSING-ORG").put("na", "未知");
+        when(phisClient.doctorCandidates(any())).thenReturn(candidates);
 
         List<EmrQcDoctorVO> doctors = service.doctors(user);
 
         assertEquals(1, doctors.size());
         assertEquals("D-1", doctors.get(0).getUserId());
-        assertEquals("门诊内科", doctors.get(0).getDeptName());
+        assertEquals("C-D-1", doctors.get(0).getCode());
     }
 
     @Test
@@ -440,6 +460,13 @@ class EmrQcServiceTest {
 
         assertEquals(Boolean.TRUE, current);
         assertEquals(Boolean.FALSE, old);
+        projection.setRuleVersion(EmrQcRuleEngine.RULE_VERSION);
+        record.setSnapshot(true);
+        assertEquals(Boolean.FALSE, org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+            service, "canReuse", projection, record, "hash"));
+        Object stale = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+            service, "staleState", projection, record, "hash");
+        assertEquals("snapshot_unverified", org.springframework.test.util.ReflectionTestUtils.getField(stale, "reason"));
     }
 
     @Test
@@ -685,6 +712,32 @@ class EmrQcServiceTest {
         verify(records).updateById(projection);
     }
 
+    @Test
+    void writerPersistsSnapshotWithoutPlainIdentityNumbers() {
+        AiEmrQcRecordMapper records = org.mockito.Mockito.mock(AiEmrQcRecordMapper.class);
+        AiEmrQcFindingMapper findings = org.mockito.Mockito.mock(AiEmrQcFindingMapper.class);
+        when(records.selectList(any())).thenReturn(Collections.emptyList());
+        EmrQcWriter qcWriter = new EmrQcWriter(records, findings);
+        com.regionalai.floatingball.server.common.util.AesUtils cipher =
+            new com.regionalai.floatingball.server.common.util.AesUtils("test-secret-key");
+        EmrQcDraft draft = new EmrQcDraft();
+        draft.setIdOrg("ORG001");
+        draft.setIdMedrecdoc("A");
+        draft.setPatientName("张三");
+        draft.setIdCardEncrypted(cipher.encrypt("330102199001011234"));
+        draft.setArchivesEncrypted(cipher.encrypt("BA0001"));
+        draft.setPhisCreateTime(LocalDateTime.of(2026, 10, 27, 9, 0));
+
+        AiEmrQcRecord saved = qcWriter.save(draft);
+
+        assertEquals(1, saved.getSnapshotComplete());
+        assertEquals("张三", saved.getPatientName());
+        org.assertj.core.api.Assertions.assertThat(saved.getIdCardEncrypted()).doesNotContain("330102199001011234");
+        org.assertj.core.api.Assertions.assertThat(saved.getArchivesEncrypted()).doesNotContain("BA0001");
+        assertEquals("330102199001011234", cipher.decrypt(saved.getIdCardEncrypted()));
+        verify(records).insert(saved);
+    }
+
     private EmrQcAnalysisVO.Finding finding(String severity, String category, int deduction, boolean ignored) {
         EmrQcAnalysisVO.Finding finding = new EmrQcAnalysisVO.Finding();
         finding.setSeverity(severity);
@@ -738,6 +791,12 @@ class EmrQcServiceTest {
         person.setDepartmentName("门诊内科");
         person.setActive(active);
         return person;
+    }
+
+    private com.fasterxml.jackson.databind.node.ArrayNode doctorCandidates(String userId, String name, String orgId) {
+        com.fasterxml.jackson.databind.node.ArrayNode array = objectMapper.createArrayNode();
+        array.addObject().put("userId", userId).put("na", name).put("orgId", orgId).put("cd", "C-" + userId);
+        return array;
     }
 
     private void prepareReview(AiEmrQcRecord projection) {

@@ -1,6 +1,7 @@
 package com.regionalai.floatingball.server.modules.emrqc.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -10,6 +11,7 @@ import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.exception.ConflictException;
 import com.regionalai.floatingball.server.common.exception.NotFoundException;
 import com.regionalai.floatingball.server.common.exception.ServiceUnavailableException;
+import com.regionalai.floatingball.server.common.util.AesUtils;
 import com.regionalai.floatingball.server.modules.auth.bbp.BbpDirectoryService;
 import com.regionalai.floatingball.server.modules.auth.bbp.BbpPersonView;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
@@ -41,11 +43,9 @@ import java.time.Period;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -59,9 +59,8 @@ import java.util.regex.Pattern;
 public class EmrQcService {
 
     private static final Pattern ID_CARD = Pattern.compile("^\\d{17}[\\dXx]$");
-    private static final int MAX_UPSTREAM_PAGES = 20;
     private static final Set<String> QC_STATUS = new HashSet<String>(
-        java.util.Arrays.asList("all", "pending", "analyzed", "stale"));
+        java.util.Arrays.asList("all", "analyzed"));
 
     private final EmrQcProperties properties;
     private final EmrQcSchemaService schemaService;
@@ -79,6 +78,7 @@ public class EmrQcService {
     private final com.regionalai.floatingball.server.modules.org.mapper.AiOrgMapper orgMapper;
     private final ObjectMapper objectMapper;
     private final BbpDirectoryService directoryService;
+    private final AesUtils aesUtils;
 
     private final ConcurrentMap<String, ReentrantLock> locks = new ConcurrentHashMap<String, ReentrantLock>();
 
@@ -97,7 +97,8 @@ public class EmrQcService {
                         AiEmrQcRecordMapper recordMapper,
                         com.regionalai.floatingball.server.modules.org.mapper.AiOrgMapper orgMapper,
                         ObjectMapper objectMapper,
-                        BbpDirectoryService directoryService) {
+                        BbpDirectoryService directoryService,
+                        AesUtils aesUtils) {
         this.properties = properties;
         this.schemaService = schemaService;
         this.sessionScope = sessionScope;
@@ -114,6 +115,7 @@ public class EmrQcService {
         this.orgMapper = orgMapper;
         this.objectMapper = objectMapper;
         this.directoryService = directoryService;
+        this.aesUtils = aesUtils;
     }
 
     public EmrQcSessionVO session(AdminCurrentUser currentUser) {
@@ -135,24 +137,26 @@ public class EmrQcService {
 
     public List<EmrQcDoctorVO> doctors(AdminCurrentUser currentUser) {
         ensureEnabled();
-        sessionScope.require(currentUser);
+        PhisSessionScope.Scope scope = sessionScope.require(currentUser);
         String bbpOrgId = currentUser.getBbpOrgId();
         if (!StringUtils.hasText(bbpOrgId)) {
             return Collections.emptyList();
         }
         List<EmrQcDoctorVO> result = new ArrayList<EmrQcDoctorVO>();
-        for (BbpPersonView person : directoryService.persons(currentUser, bbpOrgId)) {
-            if (!isActiveDoctor(person)) {
+        for (JsonNode person : phisClient.doctorCandidates(scope.getSession().getCookies())) {
+            if (!bbpOrgId.trim().equals(person.path("orgId").asText("").trim())
+                    || !StringUtils.hasText(person.path("userId").asText(""))
+                    || !StringUtils.hasText(person.path("na").asText(""))) {
                 continue;
             }
             EmrQcDoctorVO vo = new EmrQcDoctorVO();
-            vo.setUserId(person.getUserId());
-            vo.setName(person.getName());
-            vo.setDeptId(person.getDepartmentId());
-            vo.setDeptName(person.getDepartmentName());
+            vo.setUserId(person.path("userId").asText().trim());
+            vo.setName(person.path("na").asText().trim());
+            vo.setCode(person.path("cd").asText(""));
+            vo.setDeptId(person.path("deptId").asText(""));
+            vo.setDeptName(person.path("deptIdText").asText(""));
             result.add(vo);
         }
-        result.sort(Comparator.comparing(item -> text(item.getName(), item.getUserId())));
         return result;
     }
 
@@ -164,37 +168,12 @@ public class EmrQcService {
         if (!StringUtils.hasText(bbpOrgId)) {
             throw new BusinessException("EMR-QC-400", "当前登录账号缺少机构信息，无法按开立医生筛选");
         }
-        for (BbpPersonView person : directoryService.persons(currentUser, bbpOrgId)) {
-            if (doctorUserId.equals(person.getUserId()) && isActiveDoctor(person)) {
-                return text(person.getLoginName(), text(person.getCode(), person.getUserId()));
+        for (EmrQcDoctorVO doctor : doctors(currentUser)) {
+            if (doctorUserId.equals(doctor.getUserId())) {
+                return doctorUserId;
             }
         }
         throw new BusinessException("EMR-QC-400", "开立医生不属于当前登录机构");
-    }
-
-    private boolean isActiveDoctor(BbpPersonView person) {
-        if (person == null || !Boolean.TRUE.equals(person.getActive())
-            || !StringUtils.hasText(person.getUserId())) {
-            return false;
-        }
-        String personType = person.getPersonType();
-        if ("1".equals(personType) || "9".equals(personType)) {
-            return true;
-        }
-        String personTypeText = person.getPersonTypeText();
-        return StringUtils.hasText(personTypeText) && personTypeText.contains("医师");
-    }
-
-    private String requireOrgDepartment(AdminCurrentUser currentUser, String department) {
-        if (department == null) return null;
-        String orgId = currentUser.getBbpOrgId();
-        if (!StringUtils.hasText(orgId)) {
-            throw new BusinessException("EMR-QC-400", "当前登录账号缺少机构信息，无法按科室筛选");
-        }
-        for (BbpPersonView person : directoryService.persons(currentUser, orgId)) {
-            if (isActiveDoctor(person) && department.equals(text(person.getDepartmentName(), null))) return department;
-        }
-        throw new BusinessException("EMR-QC-400", "科室不属于当前登录机构的医生目录");
     }
 
     private String text(String primary, String fallback) {
@@ -227,32 +206,99 @@ public class EmrQcService {
         String normalizedQcStatus = normalizeQcStatus(qcStatus);
         String normalizedName = validateText(patientName, 64, "患者姓名");
         String normalizedDoctorId = validateText(doctorUserId, 64, "开立医生");
-        String normalizedDept = requireOrgDepartment(currentUser, validateText(deptName, 128, "科室"));
+        if (StringUtils.hasText(deptName)) {
+            throw new BusinessException("EMR-QC-400", "科室筛选暂不可用，请清除后重试");
+        }
         String normalizedIdCard = validateIdCard(idCard);
         String insertUser = requireOrgDoctorInsertUser(currentUser, normalizedDoctorId);
 
-        List<PhisEmrRecord> all = fetchAll(scope, range, normalizedName, normalizedIdCard, insertUser);
-        if (normalizedDept != null) {
-            all.removeIf(record -> !normalizedDept.equals(text(record.getDeptName(), null)));
+        PageRequest pageRequest = PageRequest.of(current, size);
+        if (pageRequest.getCurrent() > Integer.MAX_VALUE) {
+            throw new BusinessException("EMR-QC-400", "页码超出支持范围");
         }
-        resolveDoctorNames(currentUser, all);
-        recordCache.putAll(currentUser.getAuthSessionId(), all);
+        if ("analyzed".equals(normalizedQcStatus)) {
+            return listAnalyzed(currentUser, range, normalizedName, normalizedIdCard, insertUser, pageRequest);
+        }
+        PhisEmrClient.ListPage upstream = phisClient.list(scope.getSession().getCookies(), range.from, range.to,
+            normalizedName, normalizedIdCard, insertUser, scope.getHisOrgId(),
+            (int) pageRequest.getCurrent(), (int) pageRequest.getSize());
+        List<PhisEmrRecord> records = upstream.getRecords();
+        if (records.isEmpty() && pageRequest.getOffset() < upstream.getTotal()) {
+            throw new ServiceUnavailableException("EMR-PHIS-UNAVAILABLE", "PHIS 病历列表不完整，请稍后重试");
+        }
+        resolveDoctorNames(currentUser, records);
+        if (StringUtils.hasText(insertUser)) {
+            for (PhisEmrRecord record : records) record.setDoctorUserId(insertUser);
+        }
+        recordCache.putAll(currentUser.getAuthSessionId(), records);
 
-        Map<String, AiEmrQcRecord> projections = findProjections(currentUser.getIdOrg(), ids(all));
+        Map<String, AiEmrQcRecord> projections = findProjections(firstText(currentUser.getIdOrg(), currentUser.getBbpOrgId()), ids(records));
         List<EmrQcRecordVO> filtered = new ArrayList<EmrQcRecordVO>();
-        for (PhisEmrRecord record : all) {
+        for (PhisEmrRecord record : records) {
             AiEmrQcRecord projection = projections.get(record.getIdMedrecdoc());
             EmrQcRecordVO vo = toRecordVO(record, projection);
-            if ("all".equals(normalizedQcStatus) || normalizedQcStatus.equals(vo.getQcStatus())) {
-                filtered.add(vo);
-            }
+            filtered.add(vo);
         }
-        PageRequest pageRequest = PageRequest.of(current, size);
-        int from = pageRequest.fromIndex(filtered.size());
-        int to = pageRequest.toIndex(filtered.size());
-        List<EmrQcRecordVO> pageRecords = new ArrayList<EmrQcRecordVO>(filtered.subList(from, to));
         return new PageResponse<EmrQcRecordVO>(
-            pageRequest.getCurrent(), pageRequest.getSize(), filtered.size(), pageRecords);
+            pageRequest.getCurrent(), pageRequest.getSize(), upstream.getTotal(), filtered);
+    }
+
+    private PageResponse<EmrQcRecordVO> listAnalyzed(AdminCurrentUser user, DateRange range,
+                                                     String name, String idCard, String doctorId,
+                                                     PageRequest request) {
+        String orgId = firstText(user.getIdOrg(), user.getBbpOrgId());
+        if (!StringUtils.hasText(orgId)) throw new BusinessException("EMR-QC-400", "当前登录账号缺少机构信息");
+        QueryWrapper<AiEmrQcRecord> query = new QueryWrapper<AiEmrQcRecord>()
+            .eq("id_org", orgId)
+            .and(q -> q.ge("phis_create_time", range.from.atStartOfDay())
+                .lt("phis_create_time", range.to.plusDays(1).atStartOfDay())
+                .or(r -> r.isNull("phis_create_time")
+                    .ge("visit_time", range.from.atStartOfDay())
+                    .lt("visit_time", range.to.plusDays(1).atStartOfDay())))
+            .like(StringUtils.hasText(name), "patient_name", name)
+            .eq(StringUtils.hasText(doctorId), "doctor_user_id", doctorId)
+            .eq(StringUtils.hasText(idCard), "id_card_encrypted", StringUtils.hasText(idCard) ? aesUtils.encrypt(idCard) : null)
+            .orderByDesc("visit_time")
+            .orderByDesc("id_medrecdoc");
+        Page<AiEmrQcRecord> result = recordMapper.selectPage(new Page<AiEmrQcRecord>(request.getCurrent(), request.getSize()), query);
+        List<PhisEmrRecord> permitted = new ArrayList<PhisEmrRecord>();
+        List<EmrQcRecordVO> views = new ArrayList<EmrQcRecordVO>();
+        for (AiEmrQcRecord entity : result.getRecords()) {
+            PhisEmrRecord record = snapshotRecord(entity);
+            boolean incomplete = !Integer.valueOf(1).equals(entity.getSnapshotComplete());
+            if (!incomplete) permitted.add(record);
+            EmrQcRecordVO view = toRecordVO(record, entity);
+            view.setSnapshot(true);
+            view.setSnapshotIncomplete(incomplete);
+            if (incomplete) {
+                view.setPatientName(entity.getPatientNameMasked());
+                view.setIdCardMasked(entity.getIdCardMasked());
+            }
+            view.setAge(entity.getPatientAge());
+            views.add(view);
+        }
+        recordCache.putAll(user.getAuthSessionId(), permitted);
+        return new PageResponse<EmrQcRecordVO>(request.getCurrent(), request.getSize(), result.getTotal(), views);
+    }
+
+    private PhisEmrRecord snapshotRecord(AiEmrQcRecord entity) {
+        PhisEmrRecord record = new PhisEmrRecord();
+        record.setIdMedrecdoc(entity.getIdMedrecdoc());
+        record.setIdTep(entity.getIdTep());
+        record.setTemplateName(entity.getTemplateName());
+        record.setPatientName(entity.getPatientName());
+        record.setGenderCode(entity.getGenderCode());
+        record.setIdCard(aesUtils.decrypt(entity.getIdCardEncrypted()));
+        record.setIdArchives(aesUtils.decrypt(entity.getArchivesEncrypted()));
+        record.setDoctorName(entity.getDoctorName());
+        record.setDoctorUserId(entity.getDoctorUserId());
+        record.setDeptName(entity.getDeptName());
+        record.setHisOrgId(entity.getHisOrgId());
+        record.setVisitTime(entity.getVisitTime());
+        record.setCreateTime(entity.getPhisCreateTime());
+        record.setUpdateTime(entity.getPhisUpdateTime());
+        record.setSnapshot(true);
+        return record;
     }
 
     public EmrQcDetailVO detail(AdminCurrentUser currentUser, String idMedrecdoc, String requestId) {
@@ -287,10 +333,10 @@ public class EmrQcService {
         return analyzeInternal(context, idMedrecdoc, force, "analyze");
     }
 
-    public EmrQcAnalysisVO analyzeForTask(EmrQcContext context, String idMedrecdoc, boolean force) {
+    public EmrQcAnalysisVO analyzeForTask(EmrQcContext context, PhisEmrRecord record, boolean force) {
         ensureEnabled();
         schemaService.requireReady();
-        return analyzeInternal(context, idMedrecdoc, force, "batch_analyze");
+        return analyzeInternal(context, record.getIdMedrecdoc(), force, "batch_analyze", record);
     }
 
     public EmrQcAnalysisVO review(AdminCurrentUser currentUser,
@@ -454,7 +500,14 @@ public class EmrQcService {
                                             String idMedrecdoc,
                                             boolean force,
                                             String action) {
-        PhisEmrRecord record = requireRecord(context, idMedrecdoc);
+        return analyzeInternal(context, idMedrecdoc, force, action, requireRecord(context, idMedrecdoc));
+    }
+
+    private EmrQcAnalysisVO analyzeInternal(EmrQcContext context,
+                                            String idMedrecdoc,
+                                            boolean force,
+                                            String action,
+                                            PhisEmrRecord record) {
         String lockKey = context.getIdOrg() + '\u0000' + idMedrecdoc.trim();
         ReentrantLock lock = locks.computeIfAbsent(lockKey, key -> new ReentrantLock());
         lock.lock();
@@ -496,11 +549,19 @@ public class EmrQcService {
             draft.setIdTep(record.getIdTep());
             draft.setTemplateName(loaded.templateName);
             draft.setPatientNameMasked(masker.maskName(record.getPatientName()));
+            draft.setPatientName(record.getPatientName());
+            draft.setGenderCode(record.getGenderCode());
+            draft.setPatientAge(age(record.getIdCard(), record.getVisitTime()));
+            draft.setIdCardEncrypted(aesUtils.encrypt(StringUtils.hasText(record.getIdCard())
+                ? record.getIdCard().trim().toUpperCase(java.util.Locale.ROOT) : null));
+            draft.setArchivesEncrypted(aesUtils.encrypt(record.getIdArchives()));
+            draft.setDoctorUserId(record.getDoctorUserId());
+            draft.setPhisCreateTime(record.getCreateTime());
             draft.setIdCardMasked(masker.maskIdCard(record.getIdCard()));
             draft.setDoctorName(record.getDoctorName());
             draft.setDeptName(record.getDeptName());
             draft.setVisitTime(loaded.visitTime);
-            draft.setPhisUpdateTime(record.getUpdateTime());
+            draft.setPhisUpdateTime(record.isSnapshot() ? loaded.updateTime : record.getUpdateTime());
             draft.setContentHash(loaded.contentHash);
             draft.setAnalysisId(analysisId);
             draft.setScore(calculatedScore);
@@ -524,6 +585,7 @@ public class EmrQcService {
 
     private boolean canReuse(AiEmrQcRecord projection, PhisEmrRecord record, String contentHash) {
         return projection != null
+            && !record.isSnapshot()
             && StringUtils.hasText(projection.getContentHash())
             && projection.getContentHash().equals(contentHash)
             && EmrQcRuleEngine.RULE_VERSION.equals(projection.getRuleVersion())
@@ -568,47 +630,23 @@ public class EmrQcService {
         return loaded;
     }
 
-    private List<PhisEmrRecord> fetchAll(PhisSessionScope.Scope scope,
-                                          DateRange range,
-                                          String patientName,
-                                          String idCard,
-                                          String insertUser) {
-        List<PhisEmrRecord> all = new ArrayList<PhisEmrRecord>();
-        Set<String> seen = new LinkedHashSet<String>();
-        int pageNum = 1;
-        int fetched = 0;
-        int total = Integer.MAX_VALUE;
-        while (pageNum <= MAX_UPSTREAM_PAGES && fetched < total) {
-            PhisEmrClient.ListPage page = phisClient.list(scope.getSession().getCookies(), range.from, range.to,
-                patientName, idCard, insertUser, scope.getHisOrgId(), pageNum, 50);
-            total = page.getTotal();
-            if (page.getRecords().isEmpty()) {
-                if (fetched < total) {
-                    throw new ServiceUnavailableException("EMR-PHIS-UNAVAILABLE", "PHIS 病历列表不完整，请缩小查询范围后重试");
-                }
-                break;
-            }
-            for (PhisEmrRecord record : page.getRecords()) {
-                if (seen.add(record.getIdMedrecdoc())) {
-                    all.add(record);
-                }
-            }
-            fetched += page.getRecords().size();
-            pageNum++;
-        }
-        if (pageNum > MAX_UPSTREAM_PAGES && fetched < total) {
-            throw new BusinessException("EMR-QC-400", "病历数量超过单次查询上限，请缩小日期范围或增加筛选条件后重试");
-        }
-        return all;
-    }
-
     private void resolveDoctorNames(AdminCurrentUser user, List<PhisEmrRecord> records) {
         if (records.isEmpty() || !StringUtils.hasText(user.getBbpOrgId())) return;
         Map<String, String> names = new HashMap<String, String>();
         Set<String> ambiguous = new HashSet<String>();
+        Map<String, String> userIdsByName = new HashMap<String, String>();
+        Set<String> ambiguousNames = new HashSet<String>();
+        Map<String, String> userIdsByKey = new HashMap<String, String>();
+        Set<String> ambiguousKeys = new HashSet<String>();
         try {
             for (BbpPersonView person : directoryService.persons(user, user.getBbpOrgId())) {
                 if (person == null || !StringUtils.hasText(person.getName())) continue;
+                if (StringUtils.hasText(person.getUserId())) {
+                    String name = person.getName().trim();
+                    String id = person.getUserId().trim();
+                    String previous = userIdsByName.putIfAbsent(name, id);
+                    if (previous != null && !previous.equals(id)) ambiguousNames.add(name);
+                }
                 for (String key : java.util.Arrays.asList(person.getUserId(), person.getPersonId(), person.getId(),
                         person.getLoginName(), person.getCode())) {
                     if (!StringUtils.hasText(key)) continue;
@@ -616,6 +654,11 @@ public class EmrQcService {
                     String name = person.getName().trim();
                     String old = names.putIfAbsent(key, name);
                     if (old != null && !old.equals(name)) ambiguous.add(key);
+                    if (StringUtils.hasText(person.getUserId())) {
+                        String id = person.getUserId().trim();
+                        String previous = userIdsByKey.putIfAbsent(key, id);
+                        if (previous != null && !previous.equals(id)) ambiguousKeys.add(key);
+                    }
                 }
             }
         } catch (RuntimeException ex) {
@@ -625,6 +668,15 @@ public class EmrQcService {
             String key = text(record.getDoctorName(), null);
             if (key != null && !ambiguous.contains(key) && names.containsKey(key)) {
                 record.setDoctorName(names.get(key));
+            }
+            if (key != null && !ambiguousKeys.contains(key) && userIdsByKey.containsKey(key)) {
+                record.setDoctorUserId(userIdsByKey.get(key));
+            }
+            String doctorName = text(record.getDoctorName(), null);
+            if (!StringUtils.hasText(record.getDoctorUserId()) || record.getDoctorUserId().equals(doctorName)) {
+                if (StringUtils.hasText(doctorName) && !ambiguousNames.contains(doctorName) && userIdsByName.containsKey(doctorName)) {
+                    record.setDoctorUserId(userIdsByName.get(doctorName));
+                }
             }
         }
     }
@@ -665,6 +717,7 @@ public class EmrQcService {
         vo.setDeptName(record.getDeptName());
         vo.setVisitTime(record.getVisitTime());
         vo.setUpdateTime(record.getUpdateTime());
+        vo.setSnapshot(record.isSnapshot());
         if (projection == null) {
             vo.setQcStatus("pending");
             vo.setStale(false);
@@ -686,6 +739,9 @@ public class EmrQcService {
         if (StringUtils.hasText(projection.getContentHash()) && !projection.getContentHash().equals(contentHash)) {
             state.stale = true;
             state.reason = "content_changed";
+        } else if (record.isSnapshot()) {
+            state.stale = true;
+            state.reason = "snapshot_unverified";
         } else if (!sameUpdateTime(projection.getPhisUpdateTime(), record.getUpdateTime())) {
             state.stale = true;
             state.reason = "record_updated";
@@ -812,7 +868,7 @@ public class EmrQcService {
         }
         String normalized = qcStatus.trim().toLowerCase();
         if (!QC_STATUS.contains(normalized)) {
-            throw new BusinessException("EMR-QC-400", "质控状态只支持 all、pending、analyzed、stale");
+            throw new BusinessException("EMR-QC-400", "质控状态只支持 all、analyzed");
         }
         return normalized;
     }
@@ -836,7 +892,7 @@ public class EmrQcService {
         if (!ID_CARD.matcher(trimmed).matches()) {
             throw new BusinessException("EMR-QC-400", "身份证号必须为 18 位");
         }
-        return trimmed;
+        return trimmed.toUpperCase(java.util.Locale.ROOT);
     }
 
     private String gender(String code) {

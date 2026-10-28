@@ -49,6 +49,14 @@ public class EmrQcWriter {
         entity.setIdTep(draft.getIdTep());
         entity.setTemplateName(draft.getTemplateName());
         entity.setPatientNameMasked(draft.getPatientNameMasked());
+        entity.setPatientName(draft.getPatientName());
+        entity.setGenderCode(draft.getGenderCode());
+        entity.setPatientAge(draft.getPatientAge());
+        entity.setIdCardEncrypted(draft.getIdCardEncrypted());
+        entity.setArchivesEncrypted(draft.getArchivesEncrypted());
+        entity.setDoctorUserId(draft.getDoctorUserId());
+        entity.setPhisCreateTime(draft.getPhisCreateTime());
+        entity.setSnapshotComplete(draft.getPhisCreateTime() == null ? 0 : 1);
         entity.setIdCardMasked(draft.getIdCardMasked());
         entity.setDoctorName(draft.getDoctorName());
         entity.setDeptName(draft.getDeptName());

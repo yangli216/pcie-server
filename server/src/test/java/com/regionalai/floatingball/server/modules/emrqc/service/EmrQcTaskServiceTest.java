@@ -141,8 +141,8 @@ class EmrQcTaskServiceTest {
         EmrQcAnalysisVO success = new EmrQcAnalysisVO();
         success.setScore(82);
         success.setFindingCount(5);
-        when(emrQcService.analyzeForTask(any(), eq("A"), eq(false))).thenReturn(success);
-        when(emrQcService.analyzeForTask(any(), eq("B"), eq(false)))
+        when(emrQcService.analyzeForTask(any(), org.mockito.ArgumentMatchers.argThat(r -> r != null && "A".equals(r.getIdMedrecdoc())), eq(false))).thenReturn(success);
+        when(emrQcService.analyzeForTask(any(), org.mockito.ArgumentMatchers.argThat(r -> r != null && "B".equals(r.getIdMedrecdoc())), eq(false)))
             .thenThrow(new ServiceUnavailableException("EMR-PHIS-UNAVAILABLE", "PHIS 服务读取超时"));
 
         EmrQcTaskCreateRequest request = new EmrQcTaskCreateRequest();
@@ -157,6 +157,8 @@ class EmrQcTaskServiceTest {
         assertEquals(1, task.getSucceededCount());
         assertEquals(1, task.getFailedCount());
         assertTrue(task.getFinishedAt() != null);
+        verify(emrQcService, org.mockito.Mockito.times(1)).requireRecord(any(), eq("A"));
+        verify(emrQcService, org.mockito.Mockito.times(1)).requireRecord(any(), eq("B"));
         verify(auditService).record(any(), eq("batch_analyze"), isNull(), anyString(), eq("queued"));
     }
 

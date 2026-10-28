@@ -7,6 +7,7 @@ public class EmrQcDoctorVO {
 
     private String userId;
     private String name;
+    private String code;
     private String deptId;
     private String deptName;
 }

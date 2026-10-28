@@ -21,7 +21,7 @@
       <admin-filter-bar>
         <div class="filter-row">
           <div class="filter-item">
-            <div class="filter-label">就诊日期</div>
+            <div class="filter-label">创建日期</div>
             <time-range-filter
               v-model="preset"
               :options="timeOptions"
@@ -44,13 +44,6 @@
             />
           </div>
           <div class="filter-item">
-            <label for="emr-qc-dept" class="filter-label">开立科室</label>
-            <el-select id="emr-qc-dept" v-model="deptName" size="small" filterable clearable
-              placeholder="全部科室（本机构）" aria-label="开立科室" @change="changeDepartment">
-              <el-option v-for="name in departmentOptions" :key="name" :value="name" :label="name" />
-            </el-select>
-          </div>
-          <div class="filter-item">
             <label for="emr-qc-doctor" class="filter-label">开立医生</label>
             <el-select
               id="emr-qc-doctor"
@@ -62,7 +55,7 @@
               aria-label="开立医生"
             >
               <el-option
-                v-for="item in filteredDoctors"
+                v-for="item in doctorOptions"
                 :key="item.userId"
                 :value="item.userId"
                 :label="doctorOptionLabel(item)"
@@ -146,6 +139,9 @@
           </div>
         </div>
         <el-alert v-if="listError" :title="listError" type="error" :closable="false" show-icon />
+        <div v-if="applied.qcStatus === 'analyzed'" class="emr-qc-page__hint">
+          已质控列表来自本地快照，请从“全部”列表核验最新状态。旧结果信息不完整，部分筛选可能无法命中，需重新质控。
+        </div>
         <div class="emr-qc-page__table-body">
           <el-table
             ref="recordTable"
@@ -156,7 +152,7 @@
             aria-label="门诊病历质控列表"
             @selection-change="handleSelectionChange"
           >
-            <el-table-column type="selection" width="48" />
+            <el-table-column type="selection" width="48" :selectable="row => !row.snapshotIncomplete" />
             <el-table-column label="患者" min-width="140" show-overflow-tooltip>
               <template slot-scope="{ row }">
                 <span class="emr-qc-page__patient-line">{{ [row.patientName, row.gender, row.age ? `${row.age} 岁` : ''].filter(Boolean).join(' / ') || '未记录' }}</span>
@@ -174,7 +170,7 @@
             </el-table-column>
             <el-table-column label="质控状态" width="84">
               <template slot-scope="{ row }">
-                <status-pill :tone="qcTone(row.qcStatus)" :label="qcLabel(row.qcStatus)" />
+                <status-pill :tone="qcTone(row.qcStatus)" :label="row.snapshot ? '待核验' : qcLabel(row.qcStatus)" />
               </template>
             </el-table-column>
             <el-table-column label="总分" width="56" align="center">
@@ -195,8 +191,8 @@
             <el-table-column label="操作" width="116" fixed="right" class-name="emr-qc-page__actions-cell">
               <template slot-scope="{ row }">
                 <span class="emr-qc-page__row-actions">
-                  <el-button type="text" size="small" @click="openDetail(row.idMedrecdoc)">查看</el-button>
-                  <el-button type="text" size="small" @click="analyzeRow(row)">质控</el-button>
+                  <el-button type="text" size="small" :disabled="row.snapshotIncomplete" @click="openDetail(row.idMedrecdoc)">查看</el-button>
+                  <el-button type="text" size="small" :disabled="row.snapshotIncomplete" @click="analyzeRow(row)">质控</el-button>
                 </span>
               </template>
             </el-table-column>
@@ -235,7 +231,7 @@
       <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon />
       <template v-if="detail">
         <div v-if="detail.record.stale || (detail.qc && detail.qc.stale)" class="emr-qc-page__stale" role="alert">
-          病历已更新，质控结果可能过期，建议重新质控。
+          {{ detail.qc && detail.qc.staleReason === 'snapshot_unverified' ? '当前结果来自本地快照，请从“全部”列表打开病历以核验最新状态。' : '病历已更新，质控结果可能过期，建议重新质控。' }}
         </div>
         <div v-if="detail.qc && detail.qc.ruleVersion !== 'emr-qc-rules-v4'" class="emr-qc-page__stale">评分规则已更新，请重新质控后进行人工调整。</div>
         <div ref="recordMeta" class="page-section page-section--padded emr-qc-page__meta" :class="{ 'emr-qc-page__meta--linked': activeTarget && activeTarget.scope === 'meta' }">
@@ -313,7 +309,7 @@ import { assistantLogDateRange } from '../utils/assistantLogDates'
 import { formatDateTime } from '../utils/admin'
 import { clearAdminAuth } from '../utils/auth'
 import { isWithinOneCalendarYear } from '../utils/emrQcDateRange'
-import { decorateEmrHtmlPreview, departmentOptions, doctorsForDepartment, findingUsesStructuredPreview, normalizeEmrText, resolveFindingTarget } from '../utils/emrQcResults'
+import { decorateEmrHtmlPreview, findingUsesStructuredPreview, normalizeEmrText, resolveFindingTarget } from '../utils/emrQcResults'
 import EmrQcResultPanel from '../components/emr-qc/EmrQcResultPanel.vue'
 
 const MAX_BATCH = 50
@@ -339,7 +335,6 @@ export default {
       dateFrom: '',
       dateTo: '',
       patientName: '',
-      deptName: '',
       doctorUserId: '',
       doctorOptions: [],
       qcStatus: 'all',
@@ -351,9 +346,7 @@ export default {
       ],
       qcStatuses: [
         { value: 'all', label: '全部' },
-        { value: 'pending', label: '待质控' },
-        { value: 'analyzed', label: '已质控' },
-        { value: 'stale', label: '结果过期' }
+        { value: 'analyzed', label: '已质控' }
       ],
       session: null,
       sessionError: '',
@@ -385,8 +378,6 @@ export default {
     }
   },
   computed: {
-    departmentOptions() { return departmentOptions(this.doctorOptions) },
-    filteredDoctors() { return doctorsForDepartment(this.doctorOptions, this.deptName) },
     sessionBlocked() {
       return Boolean(this.sessionError) || !this.session || !this.session.available
     },
@@ -502,16 +493,11 @@ export default {
         this.doctorOptions = await fetchDoctors() || []
       } catch (error) {
         this.doctorOptions = []
-        this.$message.error(`科室及医生目录加载失败：${error.message}`)
+        this.$message.error(`医生目录加载失败：${error.message}`)
       }
     },
     doctorOptionLabel(item) {
-      return !this.deptName && item.deptName ? `${item.name}（${item.deptName}）` : item.name
-    },
-    changeDepartment() {
-      if (this.doctorUserId && !this.filteredDoctors.some(item => item.userId === this.doctorUserId)) {
-        this.doctorUserId = ''
-      }
+      return item.code ? `${item.name}（${item.code}）` : item.name
     },
     changePreset() {
       if (this.preset !== 'custom') {
@@ -552,7 +538,6 @@ export default {
       this.applied = {
         ...range,
         patientName: this.patientName.trim() || undefined,
-        deptName: this.deptName || undefined,
         doctorUserId: this.doctorUserId || undefined,
         qcStatus: this.qcStatus
       }
@@ -564,7 +549,6 @@ export default {
       this.dateFrom = ''
       this.dateTo = ''
       this.patientName = ''
-      this.deptName = ''
       this.doctorUserId = ''
       this.qcStatus = 'all'
       this.search()
