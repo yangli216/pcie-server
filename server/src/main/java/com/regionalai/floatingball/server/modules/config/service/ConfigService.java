@@ -256,6 +256,14 @@ public class ConfigService {
         }
     }
 
+    public ResolvedAiConfig resolveByScope(String orgId, String regionId) {
+        AiConfig config = resolveVisibleConfig(orgId, regionId);
+        if (config == null) {
+            return null;
+        }
+        return toResolved(config);
+    }
+
     private AiConfig resolveVisibleConfig(String orgId, String regionId) {
         List<AiConfig> configs = aiConfigMapper.selectList(new LambdaQueryWrapper<AiConfig>()
             .eq(AiConfig::getFgActive, "1")

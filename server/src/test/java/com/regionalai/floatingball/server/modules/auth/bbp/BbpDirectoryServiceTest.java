@@ -41,8 +41,11 @@ class BbpDirectoryServiceTest {
         currentUser.setAuthProvider("BBP");
         currentUser.setAuthSessionId("SESSION-1");
         currentUser.setBbpTenantId("TENANT-A");
+        currentUser.setBbpOrgId("ORG-A");
+        currentUser.setBbpUserId("USER-A");
+        currentUser.setBbpRoleId("ROLE-A");
         currentUser.setRoles(Collections.singletonList("SYSTEM_ADMIN"));
-        when(sessionRegistry.requireSession("SESSION-1"))
+        when(sessionRegistry.requireSession("SESSION-1", "TENANT-A", "ORG-A", "USER-A", "ROLE-A"))
             .thenReturn(new BbpSessionRegistry.Session(
                 "TENANT-A", cookies, System.currentTimeMillis() + 60000L));
     }

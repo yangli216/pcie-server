@@ -151,8 +151,8 @@ public class BbpAdminAccessService {
         if (person != null) {
             grant.setOrgName(person.getOrgName());
             grant.setPersonId(text(person.getPersonId(), person.getId()));
-            grant.setLoginName(person.getLoginName());
-            grant.setPersonName(person.getName());
+            grant.setLoginName(text(person.getLoginName(), person.getCode(), person.getUserId()));
+            grant.setPersonName(text(person.getName(), person.getLoginName(), person.getCode(), person.getUserId()));
         }
         try {
             if (existing == null) {

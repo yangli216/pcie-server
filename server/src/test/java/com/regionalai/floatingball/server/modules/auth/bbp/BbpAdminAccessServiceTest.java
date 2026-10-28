@@ -95,6 +95,7 @@ class BbpAdminAccessServiceTest {
         assertEquals("USER-1", saved.getBbpUserId());
         assertEquals("ORG_ADMIN", saved.getRoleCode());
         assertEquals("1", saved.getSdStatus());
+        assertEquals("D-USER-1", saved.getLoginName());
         verify(auditService).record(systemAdmin, saved, true);
         assertTrue(result.isAdminAccessEnabled());
     }

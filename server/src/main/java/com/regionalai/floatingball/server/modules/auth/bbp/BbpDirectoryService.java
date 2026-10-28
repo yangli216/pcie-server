@@ -83,7 +83,12 @@ public class BbpDirectoryService {
         if (currentUser == null || !"BBP".equals(currentUser.getAuthProvider()) || !StringUtils.hasText(currentUser.getAuthSessionId())) {
             throw new BusinessException("当前登录不是有效的 BBP 会话");
         }
-        return sessionRegistry.requireSession(currentUser.getAuthSessionId());
+        return sessionRegistry.requireSession(
+            currentUser.getAuthSessionId(),
+            currentUser.getBbpTenantId(),
+            currentUser.getBbpOrgId(),
+            currentUser.getBbpUserId(),
+            currentUser.getBbpRoleId());
     }
 
     private boolean belongsToTenant(BbpPersonView person, String tenantId) {

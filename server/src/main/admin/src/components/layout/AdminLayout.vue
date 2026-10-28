@@ -39,7 +39,7 @@
         @close-tag="$emit('close-tag', $event)"
       />
 
-      <main class="admin-shell__content" tabindex="-1">
+      <main class="admin-shell__content" :class="{ 'admin-shell__content--contained': $route.meta.containedLayout }" tabindex="-1">
         <slot />
       </main>
     </section>

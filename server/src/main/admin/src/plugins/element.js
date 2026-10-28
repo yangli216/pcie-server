@@ -21,6 +21,7 @@ import Message from 'element-ui/lib/message'
 import MessageBox from 'element-ui/lib/message-box'
 import Option from 'element-ui/lib/option'
 import Pagination from 'element-ui/lib/pagination'
+import Progress from 'element-ui/lib/progress'
 import RadioButton from 'element-ui/lib/radio-button'
 import RadioGroup from 'element-ui/lib/radio-group'
 import Select from 'element-ui/lib/select'
@@ -52,6 +53,7 @@ const components = [
   MenuItem,
   Option,
   Pagination,
+  Progress,
   RadioButton,
   RadioGroup,
   Select,

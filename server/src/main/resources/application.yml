@@ -53,6 +53,13 @@ floating-ball:
     jdbc-url: ${FB_DRUG_INSTRUCTIONS_JDBC_URL:}
     username: ${FB_DRUG_INSTRUCTIONS_USERNAME:}
     password: ${FB_DRUG_INSTRUCTIONS_PASSWORD:}
+  emr-qc:
+    enabled: ${FB_EMR_QC_ENABLED:true}
+    connect-timeout-ms: ${FB_EMR_QC_CONNECT_TIMEOUT_MS:3000}
+    read-timeout-ms: ${FB_EMR_QC_READ_TIMEOUT_MS:10000}
+    analysis-timeout-seconds: ${FB_EMR_QC_ANALYSIS_TIMEOUT_SECONDS:90}
+    max-task-records: ${FB_EMR_QC_MAX_TASK_RECORDS:50}
+    worker-concurrency: ${FB_EMR_QC_WORKER_CONCURRENCY:1}
   aes-key: ${FB_AES_KEY:FloatingBallKey!}
   admin:
     auth:

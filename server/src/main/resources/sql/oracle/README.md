@@ -122,6 +122,17 @@ Oracle 通常不会像 MySQL 一样在应用脚本里直接执行 `CREATE DATABA
 
 但这只适合临时开发联调，不建议作为正式部署方案。
 
+## 门诊病历 AI 质控
+
+初始化基线包含 `c_ai_emr_qc_record`、`c_ai_emr_qc_finding`、`c_ai_emr_qc_task` 与 `c_ai_emr_qc_review_log`：
+
+1. `c_ai_emr_qc_record` 按 `id_org + id_medrecdoc` 保存当前机构最近一次质控投影，`content_hash` 固化归一化正文 SHA-256，用于判断 PHIS 正文是否变化；只保存患者姓名/身份证掩码，不保存完整身份或病历正文。2026-10-26 起新增 `result_source / ai_score / ai_analysis_id / reviewed_by / reviewed_by_name / reviewed_at / review_reason`，支持人工调整结果并保留 AI 原始总分与分析 ID；`dimensions_json` 为 9 维度评分（`score` 为维度得分、`weight` 为维度满分，满分合计 100），`finding_count / high_severity_count` 只统计未忽略问题。
+2. `c_ai_emr_qc_finding` 按 `id_analysis + sort_no` 保存一次分析的问题明细，同一分析内唯一；`deduction` 保存单条问题扣分，`ignored` 保存人工忽略状态，忽略项保留明细用于追溯和恢复，但不计入有效问题数及高危数。
+3. `c_ai_emr_qc_task` 保存批量质控的机构、创建管理员、`record_ids_json` 与逐份进度 `items_json`，用于进度查询与服务重启后的中断收口。
+4. `c_ai_emr_qc_review_log` 仅记录 `view_detail / analyze / batch_analyze` 等操作审计，不落库 Cookie、`tk` 或病历原文。
+
+新库直接执行 `init.sql`。存量库不保留常驻补丁脚本，由 DBA 基于当前 `init.sql` 与现场库结构生成一次性迁移脚本；迁移前需备份，并确认四表、`uk_c_ai_emr_qc_record_active`、`uk_c_ai_emr_qc_finding_active`、`idx_c_ai_emr_qc_record_org`、`idx_c_ai_emr_qc_task_creator`、`idx_c_ai_emr_qc_review_org` 及全部列注释已补齐。质控功能随服务默认启用；仅在需要紧急停用时显式配置 `FB_EMR_QC_ENABLED=false`，默认启用不绕过数据库 schema、BBP 会话或权限校验。
+
 ## 住院病历日志
 
 初始化基线包含 `c_ai_inpatient_emr_log` 与 `c_ai_inpatient_emr_log_event`，分别保存每次生成的最新快照及不可变生命周期事件。唯一键覆盖设备/生成UUID、设备/事件UUID、轮次/序号；查询索引覆盖生成时间、HIS机构、患者住院和模板状态。新库执行 `init.sql`。

@@ -132,6 +132,12 @@ select:focus-visible,
   overflow: auto;
 }
 
+.admin-shell__content--contained {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .admin-sidebar {
   min-width: 0;
   height: 100vh;
@@ -143,6 +149,7 @@ select:focus-visible,
 
 .admin-sidebar__brand {
   height: 60px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -204,6 +211,65 @@ select:focus-visible,
 
 .admin-sidebar__link.is-active {
   border-left-color: var(--color-primary);
+}
+
+.admin-sidebar__group {
+  margin-top: 4px;
+}
+
+.admin-sidebar__group-toggle {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px 0 21px;
+  border: 0;
+  background: transparent;
+  color: #aabccc;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.admin-sidebar__group-toggle:hover,
+.admin-sidebar__group-toggle.is-current {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.admin-sidebar__group-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.admin-sidebar__group-chevron {
+  font-size: 11px;
+  transition: transform 0.16s ease;
+}
+
+.admin-sidebar__group-chevron.is-expanded {
+  transform: rotate(90deg);
+}
+
+.admin-sidebar__link--child {
+  height: 38px;
+  padding-left: 32px;
+}
+
+.admin-sidebar__group-divider {
+  margin: 8px 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.admin-sidebar__nav :focus-visible {
+  outline-offset: -3px;
 }
 
 .admin-sidebar.is-collapsed .admin-sidebar__brand {

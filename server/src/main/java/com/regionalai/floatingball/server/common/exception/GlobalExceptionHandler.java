@@ -46,6 +46,18 @@ public class GlobalExceptionHandler {
         return ApiResponse.error(ex.getCode(), sanitizeBusinessMessage(ex.getMessage()), resolveRequestId(request));
     }
 
+    @ExceptionHandler(NotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiResponse<Void> handleNotFound(NotFoundException ex, HttpServletRequest request) {
+        log.warn("not found. method={}, uri={}, requestId={}, code={}, message={}",
+            request.getMethod(),
+            request.getRequestURI(),
+            resolveRequestId(request),
+            ex.getCode(),
+            ex.getMessage());
+        return ApiResponse.error(ex.getCode(), sanitizeBusinessMessage(ex.getMessage()), resolveRequestId(request));
+    }
+
     @ExceptionHandler(ForbiddenException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ApiResponse<Void> handleForbidden(ForbiddenException ex, HttpServletRequest request) {

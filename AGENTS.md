@@ -10,6 +10,18 @@
 
 本机真实接入用 Spring additional-location 加载私有连接与测试集合配置，保留已有数据库/AES/AI 参数。默认对非医学合成工程资料做技术批准；2026-10-08 用户另授权公开原始资料实际测试，须建立明确标注的独立本机测试集合，核对官方出处、版次、页码、解析原文及片段 SHA-256。该检索发布批准不能表述为医学审核通过，也不能自动接入公卫生成或 HIS 写回。模型安装须核对官方固定版本和文件摘要，不能用 Fake 嵌入宣称真实召回。默认测试不调用真实模型。
 
+## PHIS 门诊病历质控（2026-10-25）
+
+管理端 `/emr-qc` 只重建 PHIS 门诊病历（`idApp=42`）只读查询与 AI 书写质控，仅 `bbp` 认证模式可用；范围不含住院病历、独立人工复核工单流、质控统计看板和 PHIS 写回。2026-10-26 起支持在已有 AI 结果的质控结果面板内联人工调整评分与问题明细（必填理由、保留 AI 原始结果、写审计，不另开弹窗），评分按内置 9 维度门诊病历评分表（含“其他”急诊规则 5 分，满分 100）由服务端求和；问题明细显示扣分，支持调整扣分及忽略/恢复，忽略项不计入有效问题数和高危数。
+
+门诊病历质控随服务默认启用；`FB_EMR_QC_ENABLED=false` 仅用于显式紧急停用。默认启用不绕过 BBP 模式、进程内 `tk` 会话、机构权限、数据库 schema、出站安全或 AI 配置校验，也不把 PHIS 可用性变成 PCIE Server 启动前置条件。
+
+1. 会话只复用管理员 BBP 登录建立的进程内 `tk` Cookie，基地址沿用 `floating-ball.admin.auth.bbp.base-url`（`FB_ADMIN_BBP_BASE_URL`）；不保存管理员密码、不建专用服务账号、不落库 Cookie/tk，会话过期即返回稳定错误码并提示重新登录后台。
+2. 上游只读且服务端白名单：仅允许 `otms.emr.rpcHistoryRecordService/queryHistoryRecord` 与 `otms.mb.rpcElectronicMedicalRecordWritingService/getMedContentPreview`；前端不得传入 ServiceId、Method、机构列表或上游路径；禁止调用 `saveMedLog`、`queryPDF`、`exportHistoryRecordPdf`、打印或任何 PHIS 写接口。
+3. 详情与质控只接受当前会话列表查询返回过的 `idMedrecdoc`，构造 ID 一律按不存在处理；`ORG_ANALYST` 禁止访问 `/admin/api/emr-qc/**`，BBP 非系统管理员的机构作用域由服务端锁定。
+4. 2026-10-26 用户授权病历 HTML 只读预览：服务端对 PHIS `htmlContent` 做标签、属性和样式白名单清理并脱敏，仅通过无脚本/无同源权限且禁止外部资源的 sandbox iframe 展示；HTML 不落库、不入日志、不用于评分或送 AI，缺失时回退 `xmlContent` 归一化章节；送 AI 前必须脱敏姓名、身份证号、病案号、联系方式和地址，不发送 HTML/XML、Cookie、签名图片或完整身份。
+5. 质控结果仅作为 AI 书写参考，不得表述为质控通过或医学审核通过，不自动修改病历、不回写 PHIS。批量任务串行执行、单批最多 50 份，单份失败不落部分结果、不拖累同批其他病历。
+6. 四表 `c_ai_emr_qc_record / c_ai_emr_qc_finding / c_ai_emr_qc_task / c_ai_emr_qc_review_log` 同步进入 Oracle/GaussDB `init.sql` 与对应 `README.md`，首期不保留常驻升级补丁；新增或修改 service/controller/security 必须补 JUnit 测试，覆盖会话失效、白名单拒绝、脱敏、越权读取与批量进度。
 
 `pcie-server`（全医慧助服务端 / PCIE Server）项目的协作规则。
 
@@ -94,6 +106,8 @@
 6. 自定义动作必须使用 `button`，导航使用 `router-link`；不得用无 `href` 的 `<a>` 承载动作。图标按钮必须有 `aria-label`，自定义可点击卡片必须有键盘焦点与回车/空格触发。
 7. 管理端文案与样式必须遵守 Web Interface Guidelines：保留可见 `:focus-visible`，占位/加载文案使用 `…`，长文本可截断或折行，禁用 `transition: all` 和无替代焦点样式的 `outline: none`。
 8. 系统大框层固定使用 `admin-shell -> admin-shell__sidebar + admin-shell__main -> admin-shell__topbar + admin-shell__tabs + admin-shell__content`，不得在业务页面重写同义外框 div；侧栏、顶栏、页签栏分别维护在 `AdminSidebar`、`AdminTopbar`、`AdminTabBar`。
+9. 菜单目录、名称、图标与页面元数据统一维护在 `server/src/main/admin/src/router/navigation.js`，采用“首页概览 + 统计分析 / 临床业务 / AI 配置 / 日志审计 / 系统运维 / 基础管理”；侧栏、顶栏、页签与浏览器标题保持同名。新增入口须复用既有角色/BBP 可见性约束，先过滤页面再隐藏空目录，不得通过目录重组扩大权限；调整后执行 `npm --prefix server/src/main/admin run test:navigation`。
+10. Vite 缓存使用被 Git 忽略的 `server/src/main/admin/.vite-cache/`，不放入会被 Maven `npm ci` 清理的 `node_modules`；异步路由加载失败必须向用户提示刷新重试。
 
 ## 关键联调清单
 

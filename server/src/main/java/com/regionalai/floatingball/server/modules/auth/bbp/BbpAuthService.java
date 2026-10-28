@@ -60,7 +60,7 @@ public class BbpAuthService {
         httpClient.establishSession(roleResult.getCookies(), role.getAuthorizationId(), role.getDepartmentAuthorizationId());
         String sessionId = UUID.randomUUID().toString();
         AdminLoginResponse response = adminAuthService.loginWithBbp(username, role, sessionId);
-        sessionRegistry.register(sessionId, tenantId, roleResult.getCookies(), response.getExpiresAt());
+        sessionRegistry.register(sessionId, tenantId, roleResult.getCookies(), response.getExpiresAt(), role);
         return response;
     }
 
@@ -112,9 +112,22 @@ public class BbpAuthService {
 
     private Comparator<BbpRoleView> roleComparator() {
         return Comparator
-            .comparing((BbpRoleView item) -> text(item.getAuthorizationId()))
+            .comparing((BbpRoleView item) -> isOutpatientRole(item) ? 0 : 1)
+            .thenComparing(item -> text(item.getAuthorizationId()))
             .thenComparing(item -> text(item.getRoleCode()))
             .thenComparing(item -> text(item.getDepartmentAuthorizationId()));
+    }
+
+    private boolean isOutpatientRole(BbpRoleView item) {
+        if (item == null) {
+            return false;
+        }
+        String roleName = item.getRoleName();
+        if (roleName != null && roleName.contains("门诊")) {
+            return true;
+        }
+        String roleCode = item.getRoleCode();
+        return roleCode != null && roleCode.trim().toUpperCase().startsWith("MZ");
     }
 
     private String text(String value) {

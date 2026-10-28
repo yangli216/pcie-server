@@ -5,6 +5,8 @@
   "description": "全医慧助（PCIE）管理平台",
   "scripts": {
     "dev": "vite",
+    "test:emr-qc": "node --test tests/emrQc.test.mjs",
+    "test:navigation": "node --test tests/navigation.test.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

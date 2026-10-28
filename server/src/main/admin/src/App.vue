@@ -80,36 +80,7 @@ import {
   setAdminUser
 } from './utils/auth'
 import { isStatisticsOnlyUser } from './utils/access'
-
-const menuItems = [
-  { path: '/overview', label: '概览', icon: 'el-icon-s-home' },
-  { path: '/users', label: '用户', icon: 'el-icon-user' },
-  { path: '/ai-user-permissions', label: 'AI 使用权限', icon: 'el-icon-circle-check' },
-  { path: '/roles', label: '角色', icon: 'el-icon-s-custom' },
-  { path: '/regions', label: '区域', icon: 'el-icon-location' },
-  { path: '/orgs', label: '机构', icon: 'el-icon-office-building' },
-  { path: '/devices', label: '令牌', icon: 'el-icon-key' },
-  { path: '/client-usage', label: '客户端使用情况', icon: 'el-icon-monitor' },
-  { path: '/configs', label: '配置', icon: 'el-icon-setting' },
-  { path: '/prompts', label: '提示词', icon: 'el-icon-edit-outline' },
-  { path: '/symptom-templates', label: '症状模板', icon: 'el-icon-document-checked' },
-  { path: '/emr-templates', label: '病历模板', icon: 'el-icon-document-copy' },
-  { path: '/exam-result-entry', label: '检验检查回写', icon: 'el-icon-edit-outline' },
-  { path: '/releases', label: '版本发布', icon: 'el-icon-upload' },
-  { path: '/logs', label: '日志', icon: 'el-icon-document' },
-  { path: '/inpatient-emr-logs', label: '住院病历日志', icon: 'el-icon-document-copy' },
-  { path: '/medical-assistant-logs', label: '医学助手日志', icon: 'el-icon-chat-dot-round' },
-  { path: '/user-logs', label: '用户日志', icon: 'el-icon-notebook-2' },
-  { path: '/business-workflow-debug', label: '业务调试', icon: 'el-icon-connection' },
-  { path: '/feedbacks', label: '反馈', icon: 'el-icon-chat-dot-square' },
-  { path: '/recommendation-preferences', label: '推荐偏好', icon: 'el-icon-sort' },
-  { path: '/patient-memories', label: '患者记忆', icon: 'el-icon-collection' },
-  { path: '/analytics', label: '统计分析', icon: 'el-icon-data-analysis' },
-  { path: '/function-usage', label: '辅诊功能', icon: 'el-icon-s-data' },
-  { path: '/user-activity', label: '用户活跃度', icon: 'el-icon-data-line' },
-  { path: '/security-rejections', label: '安全拦截', icon: 'el-icon-lock' },
-  { path: '/security-analytics', label: '安全分析', icon: 'el-icon-warning-outline' }
-]
+import { adminPageMeta, visibleAdminMenu } from './router/navigation'
 
 export default {
   components: {
@@ -117,7 +88,6 @@ export default {
   },
   data() {
     return {
-      menuItems,
       hasToken: false,
       currentUser: null,
       syncingCurrentUser: false,
@@ -159,13 +129,7 @@ export default {
       return this.statisticsOnly ? '/analytics' : '/overview'
     },
     visibleMenuItems() {
-      if (this.statisticsOnly) {
-        return this.menuItems.filter(item => ['/analytics', '/function-usage', '/user-activity'].includes(item.path))
-      }
-      if (this.currentUser && this.currentUser.authProvider === 'BBP') {
-        return this.menuItems
-      }
-      return this.menuItems.filter(item => item.path !== '/ai-user-permissions')
+      return visibleAdminMenu(this.currentUser)
     }
   },
   created() {
@@ -203,9 +167,9 @@ export default {
         return
       }
       const path = this.$route.path === '/' ? this.landingPath : (this.$route.path || this.landingPath)
-      const title = this.$route.meta && this.$route.meta.title ? this.$route.meta.title : (path === this.landingPath ? (this.statisticsOnly ? '统计分析' : '首页概览') : '当前页面')
+      const title = this.$route.meta && this.$route.meta.title ? this.$route.meta.title : (path === this.landingPath ? adminPageMeta(this.landingPath).title : '当前页面')
       if (!this.visitedTags.some(tag => tag.path === this.landingPath)) {
-        this.visitedTags.push({ path: this.landingPath, title: this.statisticsOnly ? '统计分析' : '首页概览' })
+        this.visitedTags.push({ path: this.landingPath, title: adminPageMeta(this.landingPath).title })
       }
       if (!this.visitedTags.some(tag => tag.path === path)) {
         this.visitedTags.push({ path, title })

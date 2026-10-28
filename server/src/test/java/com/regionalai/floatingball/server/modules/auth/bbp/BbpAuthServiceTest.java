@@ -74,7 +74,7 @@ class BbpAuthServiceTest {
         verify(httpClient).establishSession(cookies, "AUTH-A", null);
         verify(adminAccessService).findActiveRoleCodes(first);
         verify(adminAccessService, never()).findActiveRoleCodes(selected);
-        verify(sessionRegistry).register(anyString(), eq("xiaoshan"), same(cookies), eq(1770000000000L));
+        verify(sessionRegistry).register(anyString(), eq("xiaoshan"), same(cookies), eq(1770000000000L), same(selected));
     }
 
     @Test
@@ -125,6 +125,26 @@ class BbpAuthServiceTest {
 
         verify(httpClient).establishSession(cookies, "AUTH-SYSTEM", null);
         verifyNoInteractions(adminAccessService);
+    }
+
+    @Test
+    void loginShouldPreferOutpatientRoleWhenAccountHasMultiplePcieAuthorizedRoles() {
+        BbpCookieJar cookies = new BbpCookieJar();
+        BbpRoleView reportDoctor = role("AUTH-A", "BKYS", "ORG001", "USER001");
+        BbpRoleView outpatient = role("AUTH-Z", "MZYSJS", "ORG001", "USER001");
+        outpatient.setRoleName("门诊医生");
+        when(httpClient.findRoles("ZH0006", "secret", "xiaoshan"))
+            .thenReturn(new BbpHttpClient.RoleResult(cookies, Arrays.asList(reportDoctor, outpatient)));
+        when(adminAccessService.findActiveRoleCodes(reportDoctor))
+            .thenReturn(Collections.singletonList(BbpAdminAccessService.ORG_ADMIN));
+        AdminLoginResponse expected = new AdminLoginResponse();
+        expected.setExpiresAt(1770000000000L);
+        when(adminAuthService.loginWithBbp(eq("ZH0006"), same(outpatient), anyString())).thenReturn(expected);
+
+        assertSame(expected, service.login(request("ZH0006")));
+
+        verify(httpClient).establishSession(cookies, "AUTH-Z", null);
+        verify(sessionRegistry).register(anyString(), eq("xiaoshan"), same(cookies), eq(1770000000000L), same(outpatient));
     }
 
     private BbpLoginRequest request(String username) {

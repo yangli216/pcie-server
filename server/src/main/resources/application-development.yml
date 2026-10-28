@@ -18,6 +18,10 @@ spring:
 
 floating-ball:
   aes-key: ${FB_AES_KEY:FloatingBallKey!}
+  # The read-only outpatient EMR QC module is enabled by default in every profile.
+  # FB_EMR_QC_ENABLED=false remains available as an explicit emergency stop.
+  emr-qc:
+    enabled: ${FB_EMR_QC_ENABLED:true}
   admin:
     auth:
       mode: bbp

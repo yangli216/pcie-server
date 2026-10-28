@@ -3489,6 +3489,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 12. 概览统计
 13. 反馈、用户日志、统计分析与活跃度查询
 14. 推荐偏好观测：聚合偏好分、原始事件、医生/科室/机构维度筛选
+15. PHIS 门诊病历质控：只读病历查询、单份/批量 AI 书写质控与结果查看
 
 这些接口在第一轮脚手架阶段优先保证 CRUD 结构和分页查询能力，细节以实现文档和代码为准。Prompt 已恢复为管理端维护资源；数据包仍服务桌面端 delta 链路，但不再作为管理端维护资源暴露。
 
@@ -3929,3 +3930,352 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 - `GET /export`：同筛选，忽略分页；最多1000条UTF-8 BOM CSV，含机构、医生、生成时间、书写时间、患者、性别、年龄、住院ID、模板、处理结果；无全文、无公式执行，超限拒绝。
 
 所有管理接口要求adminToken。统计专用账号拒绝访问；BBP非系统管理员的HIS机构由服务端锁定登录机构，选项、详情、导出同样限制。
+
+## PHIS 门诊病历质控（管理端）
+
+接口前缀 `/admin/api/emr-qc`，均需 `Authorization: Bearer {adminToken}`。仅 `bbp` 认证模式可用，不限制 PHIS 角色类型，能否查询由登录管理员的 PHIS `tk` 会话决定；`ORG_ANALYST` 只读统计账号禁止访问。服务端复用管理员 BBP 登录会话中与 12 小时令牌同生命周期的 `tk` Cookie，不接受、不回传 PHIS 凭据、ServiceId、ServiceMethod、上游地址或机构 ID 列表。PHIS 全程只读，不写回、不打印、不导出 PDF。完整的边界与数据模型见 [ARCHITECTURE.md](./ARCHITECTURE.md) 3.1.4 与第 7 节。
+
+### GET `/admin/api/emr-qc/session`
+
+用途：读取当前管理员可用的 PHIS 门诊会话与数据作用域，供页面判断是否可查询。会话不可用时仍返回 HTTP 200，由页面展示重新登录提示；病历与质控接口则返回对应错误。
+
+响应 `data`：
+
+```json
+{
+  "available": true,
+  "hisOrgId": "4046",
+  "hisOrgName": "萧山区第一人民医院",
+  "deptId": "D001",
+  "deptName": "门诊内科",
+  "doctorName": "张三",
+  "roleName": "门诊医生",
+  "sessionExpiresAt": "2026-10-25T22:00:00",
+  "unavailableCode": null,
+  "unavailableReason": null
+}
+```
+
+`available=false` 时 `unavailableCode` 为 `EMR-PHIS-SESSION`（会话缺失或过期，需重新登录后台），`unavailableReason` 为面向管理员的中文提示。`hisOrgId/deptId` 是服务端从登录角色派生的作用域；角色未携带机构时回退为登录机构，页面不得提交机构列表。科室筛选不得扩大该作用域。不校验门诊医生等具体角色类型。
+
+### GET `/admin/api/emr-qc/doctors`
+
+用途：返回当前登录管理员所在机构可筛选的开立医生清单，供列表「开立医生」下拉使用。服务端从 BBP 人员目录按登录机构（`bbpOrgId`）读取，仅保留启用状态且人员类型为医师 / 乡村医生的人员，不返回患者信息。
+
+响应 `data` 为数组，字段：`userId`（BBP 用户 ID，用于 `records.doctorUserId`）、`name`、`deptId`、`deptName`。登录机构缺失时返回空数组；会话失效返回 `EMR-PHIS-SESSION`。
+
+### GET `/admin/api/emr-qc/records`
+
+用途：查询 PHIS 门诊病历列表（`idApp=42`）并附带本平台最近一次质控投影。服务端固定调用上游 `queryHistoryRecord`，`orgIdList` 由会话作用域派生；不按登录医生固定过滤，也不固定传入登录科室，机构范围内的病历均可查询，是否可见仍由 PHIS `tk` 会话裁剪。
+
+请求参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| dateFrom | string | 否 | 起始日期 yyyy-MM-dd，与 `dateTo` 成对；含起止日；默认近 7 天；跨度最大 31 天 |
+| dateTo | string | 否 | 截止日期 yyyy-MM-dd |
+| patientName | string | 否 | 患者姓名，按上游字面匹配，最长 64 字符 |
+| idCard | string | 否 | 18 位居民身份证号，仅用于上游精确查询，不落库、不回显；格式非法返回 400 |
+| doctorUserId | string | 否 | 开立医生 BBP 用户 ID，必须属于当前登录机构（取自 `/doctors`）；服务端校验通过后取其 BBP 登录账号（`loginName`，回退人员编码 `cd`/`userId`）映射为上游 `insertUser`（上游按登录账号匹配，`userIdList` 留空），不属于本机构返回 400 |
+| deptName | string | 否 | 开立科室名称，必须来自当前登录机构启用医生的 `/doctors` 目录；服务端按 PHIS 返回的 `insertDept` 名称精确筛选，目录与 PHIS 名称不一致时不会匹配。可独立或与医生条件组合使用；上游结果超过 1000 条时拒绝科室查询并提示缩小日期范围，避免返回不完整结果 |
+| qcStatus | string | 否 | `all`（默认）/ `pending` / `analyzed` / `stale`，按本平台质控投影筛选 |
+| current | long | 否 | 页码，默认 1 |
+| size | long | 否 | 每页条数，默认 10；上游按 50 条分段拉取后合并，前端统一使用 10 / 20 / 50 / 100 |
+
+响应 `data`：标准分页结构，`records[]` 字段：
+
+```json
+{
+  "current": 1,
+  "size": 20,
+  "total": 36,
+  "records": [
+    {
+      "idMedrecdoc": "8a1f...",
+      "templateName": "门诊病历",
+      "patientName": "张三",
+      "gender": "男",
+      "age": "45",
+      "idCardMasked": "330***********1234",
+      "doctorName": "李四",
+      "deptName": "门诊内科",
+      "visitTime": "2026-10-24T09:12:00",
+      "updateTime": "2026-10-24T09:30:00",
+      "qcStatus": "analyzed",
+      "resultSource": "ai",
+      "score": 82,
+      "findingCount": 5,
+      "highSeverityCount": 1,
+      "analyzedAt": "2026-10-25T10:30:00",
+      "stale": false
+    }
+  ]
+}
+```
+
+说明：
+
+1. `patientName`、`gender`、`age`、`doctorName`、`deptName` 来自 PHIS 当前查询结果，用于医生识别病历；`idCardMasked` 只返回掩码。服务端数据库只保存姓名与身份证号的掩码值，不保存完整身份字段。
+2. `qcStatus` 由服务端计算：无质控投影为 `pending`；存在投影且归一化文本 SHA-256 与 PHIS `updateTime` 均未变化为 `analyzed`；任一变化为 `stale`。质控失败不入列表状态，只体现在单份或批量接口的错误返回中。
+3. `stale=true` 时列表与详情都必须提示「病历已更新，质控结果可能过期」，并允许重新质控。
+4. 列表结果同时用于建立当前会话的文书 ID 允许集，详情与质控接口只接受该集合内的 `idMedrecdoc`。
+
+### GET `/admin/api/emr-qc/records/{idMedrecdoc}`
+
+用途：读取单份病历的只读预览、归一化纯文本与最近一次质控结果。服务端调用上游 `getMedContentPreview`，将 `xmlContent` 归一化为章节文本，并对 `htmlContent` 做白名单清理、脱敏后返回 `htmlPreview`；不返回原始 HTML，不执行上游内容。
+
+响应 `data`：
+
+```json
+{
+  "record": {
+    "idMedrecdoc": "8a1f...",
+    "templateName": "门诊病历",
+    "patientName": "张三",
+    "gender": "男",
+    "age": "45",
+    "idCardMasked": "330***********1234",
+    "doctorName": "李四",
+    "deptName": "门诊内科",
+    "visitTime": "2026-10-24T09:12:00",
+    "updateTime": "2026-10-24T09:30:00",
+    "qcStatus": "analyzed",
+    "resultSource": "ai",
+    "score": 82,
+    "findingCount": 5,
+    "highSeverityCount": 1,
+    "analyzedAt": "2026-10-25T10:30:00",
+    "stale": false
+  },
+  "contentHash": "8d4f...",
+  "htmlPreview": "<!doctype html><html>…经服务端清理与脱敏的只读病历预览…</html>",
+  "sections": [
+    {
+      "name": "主诉",
+      "fields": [
+        { "name": "主诉", "value": "反复咳嗽咳痰3天。" }
+      ]
+    }
+  ],
+  "qc": {
+    "analysisId": "5c1e...",
+    "analyzedAt": "2026-10-25T10:30:00",
+    "score": 82,
+    "dimensions": [
+      { "code": "present_illness", "name": "现病史", "score": 16, "weight": 20, "summary": "现病史缺少阴性症状描述。" }
+    ],
+    "findings": [
+      {
+        "severity": "high",
+        "category": "现病史",
+        "ruleCode": "R-PRESENT-ILLNESS",
+        "sectionName": "现病史",
+        "excerpt": "咳嗽3天",
+        "issue": "现病史未描述伴随症状及诊疗经过。",
+        "suggestion": "补充伴随症状、既往诊疗与用药情况。",
+        "deduction": 2,
+        "ignored": false
+      }
+    ],
+    "findingCount": 5,
+    "highSeverityCount": 1,
+    "model": "qwen-plus",
+    "ruleVersion": "emr-qc-rules-v3",
+    "resultSource": "ai",
+    "aiScore": null,
+    "reviewedByName": null,
+    "reviewedAt": null,
+    "reviewReason": null,
+    "stale": false,
+    "staleReason": null
+  }
+}
+```
+
+说明：
+
+1. `sections` 按 PHIS 模板章节顺序输出，字段值统一为纯文本；空值与未知字段不展示。前端不得把任何字段当作 HTML 渲染。
+2. 未质控时 `qc=null`。2026-10-26 起 `dimensions` 固定为 9 个维度：患者基础信息（10）、主诉（5）、现病史（20）、既往史（10）、查体与辅助检查（15）、诊断（10）、诊疗措施（20）、病历书写基本要求（5）、其他（5），满分合计 100 分；“其他”包含急诊就诊时间未具体到分钟扣 2 分、急诊病人无 T/P/R/BP 生命体征记录扣 3 分。`weight` 为该维度满分，`score` 为该维度实际得分（0 至满分），`qc.score` 为服务端按维度得分求和的总分。维度、满分与规则版本由服务端代码维护，当前规则版本为 `emr-qc-rules-v4`。
+3. `findings[].excerpt` 来自脱敏后的归一化文本，最长 500 字符，可能包含 `[姓名]` 等掩码占位符；`sectionName` 用于在页面定位。`deduction` 为该问题扣分的非负整数，`ignored` 表示人工是否忽略；忽略项仍保留在明细中，但不计入 `findingCount` 与 `highSeverityCount`。有效问题扣分由服务端汇总计算维度得分，最多扣至零分；除急诊规则外，确定性规则提示不计分。不保存完整病历正文；只读详情按当前会话授权返回预览及章节。
+4. `staleReason` 取 `content_changed`（文本 SHA-256 变化）或 `record_updated`（PHIS `updateTime` 晚于质控时间）。
+5. `htmlPreview` 为清理后的完整预览文档，缺失或正文为空时为 `""`，前端回退纯文章节。仅允许在无脚本/无同源权限的 sandbox iframe 中展示；文档 CSP 禁止外部资源、网络、表单和导航基地址。仅保留受限静态排版，移除签名图片、事件属性、URL 和交互；身份及联系方式脱敏，不落库、不入日志、不传 AI，`contentHash` 仍只基于归一化文本。预览在白名单清洗前复用 PHIS 打印预览的受控展示语义：移除 `data-printhidden=true`、`display:none`、`hidden`、标签标记、非打印节点和占位节点，去除标题必填星号，并仅对结构化字段中明确启用 `PRINTVALUE` 的字段按文章/字段 ID 回填 `TEXT`；服务端不执行 PHIS `printscript`，也不接入分页、打印、PDF 或写接口。预览去掉模板字段大括号，依据结构化元数据隐藏明确为空的占位字段；男性仅隐藏空月经史独立段落，真实记录不隐藏。这些展示处理不影响章节、评分和哈希。
+6. 文书不存在、已不在当前会话列表范围或不属于登录机构时统一返回 `EMR-RECORD-NOT-FOUND`，不区分具体原因，避免探测其他机构文书。
+
+### POST `/admin/api/emr-qc/records/{idMedrecdoc}/analyze`
+
+用途：对单份病历执行 AI 书写质控，同步返回本次或已复用的结果。
+
+请求：
+
+```json
+{
+  "force": false
+}
+```
+
+`force=false`（默认）时，若已有质控结果、内容未过期且 `ruleVersion` 与当前规则版本一致，直接返回最近结果并标记 `reused=true`；旧规则版本结果不得按未变更复用。`force=true` 时无论是否过期都重新调用 AI。请求体可省略。
+
+响应 `data`：返回与详情接口 `qc` 相同的结构，并额外包含：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| reused | boolean | `true` 表示未调用 AI，直接复用未过期结果 |
+| analysisId | string | 本次分析 UUID；`reused=true` 时为复用结果的 ID |
+
+行为与约束：
+
+1. 服务端先读取详情并计算归一化文本 SHA-256，再执行确定性结构规则检查，脱敏后调用现有 AI 配置；不新增模型密钥或独立模型配置页。超过 24000 字符的模型输入拒绝分析，避免静默截断；不匹配脱敏输入的 AI 摘录不展示。
+2. 维度评分与发现由模型输出经服务端结构校验后落库，非法或缺失字段整份失败，不落部分结果。
+3. 同步请求最长等待 `floating-ball.emr-qc.analysis-timeout-seconds`（默认 90 秒）；管理端请求超时必须大于该值并显示分析中状态。
+4. 同一文书并发质控由服务端按 `id_org + id_medrecdoc` 串行化；后到请求等待前一次完成后按 `force` 语义返回，不重复产生并行分析。
+5. 结果仅作为 AI 书写参考，不代表质控通过或人工审核结论。
+
+### PUT `/admin/api/emr-qc/records/{idMedrecdoc}/review`
+
+评分规则 v4：维度得分由服务端按该维度有效问题扣分合计计算，扣分上限为维度满分；除“其他”急诊规则按标准计分外，规则引擎发现作为不计分提示，避免与 AI 发现重复扣分。维度直接调整须以人工扣分明细表达。请求必须携带 `baseAnalysisId`；保存前服务端核对最新结果版本、PHIS 正文及可获得的更新时间，冲突返回 409 `EMR-QC-CONFLICT`。旧规则结果须重新质控后调整。客户端提交的维度分数需与明细一致，否则拒绝保存。
+
+用途：在已有 AI 质控结果上进行人工调整，保存调整后的维度得分与问题明细；AI 原始结果保留用于追溯。
+
+请求 `data`：
+
+```json
+{
+  "baseAnalysisId": "5c1e...",
+  "reason": "现病史已补充诊疗经过，原扣分过重",
+  "dimensions": [
+    { "code": "patient_info", "score": 10, "summary": "基础信息完整" },
+    { "code": "chief_complaint", "score": 4 },
+    { "code": "present_illness", "score": 20 },
+    { "code": "past_history", "score": 10 },
+    { "code": "physical_exam", "score": 15 },
+    { "code": "diagnosis", "score": 10 },
+    { "code": "treatment", "score": 20 },
+    { "code": "writing", "score": 5 },
+    { "code": "other", "score": 5 }
+  ],
+  "findings": [
+    {
+      "severity": "low",
+      "category": "主诉",
+      "sectionName": "主诉",
+      "excerpt": "反复咳嗽3天",
+      "issue": "主诉可进一步补充体征。",
+      "suggestion": "按需补充体征描述。",
+      "deduction": 1,
+      "ignored": false
+    }
+  ]
+}
+```
+
+约束：
+
+1. 仅允许当前会话列表允许集内、且已完成 AI 质控的病历；未质控时返回 `EMR-QC-400`。
+2. `reason` 必填，最长 500 字符；`dimensions` 必须完整覆盖 9 个维度且不重复，`score` 为 0 至该维度满分的整数；总分由服务端求和，忽略前端总分。
+3. `findings` 为调整后的完整问题清单（可为空数组，最多 100 条），`severity` 限 `high|medium|low|info`，`issue` 必填；`category` 使用维度名称，`deduction` 为 0 至对应维度满分的整数，`ignored` 缺省为 `false`。管理端在现有质控结果面板内联编辑，调整扣分或忽略/恢复问题时按全部有效问题重新计算对应维度得分，服务端根据问题清单重新计算并校验维度得分，不信任前端总分。
+4. 保存时生成新的 `analysisId`，AI 原始发现明细不删除；忽略问题仍随完整明细保存，但不计入有效 `findingCount` 和 `highSeverityCount`。
+5. 响应 `data` 与详情接口 `qc` 结构一致：`resultSource=manual`，并带 `reviewedByName`、`reviewedAt`、`reviewReason`、`aiScore`（AI 原始总分）。重新执行 AI 质控后 `resultSource` 回到 `ai`，问题采用本次 AI 结果且均为未忽略。
+6. 调整结果同样仅作书写参考，不代表质控通过或医学审核通过，不回写 PHIS；操作审计 `action=manual_review`。
+
+### POST `/admin/api/emr-qc/tasks`
+
+用途：创建批量质控任务。任务由单实例有界线程池串行执行，批量与单份复用同一质控服务。
+
+请求：
+
+```json
+{
+  "recordIds": ["8a1f...", "9b2c..."],
+  "force": false
+}
+```
+
+约束：
+
+1. `recordIds` 去重后 1–50 项，必须全部命中当前会话列表允许集；任一项不合法时整批拒绝，不部分创建。
+2. 同一管理员同时只允许一个 `queued/running` 任务；已有进行中任务时返回 409 `EMR-QC-TASK-BUSY`，需等待完成或查询进度。
+3. `force` 语义与单份接口一致。
+
+响应 `data`：
+
+```json
+{
+  "taskId": "a95f...",
+  "status": "queued",
+  "total": 2
+}
+```
+
+### GET `/admin/api/emr-qc/tasks/{taskId}`
+
+用途：查询批量任务进度与逐份结果。任务只对创建它的管理员可见；服务端重启后未完成任务标记为 `failed`，不自动重跑。
+
+响应 `data`：
+
+```json
+{
+  "taskId": "a95f...",
+  "status": "running",
+  "total": 10,
+  "processed": 4,
+  "succeeded": 3,
+  "failed": 1,
+  "createdAt": "2026-10-25T10:00:00",
+  "startedAt": "2026-10-25T10:00:01",
+  "finishedAt": null,
+  "items": [
+    {
+      "idMedrecdoc": "8a1f...",
+      "patientName": "张*",
+      "status": "succeeded",
+      "score": 82,
+      "findingCount": 5,
+      "errorCode": null,
+      "errorMessage": null
+    },
+    {
+      "idMedrecdoc": "9b2c...",
+      "patientName": "王*",
+      "status": "failed",
+      "score": null,
+      "findingCount": null,
+      "errorCode": "EMR-PHIS-UNAVAILABLE",
+      "errorMessage": "PHIS 病历读取超时，请稍后重试"
+    }
+  ]
+}
+```
+
+`status` 取 `queued / running / completed / partially_completed / failed`；`items[].status` 取 `pending / succeeded / failed`。`items` 最多 50 项，不分页，不包含病历正文或完整发现明细，详情按需再调用单份接口。批次内单份失败只累计 `failed`，不影响其他病历。
+
+### GET `/admin/api/emr-qc/tasks/latest`
+
+用途：返回当前管理员最近一个批量任务；没有任务时 `data=null`。用于页面刷新后恢复进度。
+
+### 错误语义
+
+| HTTP | code | 场景 |
+| --- | --- | --- |
+| 400 | `EMR-QC-400` | 日期、分页、身份证号、开立医生、记录 ID 或批量参数非法 |
+| 403 | `AUTH-403` | 统计专用账号或角色无权访问 |
+| 404 | `EMR-RECORD-NOT-FOUND` | 文书不存在或不在当前会话列表范围 |
+| 409 | `EMR-QC-CONFLICT` | 结果版本、评分规则或病历内容已变化，需刷新或重新质控 |
+| 409 | `EMR-QC-TASK-BUSY` | 当前管理员已有进行中的批量任务 |
+| 409 | `EMR-PHIS-SESSION` | PHIS 会话缺失或 `tk` 过期，需重新登录后台 |
+| 503 | `EMR-QC-DISABLED` | 功能未启用或未配置 |
+| 503 | `EMR-QC-SCHEMA` | 质控表缺失或不可读，需 DBA 迁移 |
+| 503 | `EMR-PHIS-UNAVAILABLE` | PHIS 超时、协议异常或响应结构异常 |
+| 503 | `EMR-QC-UNAVAILABLE` | AI 配置不可用或模型调用失败 |
+
+### 服务端配置
+
+| 配置键 | 默认值 | 说明 |
+| --- | --- | --- |
+| `floating-ball.emr-qc.enabled` | `true` | 默认启用；环境变量 `FB_EMR_QC_ENABLED=false` 可紧急停用 |
+| `floating-ball.emr-qc.connect-timeout-ms` | `3000` | PHIS 连接超时 |
+| `floating-ball.emr-qc.read-timeout-ms` | `10000` | PHIS 读取超时 |
+| `floating-ball.emr-qc.analysis-timeout-seconds` | `90` | 单份 AI 质控超时 |
+| `floating-ball.emr-qc.max-task-records` | `50` | 单批最大份数，上限 50 |
+| `floating-ball.emr-qc.worker-concurrency` | `1` | 批量工作线程数，首期固定串行 |
+
+PHIS 基地址沿用 `floating-ball.admin.auth.bbp.base-url`（`FB_ADMIN_BBP_BASE_URL`），不新增 PHIS 地址、账号或密钥配置。所有 PHIS 请求经过统一出站安全门且禁止重定向；`tk`、Cookie、管理员密码、完整身份证号及上游原始 HTML/XML 不写日志、不落库、不出现在响应中；授权详情仅返回白名单清理、脱敏后的 `htmlPreview` 与必要章节、患者摘要。

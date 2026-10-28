@@ -1767,4 +1767,196 @@ VALUES ('USER001', 'admin', '系统管理员', '240be518fabd2724ddb6f04eeb1da596
 INSERT INTO c_ai_user_role (id_user_role, id_user, id_role, fg_active)
 VALUES ('USERROLE001', 'USER001', 'ROLE001', '1');
 
+
+CREATE TABLE c_ai_emr_qc_record (
+    id_qc_record         VARCHAR(32) PRIMARY KEY,
+    id_org               VARCHAR(32) NOT NULL,
+    id_medrecdoc         VARCHAR(64) NOT NULL,
+    his_org_id           VARCHAR(64),
+    id_tep               VARCHAR(64),
+    template_name        VARCHAR(256),
+    patient_name_masked  VARCHAR(128),
+    id_card_masked       VARCHAR(64),
+    doctor_name          VARCHAR(128),
+    dept_name            VARCHAR(128),
+    visit_time           TIMESTAMP,
+    phis_update_time     TIMESTAMP,
+    content_hash         VARCHAR(64) NOT NULL,
+    latest_analysis_id   VARCHAR(32),
+    score                INTEGER,
+    dimensions_json      TEXT,
+    finding_count        INTEGER DEFAULT 0,
+    high_severity_count  INTEGER DEFAULT 0,
+    model                VARCHAR(128),
+    rule_version         VARCHAR(64),
+    analyzed_at          TIMESTAMP,
+    result_source        VARCHAR(16) DEFAULT 'ai',
+    ai_score             INTEGER,
+    ai_analysis_id       VARCHAR(32),
+    reviewed_by          VARCHAR(64),
+    reviewed_by_name     VARCHAR(128),
+    reviewed_at          TIMESTAMP,
+    review_reason        VARCHAR(1000),
+    fg_active            CHAR(1) DEFAULT '1' NOT NULL,
+    insert_time          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_time          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE c_ai_emr_qc_record IS '门诊病历AI质控记录投影表';
+COMMENT ON COLUMN c_ai_emr_qc_record.id_qc_record IS '质控记录主键';
+COMMENT ON COLUMN c_ai_emr_qc_record.id_org IS 'PCIE机构ID';
+COMMENT ON COLUMN c_ai_emr_qc_record.id_medrecdoc IS 'PHIS门诊文书ID';
+COMMENT ON COLUMN c_ai_emr_qc_record.his_org_id IS 'PHIS机构编码快照';
+COMMENT ON COLUMN c_ai_emr_qc_record.id_tep IS 'PHIS模板ID';
+COMMENT ON COLUMN c_ai_emr_qc_record.template_name IS '模板名称快照';
+COMMENT ON COLUMN c_ai_emr_qc_record.patient_name_masked IS '患者姓名掩码';
+COMMENT ON COLUMN c_ai_emr_qc_record.id_card_masked IS '身份证号掩码';
+COMMENT ON COLUMN c_ai_emr_qc_record.doctor_name IS '开立医生姓名快照';
+COMMENT ON COLUMN c_ai_emr_qc_record.dept_name IS '开立科室名称快照';
+COMMENT ON COLUMN c_ai_emr_qc_record.visit_time IS 'PHIS就诊时间';
+COMMENT ON COLUMN c_ai_emr_qc_record.phis_update_time IS 'PHIS病历更新时间';
+COMMENT ON COLUMN c_ai_emr_qc_record.content_hash IS '归一化文本SHA-256';
+COMMENT ON COLUMN c_ai_emr_qc_record.latest_analysis_id IS '最近分析UUID';
+COMMENT ON COLUMN c_ai_emr_qc_record.score IS '最近质控总分';
+COMMENT ON COLUMN c_ai_emr_qc_record.dimensions_json IS '九维度评分JSON，score为维度得分、weight为维度满分，满分合计100';
+COMMENT ON COLUMN c_ai_emr_qc_record.finding_count IS '未忽略问题数';
+COMMENT ON COLUMN c_ai_emr_qc_record.high_severity_count IS '未忽略高严重度问题数';
+COMMENT ON COLUMN c_ai_emr_qc_record.model IS '质控模型';
+COMMENT ON COLUMN c_ai_emr_qc_record.rule_version IS '确定性规则版本';
+COMMENT ON COLUMN c_ai_emr_qc_record.analyzed_at IS '质控时间';
+COMMENT ON COLUMN c_ai_emr_qc_record.result_source IS '当前结果来源：ai或manual';
+COMMENT ON COLUMN c_ai_emr_qc_record.ai_score IS 'AI原始总分';
+COMMENT ON COLUMN c_ai_emr_qc_record.ai_analysis_id IS 'AI原始分析UUID，用于追溯原始发现明细';
+COMMENT ON COLUMN c_ai_emr_qc_record.reviewed_by IS '人工调整操作人ID';
+COMMENT ON COLUMN c_ai_emr_qc_record.reviewed_by_name IS '人工调整操作人姓名';
+COMMENT ON COLUMN c_ai_emr_qc_record.reviewed_at IS '人工调整时间';
+COMMENT ON COLUMN c_ai_emr_qc_record.review_reason IS '人工调整理由';
+COMMENT ON COLUMN c_ai_emr_qc_record.fg_active IS '逻辑删除标记';
+COMMENT ON COLUMN c_ai_emr_qc_record.insert_time IS '创建时间';
+COMMENT ON COLUMN c_ai_emr_qc_record.update_time IS '更新时间';
+
+CREATE INDEX idx_c_ai_emr_qc_record_org ON c_ai_emr_qc_record (id_org, analyzed_at);
+CREATE UNIQUE INDEX uk_c_ai_emr_qc_record_active ON c_ai_emr_qc_record (
+    (CASE WHEN fg_active = '1' THEN id_org END),
+    (CASE WHEN fg_active = '1' THEN id_medrecdoc END)
+);
+
+
+CREATE TABLE c_ai_emr_qc_finding (
+    id_finding      VARCHAR(32) PRIMARY KEY,
+    id_qc_record    VARCHAR(32) NOT NULL,
+    id_analysis     VARCHAR(32) NOT NULL,
+    sort_no         INTEGER NOT NULL,
+    severity        VARCHAR(16),
+    category        VARCHAR(64),
+    rule_code       VARCHAR(64),
+    section_name    VARCHAR(128),
+    excerpt         VARCHAR(2000),
+    issue           VARCHAR(2000),
+    suggestion      VARCHAR(2000),
+    deduction       INTEGER DEFAULT 0 NOT NULL,
+    ignored         BOOLEAN DEFAULT FALSE NOT NULL,
+    fg_active       CHAR(1) DEFAULT '1' NOT NULL,
+    insert_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE c_ai_emr_qc_finding IS '门诊病历AI质控发现明细表';
+COMMENT ON COLUMN c_ai_emr_qc_finding.id_finding IS '发现明细主键';
+COMMENT ON COLUMN c_ai_emr_qc_finding.id_qc_record IS '质控记录主键';
+COMMENT ON COLUMN c_ai_emr_qc_finding.id_analysis IS '分析UUID';
+COMMENT ON COLUMN c_ai_emr_qc_finding.sort_no IS '分析内排序号';
+COMMENT ON COLUMN c_ai_emr_qc_finding.severity IS '严重度 high/medium/low/info';
+COMMENT ON COLUMN c_ai_emr_qc_finding.category IS '问题分类';
+COMMENT ON COLUMN c_ai_emr_qc_finding.rule_code IS '确定性规则编码，可空';
+COMMENT ON COLUMN c_ai_emr_qc_finding.section_name IS '章节名称';
+COMMENT ON COLUMN c_ai_emr_qc_finding.excerpt IS '脱敏原文摘录';
+COMMENT ON COLUMN c_ai_emr_qc_finding.issue IS '问题说明';
+COMMENT ON COLUMN c_ai_emr_qc_finding.suggestion IS '修改建议';
+COMMENT ON COLUMN c_ai_emr_qc_finding.deduction IS '单条问题扣分';
+COMMENT ON COLUMN c_ai_emr_qc_finding.ignored IS '人工忽略标记，忽略项保留明细但不计入有效问题统计';
+COMMENT ON COLUMN c_ai_emr_qc_finding.fg_active IS '逻辑删除标记';
+COMMENT ON COLUMN c_ai_emr_qc_finding.insert_time IS '创建时间';
+COMMENT ON COLUMN c_ai_emr_qc_finding.update_time IS '更新时间';
+
+CREATE INDEX idx_c_ai_emr_qc_finding_record ON c_ai_emr_qc_finding (id_qc_record, id_analysis);
+CREATE UNIQUE INDEX uk_c_ai_emr_qc_finding_active ON c_ai_emr_qc_finding (
+    (CASE WHEN fg_active = '1' THEN id_analysis END),
+    (CASE WHEN fg_active = '1' THEN sort_no END)
+);
+
+
+CREATE TABLE c_ai_emr_qc_task (
+    id_task             VARCHAR(32) PRIMARY KEY,
+    id_org              VARCHAR(32) NOT NULL,
+    created_by          VARCHAR(64) NOT NULL,
+    created_by_name     VARCHAR(128),
+    record_ids_json     TEXT NOT NULL,
+    items_json          TEXT,
+    total_count         INTEGER DEFAULT 0,
+    processed_count     INTEGER DEFAULT 0,
+    succeeded_count     INTEGER DEFAULT 0,
+    failed_count        INTEGER DEFAULT 0,
+    status              VARCHAR(32) NOT NULL,
+    error_message       VARCHAR(1000),
+    started_at          TIMESTAMP,
+    finished_at         TIMESTAMP,
+    fg_active           CHAR(1) DEFAULT '1' NOT NULL,
+    insert_time         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_time         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE c_ai_emr_qc_task IS '门诊病历AI批量质控任务表';
+COMMENT ON COLUMN c_ai_emr_qc_task.id_task IS '任务主键';
+COMMENT ON COLUMN c_ai_emr_qc_task.id_org IS 'PCIE机构ID';
+COMMENT ON COLUMN c_ai_emr_qc_task.created_by IS '创建管理员ID';
+COMMENT ON COLUMN c_ai_emr_qc_task.created_by_name IS '创建管理员姓名快照';
+COMMENT ON COLUMN c_ai_emr_qc_task.record_ids_json IS '待质控病历ID列表JSON';
+COMMENT ON COLUMN c_ai_emr_qc_task.items_json IS '逐份任务项进度JSON';
+COMMENT ON COLUMN c_ai_emr_qc_task.total_count IS '总份数';
+COMMENT ON COLUMN c_ai_emr_qc_task.processed_count IS '已处理份数';
+COMMENT ON COLUMN c_ai_emr_qc_task.succeeded_count IS '成功份数';
+COMMENT ON COLUMN c_ai_emr_qc_task.failed_count IS '失败份数';
+COMMENT ON COLUMN c_ai_emr_qc_task.status IS '任务状态';
+COMMENT ON COLUMN c_ai_emr_qc_task.error_message IS '任务级错误说明';
+COMMENT ON COLUMN c_ai_emr_qc_task.started_at IS '开始时间';
+COMMENT ON COLUMN c_ai_emr_qc_task.finished_at IS '结束时间';
+COMMENT ON COLUMN c_ai_emr_qc_task.fg_active IS '逻辑删除标记';
+COMMENT ON COLUMN c_ai_emr_qc_task.insert_time IS '创建时间';
+COMMENT ON COLUMN c_ai_emr_qc_task.update_time IS '更新时间';
+
+CREATE INDEX idx_c_ai_emr_qc_task_creator ON c_ai_emr_qc_task (id_org, created_by, status, insert_time);
+
+
+CREATE TABLE c_ai_emr_qc_review_log (
+    id_log          VARCHAR(32) PRIMARY KEY,
+    id_org          VARCHAR(32),
+    operator_id     VARCHAR(64),
+    operator_name   VARCHAR(128),
+    action          VARCHAR(32),
+    id_medrecdoc    VARCHAR(64),
+    id_task         VARCHAR(32),
+    request_id      VARCHAR(64),
+    result_status   VARCHAR(32),
+    fg_active       CHAR(1) DEFAULT '1' NOT NULL,
+    insert_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE c_ai_emr_qc_review_log IS '门诊病历AI质控操作审计表';
+COMMENT ON COLUMN c_ai_emr_qc_review_log.id_log IS '审计日志主键';
+COMMENT ON COLUMN c_ai_emr_qc_review_log.id_org IS 'PCIE机构ID';
+COMMENT ON COLUMN c_ai_emr_qc_review_log.operator_id IS '操作人ID';
+COMMENT ON COLUMN c_ai_emr_qc_review_log.operator_name IS '操作人姓名快照';
+COMMENT ON COLUMN c_ai_emr_qc_review_log.action IS '动作 analyze/batch_analyze/view_detail';
+COMMENT ON COLUMN c_ai_emr_qc_review_log.id_medrecdoc IS 'PHIS门诊文书ID';
+COMMENT ON COLUMN c_ai_emr_qc_review_log.id_task IS '批量任务ID';
+COMMENT ON COLUMN c_ai_emr_qc_review_log.request_id IS '请求ID';
+COMMENT ON COLUMN c_ai_emr_qc_review_log.result_status IS '结果状态';
+COMMENT ON COLUMN c_ai_emr_qc_review_log.fg_active IS '逻辑删除标记';
+COMMENT ON COLUMN c_ai_emr_qc_review_log.insert_time IS '创建时间';
+COMMENT ON COLUMN c_ai_emr_qc_review_log.update_time IS '更新时间';
+
+CREATE INDEX idx_c_ai_emr_qc_review_org ON c_ai_emr_qc_review_log (id_org, insert_time);
+
 COMMIT;

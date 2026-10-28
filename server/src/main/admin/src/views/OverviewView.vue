@@ -41,14 +41,15 @@
 <script>
 import http from '../api/http'
 import { AdminFilterBar, MetricCard } from '../components/ui'
+import { adminPageMeta } from '../router/navigation'
 
 const statDefinitions = [
-  { key: 'regionCount', label: '区域', path: '/regions' },
-  { key: 'orgCount', label: '机构', path: '/orgs' },
-  { key: 'deviceCount', label: '令牌', path: '/devices' },
-  { key: 'configCount', label: '配置', path: '/configs' },
-  { key: 'symptomTemplateCount', label: '症状模板', path: '/symptom-templates' },
-  { key: 'logCount', label: '日志', path: '/logs' }
+  { key: 'regionCount', path: '/regions' },
+  { key: 'orgCount', path: '/orgs' },
+  { key: 'deviceCount', path: '/devices' },
+  { key: 'configCount', path: '/configs' },
+  { key: 'symptomTemplateCount', path: '/symptom-templates' },
+  { key: 'logCount', path: '/logs' }
 ]
 
 export default {
@@ -60,20 +61,15 @@ export default {
     return {
       loading: false,
       stats: {},
-      quickLinks: [
-        { path: '/users', label: '用户' },
-        { path: '/roles', label: '角色' },
-        { path: '/configs', label: '配置' },
-        { path: '/symptom-templates', label: '症状模板' },
-        { path: '/logs', label: '日志' }
-      ]
+      quickLinks: ['/users', '/roles', '/configs', '/symptom-templates', '/logs']
+        .map(path => ({ path, label: adminPageMeta(path).title }))
     }
   },
   computed: {
     statCards() {
       return statDefinitions.map(item => ({
         key: item.key,
-        label: item.label,
+        label: adminPageMeta(item.path).title,
         path: item.path,
         value: this.normalizeCount(this.stats[item.key])
       }))
