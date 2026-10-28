@@ -56,6 +56,13 @@ public class BbpStatisticsScope {
             || (roles.contains(EMR_QC_REVIEWER) && uri.startsWith("/admin/api/emr-qc/"));
     }
 
+    public boolean canAccessEmrQc(AdminCurrentUser currentUser) {
+        List<String> roles = roles(currentUser);
+        return currentUser != null
+            && "BBP".equals(currentUser.getAuthProvider())
+            && (roles.contains(SYSTEM_ADMIN) || roles.contains(ORG_ADMIN) || roles.contains(EMR_QC_REVIEWER));
+    }
+
     public boolean isAllowedStatisticsApi(String uri) {
         return isCommonRestrictedApi(uri) || isStatisticsApi(uri);
     }

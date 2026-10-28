@@ -4,6 +4,7 @@ import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.exception.ConflictException;
 import com.regionalai.floatingball.server.common.exception.ForbiddenException;
 import com.regionalai.floatingball.server.modules.auth.bbp.BbpSessionRegistry;
+import com.regionalai.floatingball.server.modules.auth.bbp.BbpStatisticsScope;
 import com.regionalai.floatingball.server.modules.auth.config.AdminAuthMode;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
 import com.regionalai.floatingball.server.modules.auth.dto.BbpRoleView;
@@ -19,10 +20,14 @@ public class PhisSessionScope {
 
     private final AdminAuthMode authMode;
     private final BbpSessionRegistry sessionRegistry;
+    private final BbpStatisticsScope accessScope;
 
-    public PhisSessionScope(AdminAuthMode authMode, BbpSessionRegistry sessionRegistry) {
+    public PhisSessionScope(AdminAuthMode authMode,
+                            BbpSessionRegistry sessionRegistry,
+                            BbpStatisticsScope accessScope) {
         this.authMode = authMode;
         this.sessionRegistry = sessionRegistry;
+        this.accessScope = accessScope;
     }
 
     public Scope describe(AdminCurrentUser currentUser) {
@@ -73,23 +78,14 @@ public class PhisSessionScope {
         if (!authMode.isBbp()) {
             throw new ForbiddenException("AUTH-403", "门诊病历质控仅在 BBP 认证模式下可用");
         }
-        if (isStatisticsOnlyUser(currentUser)) {
-            throw new ForbiddenException("AUTH-403", "机构统计专用账号无权访问门诊病历质控");
+        if (!accessScope.canAccessEmrQc(currentUser)) {
+            throw new ForbiddenException("AUTH-403", "当前账号未获得门诊病历质控权限");
         }
         Scope scope = describe(currentUser);
         if (scope.isAvailable()) {
             return scope;
         }
         throw new ConflictException(scope.getUnavailableCode(), scope.getUnavailableReason());
-    }
-
-    private boolean isStatisticsOnlyUser(AdminCurrentUser currentUser) {
-        if (currentUser == null || currentUser.getRoles() == null) {
-            return false;
-        }
-        return currentUser.getRoles().contains("ORG_ANALYST")
-            && !currentUser.getRoles().contains("SYSTEM_ADMIN")
-            && !currentUser.getRoles().contains("ORG_ADMIN");
     }
 
     private String firstText(String... values) {

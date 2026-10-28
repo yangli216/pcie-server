@@ -24,14 +24,19 @@
         <i :class="fullscreenActive ? 'el-icon-copy-document' : 'el-icon-full-screen'" aria-hidden="true"></i>
       </button>
       <div class="admin-user-menu">
-        <button type="button" class="admin-user-menu__trigger" aria-label="打开账号菜单">
+        <button
+          type="button"
+          class="admin-user-menu__trigger"
+          aria-label="打开账号菜单"
+          aria-haspopup="menu"
+        >
           <span class="admin-user-menu__avatar">{{ currentUserInitial }}</span>
           <i class="el-icon-arrow-down admin-user-menu__chevron" aria-hidden="true"></i>
         </button>
-        <div class="admin-user-menu__panel">
+        <div class="admin-user-menu__panel" role="menu">
           <div class="admin-user-menu__name">{{ currentUserName }}</div>
-          <button v-if="canChangePassword" type="button" @click="$emit('open-password-dialog')">修改密码</button>
-          <button type="button" @click="$emit('logout')">退出登录</button>
+          <button v-if="canChangePassword" type="button" role="menuitem" @click="$emit('open-password-dialog')">修改密码</button>
+          <button type="button" role="menuitem" @click="$emit('logout')">退出登录</button>
         </div>
       </div>
     </div>

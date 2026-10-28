@@ -77,6 +77,19 @@ class BbpStatisticsScopeTest {
         assertTrue(scope.isAllowedRestrictedApi(mixed, "/admin/api/analytics/summary"));
         assertTrue(scope.isAllowedRestrictedApi(mixed, "/admin/api/emr-qc/session"));
         assertFalse(scope.isAllowedRestrictedApi(mixed, "/admin/api/configs"));
+        assertTrue(scope.canAccessEmrQc(mixed));
+    }
+
+    @Test
+    void emrQualityControlAccessRequiresBbpAndAnAuthorizedRole() {
+        assertTrue(scope.canAccessEmrQc(user("SYSTEM_ADMIN")));
+        assertTrue(scope.canAccessEmrQc(user("ORG_ADMIN")));
+        assertTrue(scope.canAccessEmrQc(user("EMR_QC_REVIEWER")));
+        assertFalse(scope.canAccessEmrQc(user("ORG_ANALYST")));
+
+        AdminCurrentUser local = user("EMR_QC_REVIEWER");
+        local.setAuthProvider("LOCAL");
+        assertFalse(scope.canAccessEmrQc(local));
     }
 
     private AdminCurrentUser user(String role) {

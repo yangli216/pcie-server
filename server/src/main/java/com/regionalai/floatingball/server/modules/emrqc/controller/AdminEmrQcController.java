@@ -5,6 +5,7 @@ import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.exception.ForbiddenException;
 import com.regionalai.floatingball.server.common.util.RequestIdUtils;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
+import com.regionalai.floatingball.server.modules.auth.bbp.BbpStatisticsScope;
 import com.regionalai.floatingball.server.modules.emrqc.dto.EmrQcAnalysisVO;
 import com.regionalai.floatingball.server.modules.emrqc.dto.EmrQcAnalyzeRequest;
 import com.regionalai.floatingball.server.modules.emrqc.dto.EmrQcDetailVO;
@@ -28,7 +29,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
-import java.util.Collections;
 import java.util.List;
 
 @RestController
@@ -37,10 +37,14 @@ public class AdminEmrQcController {
 
     private final EmrQcService emrQcService;
     private final EmrQcTaskService taskService;
+    private final BbpStatisticsScope accessScope;
 
-    public AdminEmrQcController(EmrQcService emrQcService, EmrQcTaskService taskService) {
+    public AdminEmrQcController(EmrQcService emrQcService,
+                                EmrQcTaskService taskService,
+                                BbpStatisticsScope accessScope) {
         this.emrQcService = emrQcService;
         this.taskService = taskService;
+        this.accessScope = accessScope;
     }
 
     @GetMapping("/session")
@@ -128,9 +132,7 @@ public class AdminEmrQcController {
         if (user == null) {
             throw new ForbiddenException("AUTH-403", "当前登录状态无效，请重新登录后台");
         }
-        List<String> roles = user.getRoles() == null ? Collections.<String>emptyList() : user.getRoles();
-        if (!roles.contains("SYSTEM_ADMIN") && !roles.contains("ORG_ADMIN")
-            && !roles.contains("EMR_QC_REVIEWER")) {
+        if (!accessScope.canAccessEmrQc(user)) {
             throw new ForbiddenException("AUTH-403", "当前账号未获得门诊病历质控权限");
         }
         return user;

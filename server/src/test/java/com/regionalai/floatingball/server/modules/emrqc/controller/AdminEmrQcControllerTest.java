@@ -2,6 +2,7 @@ package com.regionalai.floatingball.server.modules.emrqc.controller;
 
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
+import com.regionalai.floatingball.server.modules.auth.bbp.BbpStatisticsScope;
 import com.regionalai.floatingball.server.modules.emrqc.service.EmrQcService;
 import com.regionalai.floatingball.server.modules.emrqc.service.EmrQcTaskService;
 import com.regionalai.floatingball.server.security.AdminContextHolder;
@@ -21,10 +22,12 @@ class AdminEmrQcControllerTest {
     void forwardsIndependentDepartmentAndDoctorFilters() throws Exception {
         EmrQcService service = mock(EmrQcService.class);
         AdminCurrentUser user = new AdminCurrentUser();
+        user.setAuthProvider("BBP");
         user.setRoles(Collections.singletonList("ORG_ADMIN"));
         when(service.list(user, null, null, null, null, "D-1", "all", 1, 10, "内科"))
             .thenReturn(new PageResponse<>(1, 10, 0, Collections.emptyList()));
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminEmrQcController(service, mock(EmrQcTaskService.class))).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminEmrQcController(
+            service, mock(EmrQcTaskService.class), new BbpStatisticsScope())).build();
         AdminContextHolder.set(user);
         try {
             mvc.perform(get("/admin/api/emr-qc/records").param("deptName", "内科")
@@ -39,8 +42,10 @@ class AdminEmrQcControllerTest {
     @Test
     void emrReviewerShouldBeAcceptedAndAnalystShouldBeRejected() {
         EmrQcService service = mock(EmrQcService.class);
-        AdminEmrQcController controller = new AdminEmrQcController(service, mock(EmrQcTaskService.class));
+        AdminEmrQcController controller = new AdminEmrQcController(
+            service, mock(EmrQcTaskService.class), new BbpStatisticsScope());
         AdminCurrentUser reviewer = new AdminCurrentUser();
+        reviewer.setAuthProvider("BBP");
         reviewer.setRoles(Collections.singletonList("EMR_QC_REVIEWER"));
         AdminContextHolder.set(reviewer);
         try {
@@ -51,12 +56,30 @@ class AdminEmrQcControllerTest {
         }
 
         AdminCurrentUser analyst = new AdminCurrentUser();
+        analyst.setAuthProvider("BBP");
         analyst.setRoles(Collections.singletonList("ORG_ANALYST"));
         AdminContextHolder.set(analyst);
         try {
             ForbiddenException exception = assertThrows(ForbiddenException.class,
                 () -> controller.session(mock(javax.servlet.http.HttpServletRequest.class)));
             assertEquals("AUTH-403", exception.getCode());
+        } finally {
+            AdminContextHolder.clear();
+        }
+    }
+
+    @Test
+    void analystAndEmrReviewerRoleCombinationShouldBeAccepted() {
+        EmrQcService service = mock(EmrQcService.class);
+        AdminEmrQcController controller = new AdminEmrQcController(
+            service, mock(EmrQcTaskService.class), new BbpStatisticsScope());
+        AdminCurrentUser mixed = new AdminCurrentUser();
+        mixed.setAuthProvider("BBP");
+        mixed.setRoles(java.util.Arrays.asList("ORG_ANALYST", "EMR_QC_REVIEWER"));
+        AdminContextHolder.set(mixed);
+        try {
+            controller.session(mock(javax.servlet.http.HttpServletRequest.class));
+            verify(service).session(mixed);
         } finally {
             AdminContextHolder.clear();
         }

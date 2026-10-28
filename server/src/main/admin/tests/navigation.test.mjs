@@ -165,3 +165,13 @@ test('BBP user management exposes the dedicated EMR quality control reviewer gra
   assert.ok(source.includes('label="门诊病历质控员" value="EMR_QC_REVIEWER"'))
   assert.ok(source.includes("this.accessRoleCode === 'EMR_QC_REVIEWER'"))
 })
+
+test('account menu keeps a hover bridge to its actions and exposes menu semantics', async () => {
+  const topbar = await readFile(new URL('../src/components/layout/AdminTopbar.vue', import.meta.url), 'utf8')
+  const globalCss = await readFile(new URL('../src/styles/global.css', import.meta.url), 'utf8')
+
+  assert.ok(topbar.includes('aria-haspopup="menu"'))
+  assert.ok(topbar.includes('class="admin-user-menu__panel" role="menu"'))
+  assert.ok(topbar.includes('role="menuitem"'))
+  assert.match(globalCss, /\.admin-user-menu__panel::before\s*\{[^}]*bottom:\s*100%;[^}]*height:\s*8px;/s)
+})

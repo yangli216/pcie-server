@@ -4,6 +4,7 @@ import com.regionalai.floatingball.server.common.exception.ConflictException;
 import com.regionalai.floatingball.server.common.exception.ForbiddenException;
 import com.regionalai.floatingball.server.modules.auth.bbp.BbpCookieJar;
 import com.regionalai.floatingball.server.modules.auth.bbp.BbpSessionRegistry;
+import com.regionalai.floatingball.server.modules.auth.bbp.BbpStatisticsScope;
 import com.regionalai.floatingball.server.modules.auth.config.AdminAuthMode;
 import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
 import com.regionalai.floatingball.server.modules.auth.dto.BbpRoleView;
@@ -33,7 +34,7 @@ class PhisSessionScopeTest {
     @BeforeEach
     void setUp() {
         registry = new BbpSessionRegistry();
-        scope = new PhisSessionScope(authMode, registry);
+        scope = new PhisSessionScope(authMode, registry, new BbpStatisticsScope());
     }
 
     @Test
@@ -102,6 +103,18 @@ class PhisSessionScopeTest {
             () -> scope.require(statisticsUser));
 
         assertEquals("AUTH-403", exception.getCode());
+    }
+
+    @Test
+    void analystWithEmrReviewerRoleCanAccessOutpatientQualityControl() {
+        when(authMode.isBbp()).thenReturn(true);
+        registry.register("s1", "tenant", new BbpCookieJar(), System.currentTimeMillis() + 60000,
+            role("门诊医生", "MZ01", "4046", "1188"));
+
+        AdminCurrentUser mixedUser = user("BBP", "s1");
+        mixedUser.setRoles(Arrays.asList("ORG_ANALYST", "EMR_QC_REVIEWER"));
+
+        assertTrue(scope.require(mixedUser).isAvailable());
     }
 
     @Test
