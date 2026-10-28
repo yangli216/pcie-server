@@ -13,6 +13,7 @@ import com.regionalai.floatingball.server.modules.emrqc.entity.AiEmrQcTask;
 import com.regionalai.floatingball.server.modules.emrqc.mapper.AiEmrQcTaskMapper;
 import com.regionalai.floatingball.server.modules.phisemr.model.PhisEmrRecord;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -58,6 +60,11 @@ class EmrQcTaskServiceTest {
         properties.setMaxTaskRecords(50);
         service = new EmrQcTaskService(properties, schemaService, emrQcService, auditService,
             taskMapper, new ObjectMapper(), new SensitiveDataMasker());
+    }
+
+    @AfterEach
+    void tearDown() {
+        service.shutdown();
     }
 
     @Test
@@ -160,6 +167,71 @@ class EmrQcTaskServiceTest {
         verify(emrQcService, org.mockito.Mockito.times(1)).requireRecord(any(), eq("A"));
         verify(emrQcService, org.mockito.Mockito.times(1)).requireRecord(any(), eq("B"));
         verify(auditService).record(any(), eq("batch_analyze"), isNull(), anyString(), eq("queued"));
+    }
+
+    @Test
+    void runsFiveRecordsConcurrentlyAndPersistsEveryCompletion() throws Exception {
+        AdminCurrentUser user = user();
+        when(emrQcService.context(user, "req")).thenReturn(context(user));
+        when(emrQcService.requireRecord(any(), anyString())).thenAnswer(invocation -> record(invocation.getArgument(1)));
+        when(taskMapper.selectCount(any())).thenReturn(0L);
+        AtomicReference<AiEmrQcTask> saved = new AtomicReference<AiEmrQcTask>();
+        doAnswer(invocation -> {
+            AiEmrQcTask task = invocation.getArgument(0);
+            task.setIdTask("TASK1");
+            saved.set(task);
+            return 1;
+        }).when(taskMapper).insert(any());
+        when(taskMapper.selectById("TASK1")).thenAnswer(invocation -> saved.get());
+        CountDownLatch started = new CountDownLatch(5);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(1);
+        AtomicInteger active = new AtomicInteger();
+        AtomicInteger maximum = new AtomicInteger();
+        doAnswer(invocation -> {
+            AiEmrQcTask task = invocation.getArgument(0);
+            if ("completed".equals(task.getStatus())) finished.countDown();
+            return 1;
+        }).when(taskMapper).updateById(any());
+        when(emrQcService.analyzeForTask(any(), any(), eq(false))).thenAnswer(invocation -> {
+            int current = active.incrementAndGet();
+            maximum.accumulateAndGet(current, Math::max);
+            started.countDown();
+            try {
+                if (!release.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("timeout");
+                EmrQcAnalysisVO analysis = new EmrQcAnalysisVO();
+                analysis.setScore(90);
+                analysis.setFindingCount(1);
+                return analysis;
+            } finally {
+                active.decrementAndGet();
+            }
+        });
+        EmrQcTaskCreateRequest request = new EmrQcTaskCreateRequest();
+        request.setRecordIds(ids(7));
+        service.create(user, request, "req");
+        try {
+            assertTrue(started.await(5, TimeUnit.SECONDS), "five analyses should start before any completes");
+            assertEquals(5, active.get());
+        } finally {
+            release.countDown();
+        }
+        assertTrue(finished.await(5, TimeUnit.SECONDS));
+        assertEquals(5, maximum.get());
+        assertEquals(7, saved.get().getProcessedCount());
+        assertEquals(7, saved.get().getSucceededCount());
+        assertEquals(0, saved.get().getFailedCount());
+        assertEquals(7, new ObjectMapper().readTree(saved.get().getItemsJson()).findValuesAsText("status").stream().filter("succeeded"::equals).count());
+    }
+
+    @Test
+    void concurrencyConfigurationIsBounded() {
+        EmrQcProperties properties = new EmrQcProperties();
+        assertEquals(5, properties.getWorkerConcurrency());
+        properties.setWorkerConcurrency(100);
+        assertEquals(5, properties.getWorkerConcurrency());
+        properties.setWorkerConcurrency(0);
+        assertEquals(1, properties.getWorkerConcurrency());
     }
 
     @Test

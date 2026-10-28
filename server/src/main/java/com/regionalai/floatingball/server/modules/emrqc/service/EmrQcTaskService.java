@@ -32,6 +32,10 @@ import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.Future;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -51,6 +55,7 @@ public class EmrQcTaskService {
     private final SensitiveDataMasker masker;
 
     private final ExecutorService executor;
+    private final ExecutorService coordinator;
 
     public EmrQcTaskService(EmrQcProperties properties,
                             EmrQcSchemaService schemaService,
@@ -66,8 +71,9 @@ public class EmrQcTaskService {
         this.taskMapper = taskMapper;
         this.objectMapper = objectMapper;
         this.masker = masker;
-        int concurrency = Math.max(1, properties.getWorkerConcurrency());
+        int concurrency = Math.min(5, Math.max(1, properties.getWorkerConcurrency()));
         this.executor = Executors.newFixedThreadPool(concurrency, threadFactory());
+        this.coordinator = Executors.newSingleThreadExecutor(threadFactory());
     }
 
     @PostConstruct
@@ -88,6 +94,7 @@ public class EmrQcTaskService {
 
     @PreDestroy
     public void shutdown() {
+        coordinator.shutdownNow();
         executor.shutdownNow();
     }
 
@@ -151,7 +158,7 @@ public class EmrQcTaskService {
         final EmrQcContext taskContext = context;
         final List<String> ids = new ArrayList<String>(uniqueIds);
         final boolean force = request.forceEnabled();
-        executor.submit(() -> run(task.getIdTask(), taskContext, ids, authorizedRecords, force));
+        coordinator.submit(() -> run(task.getIdTask(), taskContext, ids, authorizedRecords, force));
 
         EmrQcTaskCreateVO vo = new EmrQcTaskCreateVO();
         vo.setTaskId(task.getIdTask());
@@ -200,36 +207,72 @@ public class EmrQcTaskService {
         task.setStartedAt(LocalDateTime.now());
         taskMapper.updateById(task);
 
+        CompletionService<EmrQcTaskVO.Item> completion = new ExecutorCompletionService<EmrQcTaskVO.Item>(executor);
+        List<Future<EmrQcTaskVO.Item>> futures = new ArrayList<Future<EmrQcTaskVO.Item>>();
         int processed = 0;
         int succeeded = 0;
         int failed = 0;
-        for (EmrQcTaskVO.Item item : items) {
-            try {
-                EmrQcAnalysisVO analysis = emrQcService.analyzeForTask(context, authorizedRecords.get(item.getIdMedrecdoc()), force);
-                item.setStatus("succeeded");
-                item.setScore(analysis.getScore());
-                item.setFindingCount(analysis.getFindingCount());
-                succeeded++;
-            } catch (RuntimeException ex) {
-                item.setStatus("failed");
-                item.setErrorCode(errorCode(ex));
-                item.setErrorMessage(errorMessage(ex));
-                failed++;
+        try {
+            for (EmrQcTaskVO.Item item : items) {
+                futures.add(completion.submit(() -> analyzeItem(context, authorizedRecords.get(item.getIdMedrecdoc()), item, force)));
             }
-            processed++;
-            task.setProcessedCount(processed);
-            task.setSucceededCount(succeeded);
-            task.setFailedCount(failed);
-            task.setItemsJson(writeJson(items));
+            while (processed < items.size()) {
+                EmrQcTaskVO.Item completed = completion.take().get();
+                for (int index = 0; index < items.size(); index++) {
+                    if (items.get(index).getIdMedrecdoc().equals(completed.getIdMedrecdoc())) {
+                        items.set(index, completed);
+                        break;
+                    }
+                }
+                if ("succeeded".equals(completed.getStatus())) succeeded++;
+                else failed++;
+                processed++;
+                task.setProcessedCount(processed);
+                task.setSucceededCount(succeeded);
+                task.setFailedCount(failed);
+                task.setItemsJson(writeJson(items));
+                taskMapper.updateById(task);
+            }
+            task.setStatus(failed > 0 && succeeded == 0 ? "failed"
+                : (failed > 0 ? "partially_completed" : "completed"));
+            task.setFinishedAt(LocalDateTime.now());
             taskMapper.updateById(task);
+            log.info("emr qc batch task finished. taskId={}, total={}, succeeded={}, failed={}",
+                taskId, ids.size(), succeeded, failed);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            failTask(task, futures);
+        } catch (ExecutionException | RuntimeException ex) {
+            log.warn("emr qc batch coordinator failed. taskId={}", taskId, ex);
+            failTask(task, futures);
         }
+    }
 
-        task.setStatus(failed > 0 && succeeded == 0 ? "failed"
-            : (failed > 0 ? "partially_completed" : "completed"));
+    private EmrQcTaskVO.Item analyzeItem(EmrQcContext context, PhisEmrRecord record,
+                                         EmrQcTaskVO.Item item, boolean force) {
+        // Each worker owns a separate result; the coordinator alone mutates/persists task items.
+        EmrQcTaskVO.Item result = new EmrQcTaskVO.Item();
+        result.setIdMedrecdoc(item.getIdMedrecdoc());
+        result.setPatientName(item.getPatientName());
+        try {
+            EmrQcAnalysisVO analysis = emrQcService.analyzeForTask(context, record, force);
+            result.setStatus("succeeded");
+            result.setScore(analysis.getScore());
+            result.setFindingCount(analysis.getFindingCount());
+        } catch (RuntimeException ex) {
+            result.setStatus("failed");
+            result.setErrorCode(errorCode(ex));
+            result.setErrorMessage(errorMessage(ex));
+        }
+        return result;
+    }
+
+    private void failTask(AiEmrQcTask task, List<Future<EmrQcTaskVO.Item>> futures) {
+        for (Future<EmrQcTaskVO.Item> future : futures) future.cancel(true);
+        task.setStatus("failed");
+        task.setErrorMessage("批量任务中断，请重新发起");
         task.setFinishedAt(LocalDateTime.now());
         taskMapper.updateById(task);
-        log.info("emr qc batch task finished. taskId={}, total={}, succeeded={}, failed={}",
-            taskId, ids.size(), succeeded, failed);
     }
 
     private EmrQcTaskVO toVO(AiEmrQcTask task) {

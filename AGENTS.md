@@ -20,7 +20,7 @@
 2. 上游只读且服务端白名单：仅允许 `otms.emr.rpcHistoryRecordService/queryHistoryRecord`、`otms.emr.rpcHistoryRecordService/getInitDataUser`（2026-10-27 用户授权，仅使用当前会话读取医生候选）与 `otms.mb.rpcElectronicMedicalRecordWritingService/getMedContentPreview`；前端不得传入 ServiceId、Method、机构列表或上游路径；禁止调用 `saveMedLog`、`queryPDF`、`exportHistoryRecordPdf`、打印或任何 PHIS 写接口。
 3. 详情与质控只接受当前会话列表查询返回过的 `idMedrecdoc`，构造 ID 一律按不存在处理；`SYSTEM_ADMIN`、`ORG_ADMIN` 与可按人员授予的 `EMR_QC_REVIEWER` 允许访问 `/admin/api/emr-qc/**`，仅 `ORG_ANALYST` 或其他角色禁止访问；单独持有 `EMR_QC_REVIEWER` 时只开放质控与当前用户/退出登录接口，BBP 非系统管理员的机构作用域由服务端锁定。
 4. 2026-10-26 用户授权病历 HTML 只读预览：服务端对 PHIS `htmlContent` 做标签、属性和样式白名单清理并脱敏，仅通过无脚本/无同源权限且禁止外部资源的 sandbox iframe 展示；HTML 不落库、不入日志、不直接发送 AI；2026-10-27 用户授权从安全处理后的预览提取纯文字，脱敏后补充给 AI 质控，预览不可用时使用 `xmlContent` 归一化章节；送 AI 前必须脱敏姓名、身份证号、病案号、联系方式和地址，不发送 HTML/XML、Cookie、签名图片或完整身份。
-5. 质控结果仅作为 AI 书写参考，不得表述为质控通过或医学审核通过，不自动修改病历、不回写 PHIS。2026-10-27 用户授权为已质控列表保存病历必要的基础信息快照；身份证号和病案号以服务端 AES 加密保存，送 AI 前仍须脱敏，不保存病历正文。批量任务串行执行、单批最多 50 份，单份失败不落部分结果、不拖累同批其他病历。
+5. 质控结果仅作为 AI 书写参考，不得表述为质控通过或医学审核通过，不自动修改病历、不回写 PHIS。2026-10-27 用户授权为已质控列表保存病历必要的基础信息快照；身份证号和病案号以服务端 AES 加密保存，送 AI 前仍须脱敏，不保存病历正文。批量任务单实例最多 5 份病历并发执行、单批最多 50 份，单份失败不落部分结果、不拖累同批其他病历。
 6. 四表 `c_ai_emr_qc_record / c_ai_emr_qc_finding / c_ai_emr_qc_task / c_ai_emr_qc_review_log` 同步进入 Oracle/GaussDB `init.sql` 与对应 `README.md`，首期不保留常驻升级补丁；新增或修改 service/controller/security 必须补 JUnit 测试，覆盖会话失效、白名单拒绝、脱敏、越权读取与批量进度。
 
 `pcie-server`（全医慧助服务端 / PCIE Server）项目的协作规则。

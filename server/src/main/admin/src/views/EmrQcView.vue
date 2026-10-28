@@ -75,27 +75,19 @@
         </div>
       </admin-filter-bar>
 
-      <section v-if="task" class="page-section page-section--padded emr-qc-page__task">
-        <div class="page-section__header">
-          <div>
-            <h2 class="page-section__title">批量质控进度</h2>
-            <div class="emr-qc-page__hint">
-              {{ taskStatusLabel(task.status) }} · 已处理 {{ task.processed || 0 }} / {{ task.total || 0 }}
-              · 成功 {{ task.succeeded || 0 }} · 失败 {{ task.failed || 0 }}
-            </div>
-          </div>
-          <div class="emr-qc-page__task-actions">
-            <el-button size="small" icon="el-icon-refresh" :loading="taskLoading" @click="refreshTask">刷新</el-button>
-            <el-button size="small" icon="el-icon-close" @click="dismissTask">收起</el-button>
-          </div>
+      <el-dialog v-if="task" :visible.sync="taskDialogVisible" title="批量质控进度" width="min(800px, 90vw)" append-to-body>
+        <div class="emr-qc-page__task-dialog-header">
+          <span>{{ taskStatusLabel(task.status) }} · 已处理 {{ task.processed || 0 }} / {{ task.total || 0 }} · 成功 {{ task.succeeded || 0 }} · 失败 {{ task.failed || 0 }}</span>
+          <el-button size="small" icon="el-icon-refresh" :loading="taskLoading" @click="refreshTask">刷新</el-button>
         </div>
         <el-progress
           :percentage="taskPercentage"
           :status="taskProgressStatus"
           :stroke-width="8"
           :show-text="false"
+          class="emr-qc-page__task-progress"
         />
-        <el-table :data="task.items || []" size="small" empty-text="暂无任务明细" aria-label="批量质控进度明细">
+        <el-table :data="task.items || []" max-height="400" size="small" empty-text="暂无任务明细" aria-label="批量质控进度明细">
           <el-table-column label="患者" min-width="110">
             <template slot-scope="{ row }">{{ row.patientName || '--' }}</template>
           </el-table-column>
@@ -118,7 +110,7 @@
             </template>
           </el-table-column>
         </el-table>
-      </section>
+      </el-dialog>
 
       <section class="page-section page-section--table emr-qc-page__list">
         <div class="page-section__header">
@@ -126,12 +118,15 @@
             <h2 class="page-section__title">门诊病历质控</h2>
           </div>
           <div class="page-section__meta">
+            <button v-if="task" type="button" class="emr-qc-page__task-summary" @click="taskDialogVisible = true">
+              批量质控 · {{ taskStatusLabel(task.status) }} {{ task.processed || 0 }}/{{ task.total || 0 }}<span v-if="task.failed"> · 失败 {{ task.failed }}</span> <i class="el-icon-arrow-right" aria-hidden="true" />
+            </button>
             <span>AI 质控结果仅作书写参考，不代表质控通过或医学审核通过</span>
             <el-button
               size="small"
               icon="el-icon-magic-stick"
               :loading="taskCreating"
-              :disabled="sessionBlocked || !selectedRows.length"
+              :disabled="sessionBlocked || !selectedRows.length || (task && ['queued', 'running'].includes(task.status))"
               @click="createBatchTask"
             >
               批量质控{{ selectedRows.length ? `（${selectedRows.length}）` : '' }}
@@ -360,6 +355,7 @@ export default {
       listSequence: 0,
       selectedRows: [],
       task: null,
+      taskDialogVisible: false,
       taskLoading: false,
       taskCreating: false,
       taskSequence: 0,
@@ -763,14 +759,6 @@ export default {
         this.pollTask(this.task.taskId)
       }
     },
-    dismissTask() {
-      if (this.pollTimer) {
-        clearTimeout(this.pollTimer)
-        this.pollTimer = null
-      }
-      this.taskSequence++
-      this.task = null
-    },
     qcTone(status) {
       if (status === 'analyzed') {
         return 'success'
@@ -842,10 +830,6 @@ export default {
 }
 .emr-qc-page .admin-filter-bar {
   max-height: 35%;
-  overflow: auto;
-}
-.emr-qc-page__task {
-  max-height: 28%;
   overflow: auto;
 }
 .emr-qc-page > .emr-qc-page__list {
@@ -942,13 +926,6 @@ export default {
 .emr-qc-page__meta strong {
   font-size: 13px;
   overflow-wrap: anywhere;
-}
-.emr-qc-page__task-actions {
-  display: flex;
-  gap: 8px;
-}
-.emr-qc-page .el-progress {
-  margin: 12px 0;
 }
 .emr-qc-page__bar {
   display: flex;
@@ -1092,5 +1069,30 @@ export default {
     padding: 10px 12px;
   }
   .emr-qc-page__section { gap: 5px; padding-right: 5px; padding-left: 6px; }
+}
+
+.emr-qc-page__task-progress {
+  margin: 12px 0;
+}
+.emr-qc-page__task-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: #59645e;
+}
+.emr-qc-page__task-summary {
+  border: 1px solid #b9dfcf;
+  border-radius: 4px;
+  background: #f1faf6;
+  color: #16845f;
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.emr-qc-page__task-summary:focus-visible {
+  outline: 2px solid #16845f;
+  outline-offset: 2px;
 }
 </style>

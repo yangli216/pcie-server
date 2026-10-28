@@ -12,7 +12,7 @@ public class EmrQcProperties {
     private int readTimeoutMs = 10000;
     private int analysisTimeoutSeconds = 90;
     private int maxTaskRecords = 50;
-    private int workerConcurrency = 1;
+    private int workerConcurrency = 5;
 
     public boolean isEnabled() {
         return enabled;
@@ -59,6 +59,6 @@ public class EmrQcProperties {
     }
 
     public void setWorkerConcurrency(int workerConcurrency) {
-        this.workerConcurrency = Math.max(1, workerConcurrency);
+        this.workerConcurrency = Math.min(5, Math.max(1, workerConcurrency));
     }
 }

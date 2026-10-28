@@ -4183,7 +4183,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 ### POST `/admin/api/emr-qc/tasks`
 
-用途：创建批量质控任务。任务由单实例有界线程池串行执行，批量与单份复用同一质控服务。
+用途：创建批量质控任务。单实例共享线程池最多并发质控 5 份病历；任务协调器按完成顺序串行保存进度，批量与单份复用同一质控服务。
 
 请求：
 
@@ -4280,6 +4280,6 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 | `floating-ball.emr-qc.read-timeout-ms` | `10000` | PHIS 读取超时 |
 | `floating-ball.emr-qc.analysis-timeout-seconds` | `90` | 单份 AI 质控超时 |
 | `floating-ball.emr-qc.max-task-records` | `50` | 单批最大份数，上限 50 |
-| `floating-ball.emr-qc.worker-concurrency` | `1` | 批量工作线程数，首期固定串行 |
+| `floating-ball.emr-qc.worker-concurrency` | `5` | 单实例批量病历工作线程数，限制在 1 至 5 |
 
 PHIS 基地址沿用 `floating-ball.admin.auth.bbp.base-url`（`FB_ADMIN_BBP_BASE_URL`），不新增 PHIS 地址、账号或密钥配置。所有 PHIS 请求经过统一出站安全门且禁止重定向；`tk`、Cookie、管理员密码、完整身份证号及上游原始 HTML/XML 不写日志、不落库、不出现在响应中；授权详情仅返回白名单清理、脱敏后的 `htmlPreview` 与必要章节、患者摘要。
