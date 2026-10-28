@@ -101,6 +101,20 @@ class EmrQcHtmlPreviewTest {
     }
 
     @Test
+    void previewAiTextPreservesVisibleSectionsAndRemovesSensitiveContentAndMarkup() {
+        PhisEmrRecord patient = record();
+        patient.setDoctorName("医生甲");
+        String html = "<p>姓名：测试<span>患者</span></p><p>身份证号：330102<span>19800101</span>1234</p>"
+            + "<p>病案号：MR-<b>9988</b></p><p>电话：13800138000</p><p>出生日期：1980-01-01</p><p>地址：测试市示例路88号</p>"
+            + "<p>月经史：月经规律，5-6/30天</p><p>签名：医生甲</p><p style='display:none'>隐藏文本</p>"
+            + "<script>脚本内容</script><img src='data:image/png;base64,signature-secret'>";
+        String safe = EmrQcHtmlPreview.render(html, patient, Collections.emptyList());
+        String text = EmrQcHtmlPreview.plainTextForAi(safe, patient, new SensitiveDataMasker());
+        assertThat(text).contains("月经史：月经规律，5-6/30天").doesNotContain("测试患者", "330102", "19800101", "MR-9988", "13800138000", "测试市示例路88号", "1980-01-01", "医生甲", "隐藏文本", "脚本内容", "signature-secret", "<p>");
+        assertThat(EmrQcHtmlPreview.plainTextForAi("", patient, new SensitiveDataMasker())).isEmpty();
+    }
+
+    @Test
     void fallsBackForMissingEmptyOrOversizeHtml() {
         assertThat(EmrQcHtmlPreview.render(null, record(), Collections.emptyList())).isEmpty();
         assertThat(EmrQcHtmlPreview.render("<script>alert(1)</script><img src=x>", record(), Collections.emptyList())).isEmpty();

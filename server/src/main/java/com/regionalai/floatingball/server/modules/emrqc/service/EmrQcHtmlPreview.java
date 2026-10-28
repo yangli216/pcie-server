@@ -25,7 +25,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** A display-only projection. Never use this document as AI input or a record hash source. */
+/** Safe display projection; only its separately redacted plain text may be used for AI. */
 public final class EmrQcHtmlPreview {
     private static final Safelist ALLOWED = new Safelist()
         .addTags("article", "section", "header", "footer", "div", "span", "p", "br", "hr",
@@ -94,6 +94,27 @@ public final class EmrQcHtmlPreview {
             + "<meta http-equiv=\"Content-Security-Policy\" content=\"" + CSP + "\">"
             + "<meta name=\"referrer\" content=\"no-referrer\"><style>" + CSS
             + "</style></head><body>" + safe.body().html() + "</body></html>";
+    }
+
+    /** Extract only visible text from the already sanitized preview and redact again before AI use. */
+    public static String plainTextForAi(String safePreview, PhisEmrRecord record, SensitiveDataMasker masker) {
+        if (!StringUtils.hasText(safePreview)) return "";
+        Element body = Jsoup.parse(safePreview).body();
+        StringBuilder text = new StringBuilder();
+        NodeTraversor.traverse(new NodeVisitor() {
+            public void head(Node node, int depth) {
+                if (node instanceof Element && ((Element) node).tagName().equals("br")) text.append('\n');
+                if (node instanceof TextNode) text.append(((TextNode) node).getWholeText());
+            }
+            public void tail(Node node, int depth) {
+                if (node instanceof Element && ((Element) node).isBlock()) text.append('\n');
+            }
+        }, body);
+        String plain = text.toString().replaceAll("[ \\t\\x0B\\f\\r]+", " ").replaceAll("\n{3,}", "\n\n").trim();
+        plain = masker.maskText(plain, record.getPatientName(), record.getIdCard(), record.getIdArchives());
+        plain = plain.replaceAll("(出生日期|出生年月|出生时间)\\s*[：:]\\s*[^，,；;。\\s]+", "$1：[已脱敏]");
+        if (StringUtils.hasText(record.getDoctorName())) plain = plain.replace(record.getDoctorName().trim(), "[医生姓名]");
+        return plain;
     }
 
     private static void preprocessPhisPreview(Document input, String structuredContent) {

@@ -626,9 +626,16 @@ public class EmrQcService {
         LoadedDetail loaded = new LoadedDetail();
         loaded.updateTime = normalizer.parseDateTime(data.path("updateTime").asText(null));
         loaded.sections = sections;
-        if (includePreview) loaded.htmlPreview = EmrQcHtmlPreview.render(data.path("htmlContent").asText(""), record, sections, xmlContent);
+        String preview = EmrQcHtmlPreview.render(data.path("htmlContent").asText(""), record, sections, xmlContent);
+        if (includePreview) loaded.htmlPreview = preview;
+        String previewText = EmrQcHtmlPreview.plainTextForAi(preview, record, masker);
         loaded.maskedText = normalizer.canonicalText(maskedSections);
-        loaded.contentHash = normalizer.sha256(normalizer.canonicalText(sections));
+        String hashText = normalizer.canonicalText(sections);
+        if (StringUtils.hasText(previewText)) {
+            loaded.maskedText += "\n【PHIS 病历预览纯文字】\n" + previewText;
+            hashText += "\n【PHIS 病历预览纯文字】\n" + previewText;
+        }
+        loaded.contentHash = normalizer.sha256(hashText);
         loaded.templateName = firstText(data.path("tepName").asText(null), record.getTemplateName());
         loaded.visitTime = normalizer.parseDateTime(data.path("titleTime").asText(null));
         if (loaded.visitTime == null) {

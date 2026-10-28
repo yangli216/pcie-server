@@ -212,7 +212,7 @@
           <el-button
             size="small"
             icon="el-icon-edit-outline"
-            :disabled="!detail || !detail.qc || detail.qc.stale || detail.record.stale || detail.qc.ruleVersion !== 'emr-qc-rules-v5' || sessionBlocked || analyzing || reviewEditing || reviewing"
+            :disabled="!detail || !detail.qc || detail.qc.stale || detail.record.stale || detail.qc.ruleVersion !== 'emr-qc-rules-v6' || sessionBlocked || analyzing || reviewEditing || reviewing"
             @click="reviewEditing = true"
           >{{ reviewEditing ? '调整中' : '人工调整' }}</el-button>
           <el-button
@@ -233,7 +233,7 @@
         <div v-if="detail.record.stale || (detail.qc && detail.qc.stale)" class="emr-qc-page__stale" role="alert">
           {{ detail.qc && detail.qc.staleReason === 'snapshot_unverified' ? '当前结果来自本地快照，请从“全部”列表打开病历以核验最新状态。' : '病历已更新，质控结果可能过期，建议重新质控。' }}
         </div>
-        <div v-if="detail.qc && detail.qc.ruleVersion !== 'emr-qc-rules-v5'" class="emr-qc-page__stale">评分规则已更新，请重新质控后进行人工调整。</div>
+        <div v-if="detail.qc && detail.qc.ruleVersion !== 'emr-qc-rules-v6'" class="emr-qc-page__stale">评分规则已更新，请重新质控后进行人工调整。</div>
         <div ref="recordMeta" class="page-section page-section--padded emr-qc-page__meta" :class="{ 'emr-qc-page__meta--linked': activeTarget && activeTarget.scope === 'meta' }">
           <div><span>患者</span><strong>{{ [detail.record.patientName, detail.record.gender, detail.record.age ? `${detail.record.age} 岁` : ''].filter(Boolean).join(' / ') || '未记录' }}</strong></div>
           <div><span>身份证</span><strong>{{ detail.record.idCardMasked || '未记录' }}</strong></div>

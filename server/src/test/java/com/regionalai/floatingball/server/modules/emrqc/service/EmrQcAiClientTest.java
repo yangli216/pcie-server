@@ -104,7 +104,7 @@ class EmrQcAiClientTest {
     void promptsAiToUseCrossSectionEvidenceAndDistinguishMaskedFromMissing() {
         List<java.util.Map<String, Object>> messages = ReflectionTestUtils.invokeMethod(client, "messages", "主诉：外阴瘙痒1个月\n婚育史：已婚已育");
         String instructions = (String) messages.get(0).get("content");
-        org.assertj.core.api.Assertions.assertThat(instructions).contains("脱敏占位符", "上下文未提供表示未知", "综合所有章节", "婚育史", "复查", "1个月");
+        org.assertj.core.api.Assertions.assertThat(instructions).contains("脱敏占位符", "上下文未提供表示未知", "综合所有章节", "婚育史", "复查", "1个月", "月经史单独成章", "出生年月、联系电话、工作单位和地址", "明确不检查、不提示缺失、不扣分", "结构化章节可能不包含预览中的全部内容");
         org.assertj.core.api.Assertions.assertThat((String) messages.get(1).get("content")).contains("外阴瘙痒1个月", "已婚已育");
     }
 

@@ -152,7 +152,7 @@ class EmrQcServiceTest {
     }
 
     @Test
-    void detailAddsCleanHtmlPreviewAndKeepsCanonicalTextAndHashIndependent() {
+    void detailHashesPreviewTextChangesButNotFormatting() {
         AdminCurrentUser user = user();
         when(sessionScope.require(user)).thenReturn(scope());
         recordCache.putAll("s1", Collections.singletonList(record("A")));
@@ -171,12 +171,15 @@ class EmrQcServiceTest {
         assertNotNull(detail.getContentHash());
         org.assertj.core.api.Assertions.assertThat(detail.getHtmlPreview()).contains("<h2>门诊病历</h2>")
             .doesNotContain("bad()", "signature");
-        data.put("htmlContent", "<table><tr><td>仅改变预览排版</td></tr></table>");
+        data.put("htmlContent", "<h2 style='color:#123'>门诊病历</h2><p>咳嗽3天</p>");
         EmrQcDetailVO updated = service.detail(user, "A", "req");
         assertEquals(detail.getContentHash(), updated.getContentHash());
+        data.put("htmlContent", "<h2>门诊病历</h2><p>咳嗽4天</p>");
+        EmrQcDetailVO changed = service.detail(user, "A", "req");
+        org.assertj.core.api.Assertions.assertThat(changed.getContentHash()).isNotEqualTo(detail.getContentHash());
         verify(aiClient, never()).analyze(any(), any());
         assertEquals(null, detail.getQc());
-        verify(auditService, org.mockito.Mockito.times(2)).record(any(), eq("view_detail"), eq("A"), isNull(), eq("success"));
+        verify(auditService, org.mockito.Mockito.times(3)).record(any(), eq("view_detail"), eq("A"), isNull(), eq("success"));
     }
 
     @Test
@@ -746,6 +749,7 @@ class EmrQcServiceTest {
         recordCache.putAll("s1", Collections.singletonList(record));
         ObjectNode data = objectMapper.createObjectNode();
         data.put("xmlContent", "[{\"ARTICLE\":\"主诉\",\"eles\":[{\"NAME\":\"内容\",\"TEXT\":\"外阴瘙痒1个月\"}]},{\"ARTICLE\":\"婚育史\",\"eles\":[{\"NAME\":\"内容\",\"TEXT\":\"已婚已育\"}]}]");
+        data.put("htmlContent", "<p>月经史：月经规律，5-6/30天</p><p>姓名：张三</p><script>secret</script>");
         when(phisClient.detail(any(), eq("A"))).thenReturn(data);
         com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config = new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
         config.setBaseUrl("https://model.invalid");
@@ -764,8 +768,8 @@ class EmrQcServiceTest {
 
         org.mockito.ArgumentCaptor<String> input = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(aiClient).analyze(eq(config), input.capture());
-        org.assertj.core.api.Assertions.assertThat(input.getValue()).contains("姓名：已提供（已脱敏）", "身份证号：已提供（已脱敏）", "性别：女", "外阴瘙痒1个月", "已婚已育")
-            .doesNotContain("张三", "330102199001011234", "BA0001");
+        org.assertj.core.api.Assertions.assertThat(input.getValue()).contains("姓名：已提供（已脱敏）", "身份证号：已提供（已脱敏）", "性别：女", "外阴瘙痒1个月", "月经规律，5-6/30天", "已婚已育")
+            .doesNotContain("张三", "330102199001011234", "BA0001", "<p>", "secret");
         org.mockito.ArgumentCaptor<EmrQcDraft> draft = org.mockito.ArgumentCaptor.forClass(EmrQcDraft.class);
         verify(writer).save(draft.capture());
         assertEquals(1, draft.getValue().getFindings().size());
