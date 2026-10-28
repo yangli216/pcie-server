@@ -42,6 +42,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -234,6 +235,7 @@ public class EmrQcService {
         if (normalizedDept != null) {
             all.removeIf(record -> !normalizedDept.equals(text(record.getDeptName(), null)));
         }
+        resolveDoctorNames(currentUser, all);
         recordCache.putAll(currentUser.getAuthSessionId(), all);
 
         Map<String, AiEmrQcRecord> projections = findProjections(currentUser.getIdOrg(), ids(all));
@@ -598,6 +600,33 @@ public class EmrQcService {
             throw new BusinessException("EMR-QC-400", "病历数量超过单次查询上限，请缩小日期范围或增加筛选条件后重试");
         }
         return all;
+    }
+
+    private void resolveDoctorNames(AdminCurrentUser user, List<PhisEmrRecord> records) {
+        if (records.isEmpty() || !StringUtils.hasText(user.getBbpOrgId())) return;
+        Map<String, String> names = new HashMap<String, String>();
+        Set<String> ambiguous = new HashSet<String>();
+        try {
+            for (BbpPersonView person : directoryService.persons(user, user.getBbpOrgId())) {
+                if (person == null || !StringUtils.hasText(person.getName())) continue;
+                for (String key : java.util.Arrays.asList(person.getUserId(), person.getPersonId(), person.getId(),
+                        person.getLoginName(), person.getCode())) {
+                    if (!StringUtils.hasText(key)) continue;
+                    key = key.trim();
+                    String name = person.getName().trim();
+                    String old = names.putIfAbsent(key, name);
+                    if (old != null && !old.equals(name)) ambiguous.add(key);
+                }
+            }
+        } catch (RuntimeException ex) {
+            return;
+        }
+        for (PhisEmrRecord record : records) {
+            String key = text(record.getDoctorName(), null);
+            if (key != null && !ambiguous.contains(key) && names.containsKey(key)) {
+                record.setDoctorName(names.get(key));
+            }
+        }
     }
 
     private Map<String, AiEmrQcRecord> findProjections(String idOrg, List<String> ids) {

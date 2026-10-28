@@ -51,7 +51,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -231,7 +230,68 @@ class EmrQcServiceTest {
 
         assertEquals(1, result.getTotal());
         verify(phisClient).list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(50));
-        verifyNoInteractions(directoryService);
+        verify(directoryService).persons(user, "BBP-ORG-1");
+    }
+
+    @Test
+    void listResolvesDoctorIdentifiersForListAndCachedDetailIncludingInactivePersonnel() {
+        AdminCurrentUser user = user();
+        user.setBbpOrgId("BBP-ORG-1");
+        when(sessionScope.require(user)).thenReturn(scope());
+        BbpPersonView doctor = person("USER-1", "李医生", "1", false);
+        doctor.setPersonId("PERSON-1");
+        when(directoryService.persons(user, "BBP-ORG-1")).thenReturn(Collections.singletonList(doctor));
+        PhisEmrRecord record = record("A");
+        record.setDoctorName("PERSON-1");
+        PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
+        page.setRecords(Collections.singletonList(record));
+        page.setTotal(1);
+        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(50))).thenReturn(page);
+        when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
+
+        PageResponse<EmrQcRecordVO> result = service.list(user, null, null, null, null, null, "all", 1, 10);
+
+        assertEquals("李医生", result.getRecords().get(0).getDoctorName());
+        assertEquals("李医生", recordCache.get("s1", "A").getDoctorName());
+    }
+
+    @Test
+    void ambiguousDoctorIdentifiersAreNotMisidentified() {
+        AdminCurrentUser user = user();
+        user.setBbpOrgId("BBP-ORG-1");
+        when(sessionScope.require(user)).thenReturn(scope());
+        BbpPersonView first = person("SAME", "医生甲", "1", true);
+        BbpPersonView second = person("SAME", "医生乙", "1", true);
+        when(directoryService.persons(user, "BBP-ORG-1")).thenReturn(Arrays.asList(first, second));
+        PhisEmrRecord record = record("A");
+        record.setDoctorName("SAME");
+        PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
+        page.setRecords(Collections.singletonList(record));
+        page.setTotal(1);
+        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(50))).thenReturn(page);
+        when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
+
+        assertEquals("SAME", service.list(user, null, null, null, null, null, "all", 1, 10)
+            .getRecords().get(0).getDoctorName());
+    }
+
+    @Test
+    void unavailablePersonnelDirectoryDoesNotBlockRecordList() {
+        AdminCurrentUser user = user();
+        user.setBbpOrgId("BBP-ORG-1");
+        when(sessionScope.require(user)).thenReturn(scope());
+        when(directoryService.persons(user, "BBP-ORG-1"))
+            .thenThrow(new ServiceUnavailableException("DIRECTORY", "目录不可用"));
+        PhisEmrRecord record = record("A");
+        record.setDoctorName("UNKNOWN-ID");
+        PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
+        page.setRecords(Collections.singletonList(record));
+        page.setTotal(1);
+        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(50))).thenReturn(page);
+        when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
+
+        assertEquals("UNKNOWN-ID", service.list(user, null, null, null, null, null, "all", 1, 10)
+            .getRecords().get(0).getDoctorName());
     }
 
     @Test

@@ -3970,7 +3970,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 ### GET `/admin/api/emr-qc/records`
 
-用途：查询 PHIS 门诊病历列表（`idApp=42`）并附带本平台最近一次质控投影。服务端固定调用上游 `queryHistoryRecord`，使用 PHIS「门诊病历查询（全院）」的 `userType=0` 和已完成状态 `fgCheck=2`；`orgIdList` 由会话作用域派生。不按登录医生固定过滤，也不固定传入登录科室，实际可见范围仍由 PHIS `tk` 会话裁剪。
+用途：查询 PHIS 门诊病历列表（`idApp=42`）并附带本平台最近一次质控投影。服务端固定调用上游 `queryHistoryRecord`，使用 PHIS「门诊病历查询（全院）」的 `userType=0` 和已完成状态 `fgCheck=2`；`orgIdList` 由会话作用域派生。不按登录医生固定过滤，也不固定传入登录科室，实际可见范围仍由 PHIS `tk` 会话裁剪。上游医生标识通过当前机构 BBP 人员目录唯一映射为姓名；无法匹配或目录不可用时保留原值。
 
 请求参数：
 
