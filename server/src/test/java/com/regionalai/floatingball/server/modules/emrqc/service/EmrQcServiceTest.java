@@ -51,6 +51,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -211,6 +212,55 @@ class EmrQcServiceTest {
         assertEquals(1, result.getTotal());
         verify(phisClient).list(any(), any(), any(), any(), any(), eq("CD-D-2"), eq("4046"),
             eq(1), eq(50));
+    }
+
+    @Test
+    void listWithoutDepartmentOrDoctorQueriesTheWholeCurrentOrganization() {
+        AdminCurrentUser user = user();
+        user.setBbpOrgId("BBP-ORG-1");
+        when(sessionScope.require(user)).thenReturn(scope());
+        PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
+        page.setRecords(Collections.singletonList(record("A")));
+        page.setTotal(1);
+        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(50)))
+            .thenReturn(page);
+        when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
+
+        PageResponse<EmrQcRecordVO> result = service.list(
+            user, "2025-10-28", "2026-10-28", null, null, null, "all", 1, 10, null);
+
+        assertEquals(1, result.getTotal());
+        verify(phisClient).list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(50));
+        verifyNoInteractions(directoryService);
+    }
+
+    @Test
+    void listRejectsDateRangeLongerThanOneCalendarYear() {
+        AdminCurrentUser user = user();
+        when(sessionScope.require(user)).thenReturn(scope());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+            () -> service.list(user, "2025-10-28", "2026-10-29", null, null, null, "all", 1, 10));
+
+        assertEquals("EMR-QC-400", exception.getCode());
+        assertEquals("查询日期跨度不能超过 1 年", exception.getMessage());
+        verify(phisClient, never()).list(any(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt());
+    }
+
+    @Test
+    void unfilteredListDoesNotSilentlyReturnAnIncompleteUpstreamResult() {
+        AdminCurrentUser user = user();
+        when(sessionScope.require(user)).thenReturn(scope());
+        PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
+        page.setRecords(Collections.emptyList());
+        page.setTotal(1);
+        when(phisClient.list(any(), any(), any(), any(), any(), isNull(), eq("4046"), eq(1), eq(50)))
+            .thenReturn(page);
+
+        ServiceUnavailableException exception = assertThrows(ServiceUnavailableException.class,
+            () -> service.list(user, null, null, null, null, null, "all", 1, 10));
+
+        assertEquals("PHIS 病历列表不完整，请缩小查询范围后重试", exception.getMessage());
     }
 
     @Test

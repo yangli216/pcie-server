@@ -46,7 +46,7 @@
           <div class="filter-item">
             <label for="emr-qc-dept" class="filter-label">开立科室</label>
             <el-select id="emr-qc-dept" v-model="deptName" size="small" filterable clearable
-              placeholder="选择本机构科室…" aria-label="开立科室" @change="changeDepartment">
+              placeholder="全部科室（本机构）" aria-label="开立科室" @change="changeDepartment">
               <el-option v-for="name in departmentOptions" :key="name" :value="name" :label="name" />
             </el-select>
           </div>
@@ -58,7 +58,7 @@
               size="small"
               filterable
               clearable
-              placeholder="选择本机构医生…"
+              placeholder="全部医生（本机构）"
               aria-label="开立医生"
             >
               <el-option
@@ -312,17 +312,11 @@ import { AdminFilterBar, AdminPagination, ChartPanel, StatusPill, TimeRangeFilte
 import { assistantLogDateRange } from '../utils/assistantLogDates'
 import { formatDateTime } from '../utils/admin'
 import { clearAdminAuth } from '../utils/auth'
+import { isWithinOneCalendarYear } from '../utils/emrQcDateRange'
 import { decorateEmrHtmlPreview, departmentOptions, doctorsForDepartment, findingUsesStructuredPreview, normalizeEmrText, resolveFindingTarget } from '../utils/emrQcResults'
 import EmrQcResultPanel from '../components/emr-qc/EmrQcResultPanel.vue'
 
 const MAX_BATCH = 50
-const MAX_SPAN_DAYS = 31
-
-function dayDiff(from, to) {
-  const start = new Date(`${from}T00:00:00`)
-  const end = new Date(`${to}T00:00:00`)
-  return Math.round((end - start) / 86400000) + 1
-}
 
 function formatTimeShort(value) {
   if (!value) return '--'
@@ -539,8 +533,8 @@ export default {
           this.$message.warning('开始日期不能晚于结束日期')
           return null
         }
-        if (dayDiff(this.dateFrom, this.dateTo) > MAX_SPAN_DAYS) {
-          this.$message.warning(`查询日期跨度不能超过 ${MAX_SPAN_DAYS} 天`)
+        if (!isWithinOneCalendarYear(this.dateFrom, this.dateTo)) {
+          this.$message.warning('查询日期跨度不能超过 1 年')
           return null
         }
         return { dateFrom: this.dateFrom, dateTo: this.dateTo }

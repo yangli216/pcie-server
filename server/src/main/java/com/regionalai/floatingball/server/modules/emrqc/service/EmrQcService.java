@@ -58,7 +58,6 @@ import java.util.regex.Pattern;
 public class EmrQcService {
 
     private static final Pattern ID_CARD = Pattern.compile("^\\d{17}[\\dXx]$");
-    private static final int MAX_DATE_SPAN_DAYS = 31;
     private static final int MAX_UPSTREAM_PAGES = 20;
     private static final Set<String> QC_STATUS = new HashSet<String>(
         java.util.Arrays.asList("all", "pending", "analyzed", "stale"));
@@ -231,7 +230,7 @@ public class EmrQcService {
         String normalizedIdCard = validateIdCard(idCard);
         String insertUser = requireOrgDoctorInsertUser(currentUser, normalizedDoctorId);
 
-        List<PhisEmrRecord> all = fetchAll(scope, range, normalizedName, normalizedIdCard, insertUser, normalizedDept != null);
+        List<PhisEmrRecord> all = fetchAll(scope, range, normalizedName, normalizedIdCard, insertUser);
         if (normalizedDept != null) {
             all.removeIf(record -> !normalizedDept.equals(text(record.getDeptName(), null)));
         }
@@ -571,8 +570,7 @@ public class EmrQcService {
                                           DateRange range,
                                           String patientName,
                                           String idCard,
-                                          String insertUser,
-                                          boolean requireComplete) {
+                                          String insertUser) {
         List<PhisEmrRecord> all = new ArrayList<PhisEmrRecord>();
         Set<String> seen = new LinkedHashSet<String>();
         int pageNum = 1;
@@ -583,7 +581,7 @@ public class EmrQcService {
                 patientName, idCard, insertUser, scope.getHisOrgId(), pageNum, 50);
             total = page.getTotal();
             if (page.getRecords().isEmpty()) {
-                if (requireComplete && fetched < total) {
+                if (fetched < total) {
                     throw new ServiceUnavailableException("EMR-PHIS-UNAVAILABLE", "PHIS 病历列表不完整，请缩小查询范围后重试");
                 }
                 break;
@@ -596,8 +594,8 @@ public class EmrQcService {
             fetched += page.getRecords().size();
             pageNum++;
         }
-        if (requireComplete && pageNum > MAX_UPSTREAM_PAGES && fetched < total) {
-            throw new BusinessException("EMR-QC-400", "病历数量超过科室筛选上限，请缩小日期范围后重试");
+        if (pageNum > MAX_UPSTREAM_PAGES && fetched < total) {
+            throw new BusinessException("EMR-QC-400", "病历数量超过单次查询上限，请缩小日期范围或增加筛选条件后重试");
         }
         return all;
     }
@@ -773,8 +771,8 @@ public class EmrQcService {
         if (from.isAfter(to)) {
             throw new BusinessException("EMR-QC-400", "起始日期不能晚于截止日期");
         }
-        if (to.toEpochDay() - from.toEpochDay() + 1 > MAX_DATE_SPAN_DAYS) {
-            throw new BusinessException("EMR-QC-400", "查询日期跨度不能超过 31 天");
+        if (to.isAfter(from.plusYears(1))) {
+            throw new BusinessException("EMR-QC-400", "查询日期跨度不能超过 1 年");
         }
         return new DateRange(from, to);
     }

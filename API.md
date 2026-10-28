@@ -3970,18 +3970,18 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 ### GET `/admin/api/emr-qc/records`
 
-用途：查询 PHIS 门诊病历列表（`idApp=42`）并附带本平台最近一次质控投影。服务端固定调用上游 `queryHistoryRecord`，`orgIdList` 由会话作用域派生；不按登录医生固定过滤，也不固定传入登录科室，机构范围内的病历均可查询，是否可见仍由 PHIS `tk` 会话裁剪。
+用途：查询 PHIS 门诊病历列表（`idApp=42`）并附带本平台最近一次质控投影。服务端固定调用上游 `queryHistoryRecord`，使用 PHIS「门诊病历查询（全院）」的 `userType=0` 和已完成状态 `fgCheck=2`；`orgIdList` 由会话作用域派生。不按登录医生固定过滤，也不固定传入登录科室，实际可见范围仍由 PHIS `tk` 会话裁剪。
 
 请求参数：
 
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| dateFrom | string | 否 | 起始日期 yyyy-MM-dd，与 `dateTo` 成对；含起止日；默认近 7 天；跨度最大 31 天 |
+| dateFrom | string | 否 | 起始日期 yyyy-MM-dd，与 `dateTo` 成对；含起止日；默认近 7 天；截止日期最晚为起始日期顺延 1 个自然年 |
 | dateTo | string | 否 | 截止日期 yyyy-MM-dd |
 | patientName | string | 否 | 患者姓名，按上游字面匹配，最长 64 字符 |
 | idCard | string | 否 | 18 位居民身份证号，仅用于上游精确查询，不落库、不回显；格式非法返回 400 |
-| doctorUserId | string | 否 | 开立医生 BBP 用户 ID，必须属于当前登录机构（取自 `/doctors`）；服务端校验通过后取其 BBP 登录账号（`loginName`，回退人员编码 `cd`/`userId`）映射为上游 `insertUser`（上游按登录账号匹配，`userIdList` 留空），不属于本机构返回 400 |
-| deptName | string | 否 | 开立科室名称，必须来自当前登录机构启用医生的 `/doctors` 目录；服务端按 PHIS 返回的 `insertDept` 名称精确筛选，目录与 PHIS 名称不一致时不会匹配。可独立或与医生条件组合使用；上游结果超过 1000 条时拒绝科室查询并提示缩小日期范围，避免返回不完整结果 |
+| doctorUserId | string | 否 | 开立医生 BBP 用户 ID，必须属于当前登录机构（取自 `/doctors`）；服务端校验通过后取其 BBP 登录账号（`loginName`，回退人员编码 `cd`/`userId`）映射为上游 `insertUser`（上游按登录账号匹配，`userIdList` 留空），不属于本机构返回 400。未填写时不限制医生，不默认收窄到当前登录人 |
+| deptName | string | 否 | 开立科室名称，必须来自当前登录机构启用医生的 `/doctors` 目录；服务端按 PHIS 返回的 `insertDept` 名称精确筛选，目录与 PHIS 名称不一致时不会匹配。可独立或与医生条件组合使用；未填写时不限制科室。科室和医生均未填写时查询当前登录机构范围内的门诊病历；上游结果超过 1000 条时拒绝查询并提示缩小范围，避免返回不完整结果 |
 | qcStatus | string | 否 | `all`（默认）/ `pending` / `analyzed` / `stale`，按本平台质控投影筛选 |
 | current | long | 否 | 页码，默认 1 |
 | size | long | 否 | 每页条数，默认 10；上游按 50 条分段拉取后合并，前端统一使用 10 / 20 / 50 / 100 |

@@ -71,12 +71,12 @@ public class PhisEmrClient {
         ObjectNode param = objectMapper.createObjectNode();
         param.put("idApp", ID_APP_OUTPATIENT);
         param.put("idHospital", "");
-        param.put("userType", "1");
+        param.put("userType", "0");
         param.put("idArchives", "");
         param.put("insertDept", "");
         param.put("beginDate", dateFrom == null ? "" : dateFrom.toString());
         param.put("endDate", dateTo == null ? "" : dateTo.toString());
-        param.put("fgCheck", "");
+        param.put("fgCheck", "2");
         param.put("insertUser", text(insertUser));
         param.put("name", text(patientName));
         param.put("idCard", text(idCard));

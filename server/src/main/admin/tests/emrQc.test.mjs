@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { isWithinOneCalendarYear, oneYearAfter } from '../src/utils/emrQcDateRange.js'
 import {
   departmentOptions,
   decorateEmrHtmlPreview,
@@ -17,6 +18,15 @@ import {
   totalWeight,
   updateFindingDeduction
 } from '../src/utils/emrQcResults.js'
+
+test('accepts at most one calendar year and clamps leap-day anniversaries', () => {
+  assert.equal(oneYearAfter('2025-10-28'), '2026-10-28')
+  assert.equal(isWithinOneCalendarYear('2025-10-28', '2026-10-28'), true)
+  assert.equal(isWithinOneCalendarYear('2025-10-28', '2026-10-29'), false)
+  assert.equal(oneYearAfter('2024-02-29'), '2025-02-28')
+  assert.equal(isWithinOneCalendarYear('2024-02-29', '2025-02-28'), true)
+  assert.equal(isWithinOneCalendarYear('2024-02-29', '2025-03-01'), false)
+})
 
 test('prioritizes severe findings, preserves order within severity, and never mutates the result', () => {
   const qc = { findings: [
