@@ -69,7 +69,6 @@ public class EmrQcService {
     private final PhisEmrClient phisClient;
     private final PhisContentNormalizer normalizer;
     private final SensitiveDataMasker masker;
-    private final EmrQcRuleEngine ruleEngine;
     private final EmrQcAiClient aiClient;
     private final EmrQcWriter writer;
     private final EmrQcAuditService auditService;
@@ -89,7 +88,6 @@ public class EmrQcService {
                         PhisEmrClient phisClient,
                         PhisContentNormalizer normalizer,
                         SensitiveDataMasker masker,
-                        EmrQcRuleEngine ruleEngine,
                         EmrQcAiClient aiClient,
                         EmrQcWriter writer,
                         EmrQcAuditService auditService,
@@ -106,7 +104,6 @@ public class EmrQcService {
         this.phisClient = phisClient;
         this.normalizer = normalizer;
         this.masker = masker;
-        this.ruleEngine = ruleEngine;
         this.aiClient = aiClient;
         this.writer = writer;
         this.auditService = auditService;
@@ -360,7 +357,7 @@ public class EmrQcService {
             }
             if (!StringUtils.hasText(request.getBaseAnalysisId())
                 || !request.getBaseAnalysisId().equals(projection.getLatestAnalysisId())
-                || !EmrQcRuleEngine.RULE_VERSION.equals(projection.getRuleVersion())) {
+                || !EmrQcRubric.RULE_VERSION.equals(projection.getRuleVersion())) {
                 throw new ConflictException("EMR-QC-CONFLICT", "质控结果已变化或评分规则已更新，请重新质控或刷新后调整");
             }
             LoadedDetail current = loadDetail(context, record, false);
@@ -523,15 +520,11 @@ public class EmrQcService {
             String analysisId = UUID.randomUUID().toString().replace("-", "");
             LocalDateTime analyzedAt = LocalDateTime.now();
             ResolvedAiConfig aiConfig = resolveAiConfig(context.getIdOrg());
-            EmrQcAiClient.Result aiResult = aiClient.analyze(aiConfig, loaded.maskedText);
+            EmrQcAiClient.Result aiResult = aiClient.analyze(aiConfig, aiInput(record, loaded));
 
             List<EmrQcAnalysisVO.Finding> findings = new ArrayList<EmrQcAnalysisVO.Finding>();
-            for (EmrQcAnalysisVO.Finding finding : ruleEngine.evaluate(loaded.maskedSections, record.getDeptName(), loaded.templateName)) {
-                findings.add(finding);
-            }
             java.util.Set<String> seen = new java.util.HashSet<String>();
             for (EmrQcAnalysisVO.Finding finding : aiResult.getFindings()) {
-                if (EmrQcRubric.specByCategory(finding.getCategory()) == EmrQcRubric.spec(EmrQcRubric.OTHER)) continue;
                 String key = finding.getCategory() + "\u0000" + finding.getIssue().trim();
                 if (seen.add(key)) findings.add(finding);
             }
@@ -568,7 +561,7 @@ public class EmrQcService {
             draft.setDimensionsJson(writeDimensions(aiResult.getDimensions()));
             draft.setFindings(findings);
             draft.setModel(aiConfig.getModel());
-            draft.setRuleVersion(EmrQcRuleEngine.RULE_VERSION);
+            draft.setRuleVersion(EmrQcRubric.RULE_VERSION);
             draft.setAnalyzedAt(analyzedAt);
 
             AiEmrQcRecord saved = writer.save(draft);
@@ -583,12 +576,27 @@ public class EmrQcService {
         }
     }
 
+    private String aiInput(PhisEmrRecord record, LoadedDetail loaded) {
+        StringBuilder input = new StringBuilder("【就诊上下文（来源于 PHIS 列表，仅提供可用信息）】\n");
+        input.append("姓名：").append(StringUtils.hasText(record.getPatientName()) ? "已提供（已脱敏）" : "未提供，无法判断是否缺失").append('\n');
+        input.append("身份证号：").append(StringUtils.hasText(record.getIdCard()) ? "已提供（已脱敏）" : "未提供，无法判断是否缺失").append('\n');
+        input.append("病案号：").append(StringUtils.hasText(record.getIdArchives()) ? "已提供（已脱敏）" : "未提供，无法判断是否缺失").append('\n');
+        String gender = gender(record.getGenderCode());
+        String patientAge = age(record.getIdCard(), loaded.visitTime);
+        if ("男".equals(gender) || "女".equals(gender)) input.append("性别：").append(gender).append('\n');
+        if (StringUtils.hasText(patientAge)) input.append("年龄：").append(patientAge).append('\n');
+        if (loaded.visitTime != null) input.append("就诊时间：").append(loaded.visitTime).append('\n');
+        if (StringUtils.hasText(record.getDeptName())) input.append("科室：").append(masker.maskText(record.getDeptName(), record.getPatientName(), record.getIdCard(), record.getIdArchives())).append('\n');
+        if (StringUtils.hasText(loaded.templateName)) input.append("病历模板：").append(masker.maskText(loaded.templateName, record.getPatientName(), record.getIdCard(), record.getIdArchives())).append('\n');
+        return input.append("【病历章节】\n").append(loaded.maskedText).toString();
+    }
+
     private boolean canReuse(AiEmrQcRecord projection, PhisEmrRecord record, String contentHash) {
         return projection != null
             && !record.isSnapshot()
             && StringUtils.hasText(projection.getContentHash())
             && projection.getContentHash().equals(contentHash)
-            && EmrQcRuleEngine.RULE_VERSION.equals(projection.getRuleVersion())
+            && EmrQcRubric.RULE_VERSION.equals(projection.getRuleVersion())
             && sameUpdateTime(projection.getPhisUpdateTime(), record.getUpdateTime());
     }
 
@@ -619,7 +627,6 @@ public class EmrQcService {
         loaded.updateTime = normalizer.parseDateTime(data.path("updateTime").asText(null));
         loaded.sections = sections;
         if (includePreview) loaded.htmlPreview = EmrQcHtmlPreview.render(data.path("htmlContent").asText(""), record, sections, xmlContent);
-        loaded.maskedSections = maskedSections;
         loaded.maskedText = normalizer.canonicalText(maskedSections);
         loaded.contentHash = normalizer.sha256(normalizer.canonicalText(sections));
         loaded.templateName = firstText(data.path("tepName").asText(null), record.getTemplateName());
@@ -954,7 +961,6 @@ public class EmrQcService {
         private LocalDateTime updateTime;
         private List<PhisEmrSection> sections;
         private String htmlPreview = "";
-        private List<PhisEmrSection> maskedSections;
         private String maskedText;
         private String contentHash;
         private String templateName;

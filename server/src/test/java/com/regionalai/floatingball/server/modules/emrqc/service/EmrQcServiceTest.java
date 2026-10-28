@@ -99,7 +99,6 @@ class EmrQcServiceTest {
             phisClient,
             new PhisContentNormalizer(objectMapper),
             new SensitiveDataMasker(),
-            new EmrQcRuleEngine(),
             aiClient,
             writer,
             auditService,
@@ -450,7 +449,7 @@ class EmrQcServiceTest {
         AiEmrQcRecord projection = new AiEmrQcRecord();
         projection.setContentHash("hash");
         projection.setPhisUpdateTime(record.getUpdateTime());
-        projection.setRuleVersion(EmrQcRuleEngine.RULE_VERSION);
+        projection.setRuleVersion(EmrQcRubric.RULE_VERSION);
 
         Boolean current = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
             service, "canReuse", projection, record, "hash");
@@ -460,7 +459,7 @@ class EmrQcServiceTest {
 
         assertEquals(Boolean.TRUE, current);
         assertEquals(Boolean.FALSE, old);
-        projection.setRuleVersion(EmrQcRuleEngine.RULE_VERSION);
+        projection.setRuleVersion(EmrQcRubric.RULE_VERSION);
         record.setSnapshot(true);
         assertEquals(Boolean.FALSE, org.springframework.test.util.ReflectionTestUtils.invokeMethod(
             service, "canReuse", projection, record, "hash"));
@@ -738,6 +737,43 @@ class EmrQcServiceTest {
         verify(records).insert(saved);
     }
 
+    @Test
+    void analysisUsesOnlyAiFindingsAndSuppliesMaskedContext() {
+        AdminCurrentUser user = user();
+        when(sessionScope.require(user)).thenReturn(scope());
+        PhisEmrRecord record = record("A");
+        record.setGenderCode("2");
+        recordCache.putAll("s1", Collections.singletonList(record));
+        ObjectNode data = objectMapper.createObjectNode();
+        data.put("xmlContent", "[{\"ARTICLE\":\"主诉\",\"eles\":[{\"NAME\":\"内容\",\"TEXT\":\"外阴瘙痒1个月\"}]},{\"ARTICLE\":\"婚育史\",\"eles\":[{\"NAME\":\"内容\",\"TEXT\":\"已婚已育\"}]}]");
+        when(phisClient.detail(any(), eq("A"))).thenReturn(data);
+        com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config = new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
+        config.setBaseUrl("https://model.invalid");
+        config.setModel("test");
+        when(configService.resolveByScope(eq("ORG001"), isNull())).thenReturn(config);
+        EmrQcAiClient.Result ai = new EmrQcAiClient.Result();
+        ai.setDimensions(fullDimensions());
+        ai.setFindings(Collections.singletonList(finding("medium", "其他", 3, false)));
+        when(aiClient.analyze(eq(config), any())).thenReturn(ai);
+        AiEmrQcRecord saved = new AiEmrQcRecord();
+        saved.setDimensionsJson("[]");
+        when(writer.save(any())).thenReturn(saved);
+        when(writer.findFindings(any())).thenReturn(Collections.emptyList());
+
+        service.analyze(user, "A", true, "req");
+
+        org.mockito.ArgumentCaptor<String> input = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(aiClient).analyze(eq(config), input.capture());
+        org.assertj.core.api.Assertions.assertThat(input.getValue()).contains("姓名：已提供（已脱敏）", "身份证号：已提供（已脱敏）", "性别：女", "外阴瘙痒1个月", "已婚已育")
+            .doesNotContain("张三", "330102199001011234", "BA0001");
+        org.mockito.ArgumentCaptor<EmrQcDraft> draft = org.mockito.ArgumentCaptor.forClass(EmrQcDraft.class);
+        verify(writer).save(draft.capture());
+        assertEquals(1, draft.getValue().getFindings().size());
+        assertEquals("其他", draft.getValue().getFindings().get(0).getCategory());
+        assertEquals(97, draft.getValue().getScore());
+        assertEquals(EmrQcRubric.RULE_VERSION, draft.getValue().getRuleVersion());
+    }
+
     private EmrQcAnalysisVO.Finding finding(String severity, String category, int deduction, boolean ignored) {
         EmrQcAnalysisVO.Finding finding = new EmrQcAnalysisVO.Finding();
         finding.setSeverity(severity);
@@ -800,7 +836,7 @@ class EmrQcServiceTest {
     }
 
     private void prepareReview(AiEmrQcRecord projection) {
-        projection.setRuleVersion(EmrQcRuleEngine.RULE_VERSION);
+        projection.setRuleVersion(EmrQcRubric.RULE_VERSION);
         projection.setPhisUpdateTime(LocalDateTime.of(2026, 10, 24, 9, 30));
         PhisContentNormalizer normalizer = new PhisContentNormalizer(objectMapper);
         String content = "[{\"ARTICLE\":\"主诉\",\"eles\":[{\"NAME\":\"主诉\",\"TEXT\":\"咳嗽\"}]}]";
