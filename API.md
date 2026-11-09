@@ -24,12 +24,12 @@ WeKnora根地址/Key/超时和批准清单配置见[知识服务设计](../devel
 
 1. 本文档只描述远端接口，不包含全医慧助（PCIE）桌面端本地 `/api/consultation/*`。
 2. 接口实现必须同时兼容以下调用方：
-   - `floating-ball/src/services/regionalClient.ts`
-   - `floating-ball/src/services/llm.ts`
-   - `floating-ball/src/services/templateService.ts`
-   - `floating-ball/src/services/medicalData.ts`
-   - `floating-ball/src/services/promptOverride.ts`
-   - `floating-ball/src/services/auditUploader.ts`
+   - `pcie/src/services/regionalClient.ts`
+   - `pcie/src/services/llm.ts`
+   - `pcie/src/services/templateService.ts`
+   - `pcie/src/services/medicalData.ts`
+   - `pcie/src/services/promptOverride.ts`
+   - `pcie/src/services/auditUploader.ts`
 3. 安全模式下，仓库内 `application.yml` 不再内置真实数据库地址、账号口令或 AES key；部署前必须注入 `FB_DB_URL`、`FB_DB_USERNAME`、`FB_DB_PASSWORD`、`FB_AES_KEY`。
 4. 统一响应结构如下：
 
@@ -675,7 +675,7 @@ Content-Type: application/json
 
 语音配置字段说明：
 
-- `llm.fastModel`：供 `floating-ball/src/services/llm.ts` 的 `chatFast()` 使用的独立快速模型；未单独配置时回退 `llm.model`
+- `llm.fastModel`：供 `pcie/src/services/llm.ts` 的 `chatFast()` 使用的独立快速模型；未单独配置时回退 `llm.model`
 - `llm.enableThinking`：由服务端统一托管的思考模式开关；`floating-ball` 只读消费该值，`/v1/ai/chat` 代理据此设置上游 `enable_thinking`。实际模型名为 `Qwen3` / `Qwen3-*`（允许仓库名前缀）时，同时传入 `chat_template_kwargs.enable_thinking`，使本轮内网服务的模板开关实际生效；普通与 SSE、主/fast/reviewer 使用同一规则，其余模型载荷保持原协议。
 - `reviewer.checkExaminationEnabled`：控制是否启用 `check_examination` 独立审查；未显式配置时默认开启，保证旧配置行为不变
 - `llm.audioModel`：服务端实际提交给上游的语音模型；`openai-compatible` 默认 `whisper-1`，`aliyun-dashscope` 默认 `qwen3-asr-flash`
@@ -3890,7 +3890,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 部署配置：`FB_CHRONIC_EXAMINATIONS_ENABLED` 默认 false，`FB_CHRONIC_EXAMINATIONS_BASE_URL` 为健康处方根地址（不含路径、query 或凭据），`FB_CHRONIC_EXAMINATIONS_AK` / `FB_CHRONIC_EXAMINATIONS_SK` 只在服务端私有 service.env 中配置；SK 为32位十六进制。服务端完成 HMAC-SHA1 登录、token 缓存及 SM4 请求加密/响应解密。AK/SK 与 token 不进入客户端、日志、API 响应或数据库。连接/读取超时默认3000/8000ms，两次请求均通过出站安全门。未启用或上游失败为 HTTP503 / CHRONIC-EXAM-UNAVAILABLE；合法 inspectionItems=[] 才表示无推荐，结构异常、空密文、解密失败不能降级成空成功。全区90天明细查询仍未接通，保持 not_connected。
 
-现场验证：2026-10-20（开发机时区）在智医服务器 Java 8 上使用本次生产 Adapter/Service、测试环境 service.env 与授权测试患者执行只读查询。登录、SM4 查询/解密成功，inspectionItems 与规范化结果均17项，重复查询一致，regionalHistory 仍 not_connected。未执行医嘱写入或服务替换；同患者两慢病页面与 PHIS 回写闭环另行验收。详细脱敏记录见 `../floating-ball/docs/chronic-examination-reminders-uat.md`。
+现场验证：2026-10-20（开发机时区）在智医服务器 Java 8 上使用本次生产 Adapter/Service、测试环境 service.env 与授权测试患者执行只读查询。登录、SM4 查询/解密成功，inspectionItems 与规范化结果均17项，重复查询一致，regionalHistory 仍 not_connected。未执行医嘱写入或服务替换；同患者两慢病页面与 PHIS 回写闭环另行验收。详细脱敏记录见 `../pcie/docs/chronic-examination-reminders-uat.md`。
 
 ## 医学助手日志（管理端）
 
