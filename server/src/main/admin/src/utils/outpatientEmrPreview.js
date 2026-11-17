@@ -4,6 +4,7 @@ const SAMPLE_RECORD_VALUES = Object.freeze({
   pastMedicalHistory: '既往体健，否认高血压、糖尿病等慢性病史，否认药物及食物过敏史。',
   personalHistory: '无吸烟、饮酒史，无疫区及有害物质接触史。',
   menstrualHistory: '月经规律，末次月经时间已由患者确认。',
+  maritalReproductiveHistory: '已婚已育，否认当前妊娠。',
   familyHistory: '否认家族遗传性疾病及类似疾病史。',
   physicalExam: 'T 38.1℃，P 92次/分，R 20次/分，BP 128/76mmHg；神志清，咽部充血，双肺呼吸音粗，右下肺可闻及少量湿啰音。',
   precautions: '建议清淡饮食、充分休息并监测体温；如持续高热、气促或症状加重，请及时复诊。'

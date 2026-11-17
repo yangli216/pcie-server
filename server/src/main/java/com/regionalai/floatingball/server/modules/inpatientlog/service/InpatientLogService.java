@@ -39,7 +39,7 @@ public class InpatientLogService {
     public Map<String, Object> ingest(AiDevice device, InpatientLogSnapshot snapshot) {
         if (device == null || !StringUtils.hasText(device.getIdDevice()) || !StringUtils.hasText(device.getIdOrg()))
             throw new BusinessException("设备机构上下文缺失");
-        if (snapshot == null || !validator.validate(snapshot).isEmpty()) throw new BusinessException("住院日志字段缺失、过长或格式非法");
+        InpatientLogValidation.validate(snapshot, validator);
         InpatientLogRules.validate(snapshot);
         String body;
         String hash;

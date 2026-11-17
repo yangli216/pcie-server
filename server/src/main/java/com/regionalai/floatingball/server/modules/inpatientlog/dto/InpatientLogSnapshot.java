@@ -33,7 +33,7 @@ public class InpatientLogSnapshot extends StrictLogInput {
     @Size(max = 32) private String patientAge;
     @Size(max = 512) private String message;
     @NotNull @Valid @Size(max = 8) private List<Source> sources = new ArrayList<>();
-    @NotNull @Valid @Size(max = 250) private List<Field> fields = new ArrayList<>();
+    @NotNull @Valid @Size(max = 500) private List<Field> fields = new ArrayList<>();
 
     @Data
     public static class Source extends StrictLogInput {

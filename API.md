@@ -788,8 +788,10 @@ Content-Type: application/json
 1. `templateId` 相同且缓存启用时，服务端直接返回缓存字段，避免桌面端重复解析同一病历模板；若请求携带的 `templateName` 或 `htmlContent` 与缓存记录不同，服务端会用本次传入值更新缓存展示名和原生模板内容。
 2. 未命中时，服务端保存请求中的 `templateId`、`templateName`、原生 `htmlContent`、内容 hash 与完整 `fields`；`fieldCount` 表示缓存字段总数。
 3. 响应给桌面端时，若请求携带了字段列表，服务端以本次字段列表为基线合并已缓存字段的 AI 生成类型、提示词和生成规则，避免丢失页眉、姓名、床号等 HIS/系统字段；若请求未携带字段列表，则返回缓存中的完整字段。
-4. 管理端维护的字段提示词覆盖会写入 `fields[*].rule.prompt`，桌面端生成住院病历时优先使用该提示词；未维护自定义提示词时，服务端返回的默认提示词会包含模板名称、记录类型、字段名称、所属段落和字段含义。管理端手动调整的 AI 生成类型会写入 `fields[*].aiSuitable` 与 `fields[*].rule.source`。
-4. 本接口是桌面端模板缓存的唯一远程契约；后端不可用或未返回字段时，桌面端仅做确定性模板解析兜底，未知字段分类仍走服务端 LLM，不恢复第三方直连。
+4. 管理端维护的字段提示词覆盖会写入 `fields[*].rule.prompt`，桌面端生成住院病历时优先使用该提示词；未维护自定义提示词时，服务端返回的默认提示词会包含模板名称、记录类型、字段名称、所属段落和字段含义。管理端手动调整的 AI 生成类型同时维护 `fields[*].aiSuitable` 与 `fields[*].rule.source`；合并本次模板字段及响应投影后，AI 字段统一为 `aiSuitable=true / source=ai / presetStatus=ai`，非 AI 字段为 `aiSuitable=false / source!=ai / presetStatus=exclude`。`presetStatus` 只供客户端内部分类使用，不是模型正文生成约束，客户端不得把该实现元数据加入模型提示词。
+   `aiSuitable` 属性存在时以其值为准，显式关闭不能被陈旧的 `rule.source=ai` 再次开启；仅历史字段缺少该属性时兼容从 `rule.source` 推导。
+5. 对历史“生成指令 + 固定字段草稿”格式，只在整段文本与旧确定性生成器逐字一致、字段元数据匹配、前缀等于已保存生成指令或已知默认说明时，于响应层移除默认元指令；自定义生成指令迁入独立正文附加约束块。普通人工提示词保持原文，不按关键词或宽泛正则改写，也不自动更新数据库中的历史提示词。
+6. 本接口是桌面端模板缓存的唯一远程契约；后端不可用或未返回字段时，桌面端仅做确定性模板解析兜底，未知字段分类仍走服务端 LLM，不恢复第三方直连。
 
 ### 3.5.2 POST `/v1/client/outpatient-emr/templates/snapshots/resolve`
 
@@ -841,7 +843,7 @@ Content-Type: application/json
 约束：
 
 1. `templateId` 与 `templateHash` 均按原值严格校验；hash 只能是 64 位小写 SHA-256。查询键固定为认证设备的 `idOrg + templateId + templateHash`。
-2. `cacheHit=true` 时，`id / parseResult / receivedAt` 必须全部存在，`parseResult` 使用下节登记接口的完整严格 schema；服务端先读取不可变快照，再叠加该 `idSnapshot` 的激活字段映射覆盖并返回有效映射。人工直接映射继续使用兼容值 `mappingSource="definition-record-field"`，人工章节组合映射继续使用 `mappingSource="definition-article-record-field"`，不新增字段或枚举；服务端发现存量 JSON 损坏或覆盖后形成重复映射时直接失败，不返回伪命中。
+2. `cacheHit=true` 时，`id / parseResult / receivedAt` 必须全部存在，`parseResult` 使用下节登记接口的完整严格 schema；服务端先读取不可变快照，再叠加该 `idSnapshot` 的激活字段映射覆盖并返回有效映射。人工映射一律以 `mappingSource="manual-override"` 返回，`projectionMode` 保留管理员选择的 `direct / section-compose`；人工显式不映射返回 `recordField=null / mappingSource="unmapped" / projectionMode=null`，不得把人工来源伪装成模板定义来源；服务端发现存量 JSON 损坏或覆盖后形成重复映射时直接失败，不返回伪命中。
 3. `cacheHit=false` 时，桌面端才允许执行模板定义解码、HTML/JSON 严格配对和字段映射，并随后调用登记接口；命中时禁止重新解析或重复登记。
 4. 查询失败或响应 schema/身份/hash 不一致时，桌面端必须在模型调用前停止，不得回退到本地重复解析、旧 schema 或早期实验协议。
 5. 命中只复用确定性模板 `parseResult`，不复用患者病例参数或模型输出；每次 HIS 分析请求仍按当前 `recordContext + targetFieldIds` 执行一次 `outpatient-emr-analysis`。
@@ -889,7 +891,7 @@ Content-Type: application/json
 
 1. `templateHtml` 与 `templateDefinition` 均必填、各自最大 1 MiB；不接受旧 `sourceFormat / templateSource`。服务端不会重新解析模板，但会把两份原文和客户端完整合并解析快照一并保存供审计。
 2. 服务端按 UTF-8 重算 `htmlHash` 和 `definitionHash`，再计算 `sha256("outpatient-emr-template-pair.v1:" + htmlHash + ":" + definitionHash)`，结果必须与 `templateHash` 完全一致。
-3. 顶层、`parseResult`、字段和字典项只接受示例中的当前 schema，未知字段直接拒绝；字段最多 2000 个，字段 ID 唯一。每个字段必须显式包含定义章节 ID、业务章节 ID、渲染章节名和定义章节名，服务端不修剪或补造。未映射字段必须显式提交 `recordField: null`、`mappingSource: "unmapped"`、`projectionMode: null`；这两个 `null` 在落库解析 JSON 与详情响应中也必须原样保留，缺失属性不属于当前协议。
+3. 顶层、`parseResult`、字段和字典项只接受示例中的当前 schema，未知字段直接拒绝；字段最多 2000 个，字段 ID 唯一。`mappingSource` 只接受 `definition-record-field / definition-article-record-field / canonical-id / deterministic-alias / deterministic-article / unmapped`，`manual-override` 只由服务端在历史命中和管理端详情中叠加产生，登记请求携带时拒绝；`recordField` 只接受 `chiefComplaint / historyOfPresentIllness / pastMedicalHistory / personalHistory / menstrualHistory / maritalReproductiveHistory / familyHistory / physicalExam / precautions`。每个字段必须显式包含定义章节 ID、业务章节 ID、渲染章节名和定义章节名，服务端不修剪或补造。未映射字段必须显式提交 `recordField: null`、`mappingSource: "unmapped"`、`projectionMode: null`；这两个 `null` 在落库解析 JSON 与详情响应中也必须原样保留，缺失属性不属于当前协议。
 4. `parseResult.fields` 与每个 `dictionaryItems` 必须显式提供。字典项文字非空，编码可为空；任一编码或文字在同一字典中重复时拒绝。客户端已经排除 `value/text` 同时为空的不可选占位，后台不得再次收到。
 5. 严禁携带 `visitId / requestId / patient / recordContext / fieldValues / dictionarySelections / outpatientRecord`、模型输出或医生编辑结果。
 6. 服务端按 `idOrg + templateId + templateHash` 保持唯一；正常业务只在历史查询未命中时登记。首次出现的模板 ID、同一模板任一原文字节变化都形成新记录；不同模板 ID 即使原文相同也不能共享一条记录。并发首次解析可能同时登记，由唯一键收敛到同一记录并返回 `deduplicated=true`；重复登记是只读幂等响应，不更新已有原文、解析结果、设备或接收时间。管理端人工字段映射保存在独立覆盖表，不回写本接口登记的 `parseResult`。
@@ -2614,18 +2616,18 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 ```json
 {
   "prompt": "请结合住院登记诊断、当日医嘱和体温单生命体征生成日常病程记录正文，避免编造未提供的检查结果。",
-  "generatorInstruction": "请根据字段含义、模板上下文和住院数据依赖，生成严谨可审查的字段回填提示词。"
+  "generatorInstruction": "按已提供资料逐项说明诊断依据，区分支持证据和缺失信息。"
 }
 ```
 
 ### 5.39.3.1 POST `/admin/api/inpatient-emr/templates/{idCache}/fields/{fieldId}/prompt/generate`
-用途：根据字段信息和可编辑的生成指令生成 AI 字段提示词草稿；生成结果不自动保存，管理员确认后再调用提示词保存接口。生成草稿会带入当前模板名称、记录类型、字段名称、所属段落和字段含义，便于区分每日病程录、医生查床录等不同文书语境。
+用途：根据结构化字段信息确定性拼装可执行的正文生成规则草稿，不调用真实模型。草稿包含当前模板名称、记录类型、字段名称、所属段落、字段含义、依赖和约束；默认元级“生成提示词”说明不进入正文任务。`generatorInstruction` 继续原样返回并可由保存接口维护：非默认值作为“管理员附加正文约束”原文编入草稿，只补充正文要求，不替代正文任务及调用方约定的输出格式；管理员应直接填写内容要求，例如“按已提供资料逐项说明诊断依据”，不要填写“生成一个提示词”等元指令。该接口不声称理解或自动改写任意自然语言指令。生成结果不自动保存，管理员审核后再调用提示词保存接口。
 
 请求：
 
 ```json
 {
-  "generatorInstruction": "请根据字段含义、模板上下文和住院数据依赖，生成严谨可审查的字段回填提示词。"
+  "generatorInstruction": "按已提供资料逐项说明诊断依据，区分支持证据和缺失信息。"
 }
 ```
 
@@ -2633,8 +2635,8 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 ```json
 {
-  "prompt": "请围绕病程记录正文生成住院病历草稿，只依据住院登记、诊断、医嘱和体温单资料，不编造未提供的症状、查体或检查结果。",
-  "generatorInstruction": "请根据字段含义、模板上下文和住院数据依赖，生成严谨可审查的字段回填提示词。"
+  "prompt": "任务：根据已提供的住院资料，为当前字段生成可直接回填的病历正文。\n模板名称：日常病程记录\n记录类型：日常病程记录\n字段 data-id：病程记录文本\n字段名称：病程记录文本\n字段所属段落：未标注段落\n字段含义：病程记录正文\n生成意图：inpatientRecordSection\n依赖数据：registration、orders、temperatureChart\n生成约束：仅依据已提供资料生成\n管理员附加正文约束：\n以下内容仅补充正文要求，不改变当前字段正文生成任务及调用方约定的输出格式。\n按已提供资料逐项说明诊断依据，区分支持证据和缺失信息。\n输出要求：只输出该字段应回填的正文，不输出字段名、JSON、解释、免责声明或无关内容。",
+  "generatorInstruction": "按已提供资料逐项说明诊断依据，区分支持证据和缺失信息。"
 }
 ```
 
@@ -3915,11 +3917,13 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 `sources[]`：最多8项，`code`固定为`doctor_supplement/his_summary/outpatient_record`，`status`为来源可用状态编码，`text`最长100000字符；仅发送本次实际使用的医生要点、HIS摘要或引用正文，不上传HIS原始对象。
 
-`fields[]`：最多250项，`id/name/section/source/generatedValue/finalValue`；ID128、名称/章节256、文本每项20000字符，ID不得重复。source取`ai/his_or_system/fixed/doctor_signature/manual_or_his`。generatedValue为生成完成时原稿（非AI字段是HIS/模板来源值），finalValue在回填/放弃/被替代时冻结，未终稿为null；按模板原始顺序保存。`message`最长512，只接受面向用户的简短状态说明。允许sources/fields为空以记录生成前失败。
+`fields[]`：最多500项，兼容包含261个字段的完整住院模板，不截断或丢弃模板字段；正文总量仍受1MiB限制。字段为`id/name/section/source/generatedValue/finalValue`；ID128、名称/章节256、文本每项20000字符，ID不得重复。source取`ai/his_or_system/fixed/doctor_signature/manual_or_his`。generatedValue为生成完成时原稿（非AI字段是HIS/模板来源值），finalValue在回填/放弃/被替代时冻结，未终稿为null；按模板原始顺序保存。`message`最长512，只接受面向用户的简短状态说明。允许sources/fields为空以记录生成前失败。
 
 事件/状态映射：`started=generating`、`waiting=waiting`、`generated=generated`、`generation_failed=generation_failed`、`fallback=fallback`、`writeback_requested/writeback_dispatched=writeback_pending`、`writeback_success=writeback_success`、`writeback_failed=writeback_failed`、`abandoned=abandoned`、`superseded=superseded`。回填事件必须有requestId。正在等待回执时不得放弃/重新生成；终态success/abandoned/superseded不再允许更高序号事件。缺失回执不视为成功。重试回填保留轮次、更新事件序号；前次已发送给HIS的请求重试时使用新requestId，首次发送保留HIS入口requestId，避免前一次迟到回执串入新尝试；晚到旧事件仅入历史。生成UUID内admissionId/templateId/templateHash/generationStartedAt固定。
 
 响应data：`{idLog, replayed}`。同设备事件UUID+同正文重传幂等，不同正文或同轮次重复序号拒绝；不同设备隔离。响应不回传患者快照。服务端失败时客户端保留待补传事件，不影响已有诊疗行为，但界面必须提示日志尚未上传。
+
+字段校验失败返回 HTTP 400 / `BIZ-001`，保留“住院日志字段缺失、过长或格式非法”前缀，追加按字段路径排序的诊断（最多8项，其余仅计数）。诊断只含字段路径、校验类型及长度/项数和限制，例如 `fields[0].generatedValue(Size,length=20001,max=20000)`；不包含患者身份值、病历正文、非法枚举原值或正则表达式。服务端异常日志沿用相同安全诊断和请求 `requestId`；除完整模板字段项数上限外，其余字段门槛不变。客户端仍保留原事件等待补传，不通过截断正文绕过校验。
 
 ### 管理接口 `/admin/api/inpatient-emr-logs`
 

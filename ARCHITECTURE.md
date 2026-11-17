@@ -198,7 +198,7 @@ pcie-server/
 - `modules/symptom` 负责症状模板的逐条 CRUD、内置模板导入、JSON 模板文件导入、作用域合并、客户端 `templates/delta` 聚合与症状模板修改日志，数据结构对齐 `floating-ball` 的 `SymptomManagement.vue` / disease editor
 - `modules/emrtemplate` 承载两条语义独立但管理口径一致的链路。住院链路继续缓存 HTML 模板解析结果，客户端按 HIS 传入的 `templateId` 复用已解析字段；管理端使用脱敏示例病例按桌面端相同的 `[data-id][data-type]` 规则预渲染缓存模板，空缓存时提供不依赖后端数据的内置示例，但不读取或保存真实患者数据。门诊链路不复用住院缓存，也不向桌面端下发模板：客户端在正式 HIS Bridge/SDK 门诊分析调用模型前，先通过签名 `POST /v1/client/outpatient-emr/templates/snapshots/resolve` 按认证机构、`templateId` 与模板对 hash 精确查询历史解析；未命中时客户端才执行严格解析并通过签名 `POST /v1/client/outpatient-emr/templates/snapshots` 登记 `outpatient-emr-template-pair-snapshot.v1`。该快照把同一模板的渲染 HTML、结构定义 JSON 与完整合并解析结果作为不可分割版本；服务端按约定公式复算模板对 hash，严格校验顶层、字段和字典项 schema，不修剪或补造字段身份，并按 `idOrg + templateId + templateHash` 保持唯一。首次出现的模板 ID 或任一原文字节变化都形成新记录；同一身份的重复/并发登记只返回已有记录，不更新原文、解析结果、设备或时间。`c_ai_outpatient_emr_tpl_snapshot` 只保存模板身份、两份原文、完整解析 JSON、字段统计、首次接收设备和时间，不保存患者、就诊、病历上下文、模型返回或医生编辑结果。
 
-  门诊字段人工维护独立保存在 `c_ai_outpatient_emr_tpl_mapping`，以 `idSnapshot + fieldId` 唯一，不修改不可变快照。管理端保存覆盖前必须确认字段属于该快照，并对标准病例字段、投影方式和重复映射做完整校验；覆盖可以指定有效映射，也可以显式设为未映射。历史解析命中及管理端详情读取快照后，在内存中叠加该版本的激活覆盖，并重新计算有效映射数；删除覆盖即恢复原始自动映射。为兼容当前 `outpatient-emr-template-pair.v1` 严格客户端，人工直接映射继续投影为 `mappingSource="definition-record-field"`，人工章节组合映射投影为 `mappingSource="definition-article-record-field"`，不增加响应字段或新枚举。历史查询失败、存量解析损坏或覆盖冲突必须显式失败，不允许客户端重复解析兜底。未映射字段的 `recordField / projectionMode` 必须保留显式 `null`。
+  门诊字段人工维护独立保存在 `c_ai_outpatient_emr_tpl_mapping`，以 `idSnapshot + fieldId` 唯一，不修改不可变快照。管理端保存覆盖前必须确认字段属于该快照，并对标准病例字段、投影方式和重复映射做完整校验；覆盖可以指定有效映射，也可以显式设为未映射。历史解析命中及管理端详情读取快照后，在内存中叠加该版本的激活覆盖，并重新计算有效映射数；删除覆盖即恢复原始自动映射。人工映射在叠加后统一投影为 `mappingSource="manual-override"`（`projectionMode` 保留 `direct / section-compose`），人工显式不映射为 `unmapped`；不可变快照登记时拒绝该来源，客户端、SDK 与 HIS 回参据此区分人工维护与模板定义映射。历史查询失败、存量解析损坏或覆盖冲突必须显式失败，不允许客户端重复解析兜底。未映射字段的 `recordField / projectionMode` 必须保留显式 `null`。
 
   管理端统一以“门诊病例模板 / 住院病例模板”双页签呈现，公共操作统一为“病例预渲染 / 字段维护（门诊称字段映射）”。门诊预渲染按有效 `recordField / projectionMode` 使用脱敏模拟病例；字段映射展示自动来源、人工覆盖和待确认状态；渲染 HTML、结构定义 JSON、完整解析 JSON 收入只读“解析详情”。门诊快照仍不提供发布、启停、删除或反向下发，桌面端不提供本地模板实验台。旧 `sourceFormat/templateSource` 不兼容、不落库、不保留查询筛选或展示兜底。
 - `modules/lisresult` 负责面向管理端的检验检查结果手动录入与第三方回写模拟：只查询 `hi_ods_apply` 中检验/检查类、未报告/未作废的申请单；面向 PHIS 多版本表结构差异，申请单列表、报告查看和回写前校验查询必须显式选择界面展示或逻辑处理需要的最小列，避免实体映射中的扩展字段参与运行时查询；检验录入后将报告组 ID 写回 `hi_ods_apply.id_result`，并把每个检验指标写入 `hi_ods_apply_lis_report`；检查录入后将报告 ID 写回 `hi_ods_apply.id_result`，并把报告结果、临床印象、影像诊断、阴阳性等字段写入 `hi_ods_apply_pacs_report`。该功能不接管业务系统产生申请单的链路，也不新增本地 `/api/consultation/*` 能力。
@@ -206,6 +206,8 @@ pcie-server/
 - `modules/datapackage` 继续负责映射数据包读取；`template` 类型数据包仅作为症状模板表未初始化时的兼容回退来源，管理端不再提供数据包维护入口
 - `modules/recommendationpreference` 负责接收桌面端在目录匹配之后产生的诊断和医嘱标准候选选择事件，按机构/科室/医生聚合偏好分，并为灰度客户端返回带样本置信度与作用域权重的名次 boost；管理端提供只读观测页查看聚合偏好分、样本计数和原始事件，便于确认采集效果与排查上报链路。该模块不学习 AI 原始文案，不注入 Prompt，不生成新的候选项，首版管理端不提供人工编辑偏好分入口
 - `modules/release` 使用服务端本地文件目录托管桌面端安装包、签名文件、`latest.json` 元数据、`policy.json` 发布策略与历史发布快照，不新增数据库表；管理端上传后由客户端通过公开 `/v1/client/releases/{channel}/latest.json` 检测更新，并通过 `/v1/client/releases/{channel}/policy.json` 判断是否必须更新。普通客户端与 Win7 legacy 客户端共用发布服务实现，但通道、策略和历史目录完全隔离
+
+住院模板缓存按本次字段身份合并管理员配置后，统一投影有效 `aiSuitable / rule.source / presetStatus`，人工开启 AI 后不保留相冲突的自动排除标签；模型输入只消费正文生成所需字段。提示词草稿端点保持确定性拼装，将管理员自定义生成指令明确作为正文附加约束，不混入默认元级“生成提示词”任务。历史草稿仅在完整匹配旧生成器与字段元数据时于响应层纠正，不写回历史记录，不改写普通自定义提示词。接口与兼容识别边界见 [住院模板缓存接口](API.md#351-post-v1clientinpatient-emrtemplatesresolve)及 [字段提示词草稿](API.md#53931-post-adminapiinpatient-emrtemplatesidcachefieldsfieldidpromptgenerate)。
 
 ### 4.2.1 内网客户端版本发布
 
@@ -692,12 +694,13 @@ GaussDB/openGauss 初始化：
 
 1. 管理端菜单和页面统一为“住院病历日志”，路径 `/inpatient-emr-logs`。范围仅为桌面端 `features/inpatient-emr`，家庭病床模板与普通住院模板共用链路，文书类型采用实际模板名称筛选，不以名称推断患者业务归属。
 2. `modules/inpatientlog` 使用 `c_ai_inpatient_emr_log` 保存每个设备/生成 UUID 的最新完整快照，`c_ai_inpatient_emr_log_event` 保存不可变事件。每次生成或重新生成使用新 UUID，上一轮标为 superseded；最小化不改变日志，明确放弃才写 abandoned。没有可靠 HIS 文书主键时不伪造 recordId。
-3. 签名 `/v1/client/user-logs/inpatient-emr/events` 接收强类型完整快照。快照包含医生/HIS 机构/患者身份、住院锚点、模板 ID/名称/原始 HTML 的 SHA-256、生成时间、病历书写时间、来源文本、按模板顺序排列的字段及 AI 原稿/最终稿。模板原始 HTML、录音、系统提示词、完整 HIS raw 对象和密钥不上传。非 AI 字段保留其来源，不冒充 AI 生成。
+3. 签名 `/v1/client/user-logs/inpatient-emr/events` 接收强类型完整快照。快照包含医生/HIS 机构/患者身份、住院锚点、模板 ID/名称/原始 HTML 的 SHA-256、生成时间、病历书写时间、来源文本、按模板顺序排列的字段及 AI 原稿/最终稿。模板原始 HTML、录音、系统提示词、完整 HIS raw 对象和密钥不上传。非 AI 字段保留其来源，不冒充 AI 生成。完整字段快照最多500项，以接收超过250项的有效模板（包括261项模板），不截断字段，仍保留1MiB总正文、每字段文本长度及签名限制。Bean Validation 失败在写库前拒绝，`BIZ-001` 消息与请求异常日志仅追加排序且最多8项的字段路径、校验类型和数值长度/项数限制，超出部分只计数，不输出非法原值、身份、正文或正则。
 4. 设备/后台机构从鉴权获得，客户端身份快照不参与授权。父记录按设备+生成 UUID 唯一，事件按设备+事件 UUID及轮次+序号唯一；写事务锁定父记录，校验锚点一致，按最大序号更新投影。重复事件同正文幂等、不同正文拒绝；迟到旧事件只入历史，不覆盖新状态。唯一冲突必须退出并回滚独立写事务后再重试一次，兼容 GaussDB 事务失败态。
 5. status 分别记录 generating、waiting、generated、generation_failed、fallback、writeback_pending、writeback_success、writeback_failed、abandoned、superseded。只有严格匹配住院 ID 和待回写 requestId 的 HIS 成功回执才是回填成功，不宣称已签署或数据库已落库；无回执保持待确认。失败后可重试回填，最终稿冻结于发起回填瞬间，不受随后编辑或迟到回调影响。
 6. 客户端 `inpatientEmrLog` 组装生成轮次快照，独立 `inpatientEmrLogOutbox` 使用 IndexedDB 按服务地址+机构编码+设备编码隔离保存待上传事件；按序通过既有签名 regionalPost 补传、确认后删除，不保存 token。最多100条/8MiB，禁止静默淘汰；存储失败或上传失败在住院页显示待补传/失败提示及重试入口，内存保留尚未落盘的事件。进入住院工作区时恢复补传，当前运行期后台每30秒重试；最小化仍保活。关闭客户端前未能落盘的事件不能承诺恢复。
 7. 管理端分页默认本周，时间按生成开始时间筛选，同时独立显示病历书写时间；支持机构、医生、患者、模板、状态。详情纯文本按字段分区显示生成依据、AI原稿、最终稿、字段差异和事件时间线。CSV只导出列表元数据，最多1000条，超限拒绝；日志全文权限不开放给机构统计专用账号，BBP机构管理员限制本机构。
 8. Oracle/GaussDB/GBase PostgreSQL 初始化基线同步建表、注释、唯一键和查询索引；GBase 沿用 PG 兼容 DDL 并独立验证，合入不执行现场迁移。按用户 2026-10-21 的明确交付要求，两套 SQL 目录各保留定向一次性 `update_inpatient_emr_logs.sql`，只创建住院日志两表及其约束、索引和注释，DDL 与对应 `init.sql` 一致；执行前校验当前 schema 的应用基础表及同名对象，已存在对象时拒绝继续，不静默跳过未知结构。Oracle 遇错停止但已完成 DDL 不可回滚；GaussDB PostgreSQL 兼容模式采用事务。执行方法、验收及失败恢复见 `docs/inpatient-emr-logs-migration.md`。历史代理日志不自动伪造为有完整闭环的住院日志。
+9. readiness 组固定包含 `inpatientLogSchema`，健康检查只以 `WHERE 1 = 0` 分别验证住院日志两表全部持久化列可查询，不读取患者记录、不自动建表，也不校验或修改索引。缺表、缺列或查询不可用时返回 `DOWN` 与固定的结构核对提示，不返回 SQL 异常或连接详情；两表探针均成功才返回 `UP`。该检查没有关闭开关，只在健康检查时执行，不因住院日志结构缺失阻止进程启动；既有 `featureEventSchema` 启动门禁保持不变。部署时仍须单独核对约束、索引与签名补传闭环，不能以进程启动代替 readiness 或日志可用性验收。
 
 ## 分段语音转写
 

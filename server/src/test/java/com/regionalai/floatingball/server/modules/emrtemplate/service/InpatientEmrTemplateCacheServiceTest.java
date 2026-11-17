@@ -36,6 +36,19 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class InpatientEmrTemplateCacheServiceTest {
 
+    private static final String LEGACY_DEFAULT_INSTRUCTION =
+        "请根据住院病历模板字段信息，生成一个严谨、可审查、可直接用于 AI 回填该字段的提示词。"
+            + "提示词必须约束 AI 仅依据住院登记、诊断、医嘱、体温单等已提供资料生成，"
+            + "不得编造未提供的症状、查体、检查结果或治疗效果。\n"
+            + "模板名称：日常病程记录\n记录类型：日常病程记录\n字段 data-id：病程记录文本\n"
+            + "字段名称：病程记录文本\n字段所属段落：未标注段落\n字段含义：病程记录正文\n生成意图：inpatientRecordSection";
+    private static final String LEGACY_BODY =
+        "请为以下住院病历模板字段生成可直接回填的正文：\n"
+            + "模板名称：日常病程记录\n记录类型：日常病程记录\n字段 data-id：病程记录文本\n"
+            + "字段名称：病程记录文本\n字段所属段落：未标注段落\n字段含义：病程记录正文\n"
+            + "生成意图：inpatientRecordSection\n依赖数据：registration\n生成约束：仅依据 HIS 数据生成\n"
+            + "输出要求：只输出该字段应回填的正文，不输出字段名、JSON、解释、免责声明或无关内容。";
+
     @Mock
     private AiInpatientEmrTemplateCacheMapper cacheMapper;
 
@@ -157,6 +170,70 @@ class InpatientEmrTemplateCacheServiceTest {
     }
 
     @Test
+    void resolveOverridesFreshExcludedPresetWithSavedAiConfiguration() throws Exception {
+        List<Map<String, Object>> cachedFields = aiFieldsWithPrompt("请根据事实书写诊断依据。");
+        cachedFields.get(0).put("presetStatus", "exclude");
+        AiInpatientEmrTemplateCache cached = cacheWithFields(cachedFields);
+        when(cacheMapper.selectList(any())).thenReturn(Collections.singletonList(cached));
+        List<Map<String, Object>> localFields = aiFieldsWithPrompt(null);
+        localFields.get(0).put("aiSuitable", Boolean.FALSE);
+        localFields.get(0).put("presetStatus", "exclude");
+        ((Map<String, Object>) localFields.get(0).get("rule")).put("source", "manual_or_his");
+        InpatientEmrTemplateResolveRequest request = new InpatientEmrTemplateResolveRequest();
+        request.setTemplateId(cached.getTemplateId());
+        request.setTemplateHash(cached.getTemplateHash());
+        request.setFields(localFields);
+
+        Map<String, Object> effective = service.resolve(request).getFields().get(0);
+
+        assertEquals(Boolean.TRUE, effective.get("aiSuitable"));
+        assertEquals("ai", effective.get("presetStatus"));
+        assertEquals("ai", ((Map<?, ?>) effective.get("rule")).get("source"));
+        assertEquals("请根据事实书写诊断依据。", ((Map<?, ?>) effective.get("rule")).get("resolvedPrompt"));
+        assertEquals("exclude", localFields.get(0).get("presetStatus"), "Do not mutate the request's parser result");
+        List<?> storedFields = new ObjectMapper().readValue(cached.getFieldsJson(), List.class);
+        Map<?, ?> stored = (Map<?, ?>) storedFields.get(0);
+        assertEquals("ai", stored.get("presetStatus"));
+    }
+
+    @Test
+    void resolveHonorsExplicitFalseOverAStaleAiSource() throws Exception {
+        for (Object disabled : new Object[] { Boolean.FALSE, "false", "0", Integer.valueOf(0) }) {
+            List<Map<String, Object>> cachedFields = aiFieldsWithPrompt("历史提示词应保留但不得启用生成。");
+            cachedFields.get(0).put("aiSuitable", disabled);
+            cachedFields.get(0).put("presetStatus", "ai");
+            AiInpatientEmrTemplateCache cached = cacheWithFields(cachedFields);
+            when(cacheMapper.selectList(any())).thenReturn(Collections.singletonList(cached));
+            InpatientEmrTemplateResolveRequest request = new InpatientEmrTemplateResolveRequest();
+            request.setTemplateId(cached.getTemplateId());
+            request.setTemplateHash(cached.getTemplateHash());
+            request.setFields(aiFieldsWithPrompt(null));
+
+            Map<String, Object> effective = service.resolve(request).getFields().get(0);
+
+            assertEquals(Boolean.FALSE, effective.get("aiSuitable"));
+            assertEquals("exclude", effective.get("presetStatus"));
+            assertEquals("manual_or_his", ((Map<?, ?>) effective.get("rule")).get("source"));
+            assertEquals("not_ai", ((Map<?, ?>) effective.get("rule")).get("promptSource"));
+            assertFalse(((Map<?, ?>) effective.get("rule")).containsKey("resolvedPrompt"));
+        }
+    }
+
+    @Test
+    void legacyAiSourceIsUsedOnlyWhenTheAiFlagIsAbsent() throws Exception {
+        List<Map<String, Object>> fields = aiFieldsWithPrompt(null);
+        fields.get(0).remove("aiSuitable");
+        AiInpatientEmrTemplateCache cache = cacheWithFields(fields);
+        when(cacheMapper.selectById(cache.getIdCache())).thenReturn(cache);
+
+        Map<String, Object> effective = service.get(cache.getIdCache()).getFields().get(0);
+
+        assertEquals(Boolean.TRUE, effective.get("aiSuitable"));
+        assertEquals("ai", effective.get("presetStatus"));
+        assertEquals("ai", ((Map<?, ?>) effective.get("rule")).get("source"));
+    }
+
+    @Test
     void resolveRefreshesStoredFieldsToCurrentFullFieldsAndKeepsPrompt() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper();
         List<Map<String, Object>> legacyFields = aiFieldsWithPrompt("沿用已维护提示词。");
@@ -237,10 +314,26 @@ class InpatientEmrTemplateCacheServiceTest {
 
         Map<String, Object> promoted = result.getFields().get(1);
         assertEquals(Boolean.TRUE, promoted.get("aiSuitable"));
+        assertEquals("ai", promoted.get("presetStatus"));
         assertEquals("ai", ((Map<?, ?>) promoted.get("rule")).get("source"));
         assertEquals("default", ((Map<?, ?>) promoted.get("rule")).get("promptSource"));
         assertTrue(String.valueOf(((Map<?, ?>) promoted.get("rule")).get("resolvedPrompt")).contains("字段 data-id：页眉姓名"));
         verify(cacheMapper).updateById(cache);
+    }
+
+    @Test
+    void disablingAiClearsItsEffectivePresetAndSource() throws Exception {
+        AiInpatientEmrTemplateCache cache = cacheWithFields(aiFieldsWithPrompt(null));
+        when(cacheMapper.selectById(cache.getIdCache())).thenReturn(cache);
+        InpatientEmrTemplateFieldGenerationRequest request = new InpatientEmrTemplateFieldGenerationRequest();
+        request.setAiSuitable(Boolean.FALSE);
+
+        Map<String, Object> effective = service.updateFieldGeneration(cache.getIdCache(), "病程记录文本", request).getFields().get(0);
+
+        assertEquals(Boolean.FALSE, effective.get("aiSuitable"));
+        assertEquals("exclude", effective.get("presetStatus"));
+        assertEquals("manual_or_his", ((Map<?, ?>) effective.get("rule")).get("source"));
+        assertEquals("not_ai", ((Map<?, ?>) effective.get("rule")).get("promptSource"));
     }
 
     @Test
@@ -256,13 +349,104 @@ class InpatientEmrTemplateCacheServiceTest {
         when(cacheMapper.selectById("cache-9")).thenReturn(cache);
 
         InpatientEmrTemplatePromptGenerateRequest request = new InpatientEmrTemplatePromptGenerateRequest();
-        request.setGeneratorInstruction("请生成适合日常病程记录正文的字段提示词。");
+        request.setGeneratorInstruction("逐项说明诊断支持证据，并明确缺失资料。");
 
         InpatientEmrTemplatePromptGenerateVO result = service.generateFieldPrompt("cache-9", "病程记录文本", request);
 
-        assertEquals("请生成适合日常病程记录正文的字段提示词。", result.getGeneratorInstruction());
+        assertEquals("逐项说明诊断支持证据，并明确缺失资料。", result.getGeneratorInstruction());
         assertTrue(result.getPrompt().contains("病程记录文本"));
+        assertTrue(result.getPrompt().contains("管理员附加正文约束：\n以下内容仅补充正文要求，不改变当前字段正文生成任务及调用方约定的输出格式。\n逐项说明诊断支持证据，并明确缺失资料。"));
         assertTrue(result.getPrompt().contains("只输出该字段应回填的正文"));
+        assertTrue(result.getPrompt().endsWith("输出要求：只输出该字段应回填的正文，不输出字段名、JSON、解释、免责声明或无关内容。"));
+        verify(cacheMapper, never()).updateById(any());
+    }
+
+    @Test
+    void defaultGeneratedDraftContainsOnlyAnExecutableBodyTask() throws Exception {
+        List<Map<String, Object>> fields = aiFieldsWithPrompt(null);
+        ((Map<String, Object>) fields.get(0).get("rule")).remove("constraints");
+        AiInpatientEmrTemplateCache cache = cacheWithFields(fields);
+        when(cacheMapper.selectById(cache.getIdCache())).thenReturn(cache);
+
+        InpatientEmrTemplatePromptGenerateVO result = service.generateFieldPrompt(cache.getIdCache(), "病程记录文本", null);
+
+        assertTrue(result.getPrompt().startsWith("任务：根据已提供的住院资料，为当前字段生成可直接回填的病历正文。\n"));
+        assertFalse(result.getPrompt().contains("生成一个"));
+        assertFalse(result.getPrompt().contains("提示词"));
+        assertTrue(result.getPrompt().contains("生成约束：仅依据已提供资料生成"));
+        assertFalse(result.getPrompt().contains("管理员附加正文约束"));
+        verify(cacheMapper, never()).updateById(any());
+    }
+
+    @Test
+    void normalizesExactLegacyDefaultDraftOnlyInTheResponse() throws Exception {
+        String legacyPrompt = LEGACY_DEFAULT_INSTRUCTION + "\n\n" + LEGACY_BODY;
+        List<Map<String, Object>> fields = aiFieldsWithPrompt(legacyPrompt);
+        ((Map<String, Object>) fields.get(0).get("rule")).put("promptGeneratorInstruction", LEGACY_DEFAULT_INSTRUCTION);
+        AiInpatientEmrTemplateCache cache = cacheWithFields(fields);
+        String stored = cache.getFieldsJson();
+        when(cacheMapper.selectById(cache.getIdCache())).thenReturn(cache);
+
+        Map<?, ?> rule = (Map<?, ?>) service.get(cache.getIdCache()).getFields().get(0).get("rule");
+
+        assertTrue(String.valueOf(rule.get("prompt")).startsWith("任务：根据已提供的住院资料"));
+        assertFalse(String.valueOf(rule.get("resolvedPrompt")).contains("提示词"));
+        assertEquals(rule.get("prompt"), rule.get("resolvedPrompt"));
+        assertEquals("custom", rule.get("promptSource"));
+        assertFalse(String.valueOf(rule.get("promptGeneratorInstruction")).contains("提示词"));
+        assertEquals(stored, cache.getFieldsJson());
+        verify(cacheMapper, never()).updateById(any());
+    }
+
+    @Test
+    void resolvingLegacyDraftDoesNotRewriteItsSavedPrompt() throws Exception {
+        String legacyPrompt = LEGACY_DEFAULT_INSTRUCTION + "\n\n" + LEGACY_BODY;
+        AiInpatientEmrTemplateCache cached = cacheWithFields(aiFieldsWithPrompt(legacyPrompt));
+        when(cacheMapper.selectList(any())).thenReturn(Collections.singletonList(cached));
+        InpatientEmrTemplateResolveRequest request = new InpatientEmrTemplateResolveRequest();
+        request.setTemplateId(cached.getTemplateId());
+        request.setTemplateHash(cached.getTemplateHash());
+        request.setFields(aiFieldsWithPrompt(null));
+
+        Map<?, ?> rule = (Map<?, ?>) service.resolve(request).getFields().get(0).get("rule");
+
+        assertFalse(String.valueOf(rule.get("resolvedPrompt")).contains("提示词"));
+        List<?> stored = new ObjectMapper().readValue(cached.getFieldsJson(), List.class);
+        assertEquals(legacyPrompt, ((Map<?, ?>) ((Map<?, ?>) stored.get(0)).get("rule")).get("prompt"));
+    }
+
+    @Test
+    void normalizesKnownLegacyDraftWhilePreservingItsCustomInstruction() throws Exception {
+        String instruction = "说明支持证据与待确认信息；保留门诊记录的不确定性。";
+        List<Map<String, Object>> fields = aiFieldsWithPrompt(instruction + "\n\n" + LEGACY_BODY);
+        ((Map<String, Object>) fields.get(0).get("rule")).put("promptGeneratorInstruction", instruction);
+        AiInpatientEmrTemplateCache cache = cacheWithFields(fields);
+        when(cacheMapper.selectById(cache.getIdCache())).thenReturn(cache);
+
+        Map<?, ?> rule = (Map<?, ?>) service.get(cache.getIdCache()).getFields().get(0).get("rule");
+
+        String prompt = String.valueOf(rule.get("resolvedPrompt"));
+        assertTrue(prompt.startsWith("任务：根据已提供的住院资料"));
+        assertTrue(prompt.contains("管理员附加正文约束：\n以下内容仅补充正文要求，不改变当前字段正文生成任务及调用方约定的输出格式。\n" + instruction));
+        assertEquals(instruction, rule.get("promptGeneratorInstruction"));
+        assertTrue(prompt.endsWith("输出要求：只输出该字段应回填的正文，不输出字段名、JSON、解释、免责声明或无关内容。"));
+    }
+
+    @Test
+    void keepsHandwrittenAndNearLegacyPromptsByteForByte() throws Exception {
+        for (String prompt : new String[] {
+            "  请根据诊断依据正文生成一个核查清单，不要更改医生已写的提示词。\n保留人工要求。  ",
+            LEGACY_DEFAULT_INSTRUCTION + "\n\n" + LEGACY_BODY.replace("字段 data-id：病程记录文本", "字段 data-id：其他字段"),
+            "未登记的人工前言\n\n" + LEGACY_BODY,
+            LEGACY_DEFAULT_INSTRUCTION + "\n\n" + LEGACY_BODY + "\n医生补充：原文保留"
+        }) {
+            AiInpatientEmrTemplateCache cache = cacheWithFields(aiFieldsWithPrompt(prompt));
+            when(cacheMapper.selectById(cache.getIdCache())).thenReturn(cache);
+            Map<?, ?> rule = (Map<?, ?>) service.get(cache.getIdCache()).getFields().get(0).get("rule");
+            assertEquals(prompt, rule.get("prompt"));
+            assertEquals(prompt, rule.get("resolvedPrompt"));
+        }
+        verify(cacheMapper, never()).updateById(any());
     }
 
     @Test
@@ -317,6 +501,19 @@ class InpatientEmrTemplateCacheServiceTest {
         when(cacheMapper.deleteById("cache-delete-failed")).thenReturn(Integer.valueOf(0));
 
         assertThrows(BusinessException.class, () -> service.invalidate("cache-delete-failed"));
+    }
+
+    private AiInpatientEmrTemplateCache cacheWithFields(List<Map<String, Object>> fields) throws Exception {
+        AiInpatientEmrTemplateCache cache = new AiInpatientEmrTemplateCache();
+        cache.setIdCache("cache-config-regression");
+        cache.setTemplateId("emr_tpl_daily_course");
+        cache.setTemplateHash("tpl_hash");
+        cache.setTemplateName("日常病程记录");
+        cache.setFieldsJson(new ObjectMapper().writeValueAsString(fields));
+        cache.setFieldCount(Integer.valueOf(fields.size()));
+        cache.setFgActive("1");
+        cache.setSdStatus("1");
+        return cache;
     }
 
     private List<Map<String, Object>> sampleFields() {

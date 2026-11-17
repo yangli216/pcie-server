@@ -170,7 +170,7 @@ class OutpatientEmrTemplateSnapshotServiceTest {
 
         OutpatientEmrTemplateFieldSnapshot effective = resolution.getParseResult().getFields().get(1);
         assertEquals("personalHistory", effective.getRecordField());
-        assertEquals("definition-record-field", effective.getMappingSource());
+        assertEquals("manual-override", effective.getMappingSource());
         assertEquals("direct", effective.getProjectionMode());
     }
 
@@ -359,6 +359,58 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         assertEquals(Boolean.TRUE, receipt.getDeduplicated());
         assertEquals("snapshot-concurrent", receipt.getId());
         verify(snapshotMapper, never()).updateById(any(AiOutpatientEmrTemplateSnapshot.class));
+    }
+
+    @Test
+    void resolveReportsASectionComposedManualOverrideWithItsRealSource() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest source = validRequest();
+        AiOutpatientEmrTemplateSnapshot existing = snapshotEntity(source);
+        AiOutpatientEmrTemplateMapping mapping = mapping(
+            existing.getIdSnapshot(),
+            "婚育状况",
+            "maritalReproductiveHistory",
+            "section-compose"
+        );
+        when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(existing));
+        when(mappingMapper.selectList(any())).thenReturn(Collections.singletonList(mapping));
+
+        OutpatientEmrTemplateSnapshotResolution resolution = service.resolve(
+            device(),
+            validResolveRequest(source)
+        );
+
+        OutpatientEmrTemplateFieldSnapshot effective = resolution.getParseResult().getFields().get(1);
+        assertEquals("maritalReproductiveHistory", effective.getRecordField());
+        assertEquals("manual-override", effective.getMappingSource());
+        assertEquals("section-compose", effective.getProjectionMode());
+    }
+
+    @Test
+    void saveAcceptsTheMaritalReproductiveHistoryProjection() throws Exception {
+        when(snapshotMapper.selectList(any())).thenReturn(Collections.emptyList());
+        OutpatientEmrTemplateSnapshotRequest request = validRequest();
+        OutpatientEmrTemplateFieldSnapshot marital = request.getParseResult().getFields().get(1);
+        marital.setRecordField("maritalReproductiveHistory");
+        marital.setMappingSource("deterministic-article");
+        marital.setProjectionMode("section-compose");
+
+        service.save(device(), request);
+
+        verify(snapshotMapper).insert(any(AiOutpatientEmrTemplateSnapshot.class));
+    }
+
+    @Test
+    void saveRejectsAManualOverrideSourceInTheImmutableParse() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest request = validRequest();
+        request.getParseResult().getFields().get(0).setMappingSource("manual-override");
+
+        BusinessException error = assertThrows(
+            BusinessException.class,
+            () -> service.save(device(), request)
+        );
+
+        assertTrue(error.getMessage().contains("mappingSource"));
+        verify(snapshotMapper, never()).insert(any(AiOutpatientEmrTemplateSnapshot.class));
     }
 
     @Test

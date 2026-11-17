@@ -46,9 +46,15 @@ public class InpatientEmrTemplateCacheService {
     private static final String PROMPT_SOURCE_DEFAULT = "default";
     private static final String PROMPT_SOURCE_NOT_AI = "not_ai";
     private static final String DEFAULT_PROMPT_GENERATOR_INSTRUCTION =
+        "仅围绕当前字段的含义组织正文，区分已提供事实与待确认信息，不编造未提供的症状、查体、检查结果或治疗效果。";
+    private static final String LEGACY_DEFAULT_PROMPT_GENERATOR_INSTRUCTION =
         "请根据住院病历模板字段信息，生成一个严谨、可审查、可直接用于 AI 回填该字段的提示词。"
             + "提示词必须约束 AI 仅依据住院登记、诊断、医嘱、体温单等已提供资料生成，"
             + "不得编造未提供的症状、查体、检查结果或治疗效果。";
+    private static final String BODY_GENERATION_TASK =
+        "任务：根据已提供的住院资料，为当前字段生成可直接回填的病历正文。";
+    private static final String BODY_OUTPUT_REQUIREMENT =
+        "输出要求：只输出该字段应回填的正文，不输出字段名、JSON、解释、免责声明或无关内容。";
 
     private static final TypeReference<List<Map<String, Object>>> FIELD_LIST_TYPE =
         new TypeReference<List<Map<String, Object>>>() {
@@ -235,7 +241,7 @@ public class InpatientEmrTemplateCacheService {
             if (!fieldId.equals(stringValue(field.get("id")))) {
                 continue;
             }
-            applyFieldGeneration(field, Boolean.TRUE.equals(request.getAiSuitable()), cache.getTemplateName());
+            applyFieldGeneration(field, Boolean.TRUE.equals(request.getAiSuitable()));
             updated = true;
             break;
         }
@@ -266,8 +272,8 @@ public class InpatientEmrTemplateCacheService {
         }
         Map<String, Object> rule = ensureRule(field);
         String generatorInstruction = trimToNull(request == null ? null : request.getGeneratorInstruction());
-        if (generatorInstruction == null) {
-            generatorInstruction = defaultPromptGeneratorInstruction(field, rule, cache.getTemplateName());
+        if (generatorInstruction == null || isDefaultGeneratorInstruction(generatorInstruction, field, rule, cache.getTemplateName())) {
+            generatorInstruction = DEFAULT_PROMPT_GENERATOR_INSTRUCTION;
         }
         InpatientEmrTemplatePromptGenerateVO vo = new InpatientEmrTemplatePromptGenerateVO();
         vo.setGeneratorInstruction(generatorInstruction);
@@ -417,9 +423,7 @@ public class InpatientEmrTemplateCacheService {
         copyRuleValue(cachedRule, targetRule, "promptIntent");
         copyRuleValue(cachedRule, targetRule, "dependencies");
         copyRuleValue(cachedRule, targetRule, "constraints");
-        if (cachedAiSuitable && !StringUtils.hasText(stringValue(targetRule.get("source")))) {
-            targetRule.put("source", "ai");
-        }
+        normalizeFieldGeneration(targetField);
     }
 
     private void copyRuleValue(Map<String, Object> source, Map<String, Object> target, String key) {
@@ -443,8 +447,8 @@ public class InpatientEmrTemplateCacheService {
         if (field == null) {
             return false;
         }
-        if (isTruthy(field.get("aiSuitable"))) {
-            return true;
+        if (field.containsKey("aiSuitable")) {
+            return isTruthy(field.get("aiSuitable"));
         }
         Map<String, Object> rule = readRule(field);
         return "ai".equalsIgnoreCase(stringValue(rule.get("source")));
@@ -463,6 +467,19 @@ public class InpatientEmrTemplateCacheService {
         return false;
     }
 
+    private void normalizeFieldGeneration(Map<String, Object> field) {
+        boolean aiSuitable = isAiGenerationField(field);
+        field.put("aiSuitable", Boolean.valueOf(aiSuitable));
+        field.put("presetStatus", aiSuitable ? "ai" : "exclude");
+        Map<String, Object> rule = ensureRule(field);
+        if (aiSuitable) {
+            rule.put("source", "ai");
+        } else if (!StringUtils.hasText(stringValue(rule.get("source")))
+            || "ai".equalsIgnoreCase(stringValue(rule.get("source")))) {
+            rule.put("source", "manual_or_his");
+        }
+    }
+
     private List<Map<String, Object>> enrichPromptInfo(List<Map<String, Object>> fields, String templateName) {
         if (fields == null || fields.isEmpty()) {
             return Collections.emptyList();
@@ -470,6 +487,7 @@ public class InpatientEmrTemplateCacheService {
         List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
         for (Map<String, Object> field : fields) {
             Map<String, Object> copy = copyField(field);
+            normalizeFieldGeneration(copy);
             Map<String, Object> rule = ensureRule(copy);
             if (!isAiGenerationField(copy)) {
                 rule.remove("resolvedPrompt");
@@ -477,17 +495,19 @@ public class InpatientEmrTemplateCacheService {
                 result.add(copy);
                 continue;
             }
-            if (!StringUtils.hasText(stringValue(rule.get("promptGeneratorInstruction")))) {
-                rule.put("promptGeneratorInstruction", defaultPromptGeneratorInstruction(copy, rule, templateName));
-            }
-            String customPrompt = trimToNull(stringValue(rule.get("prompt")));
-            if (customPrompt != null) {
+            String customPrompt = stringValue(rule.get("prompt"));
+            if (StringUtils.hasText(customPrompt)) {
+                customPrompt = normalizeLegacyGeneratedPrompt(customPrompt, copy, rule, templateName);
                 rule.put("prompt", customPrompt);
                 rule.put("resolvedPrompt", customPrompt);
                 rule.put("promptSource", PROMPT_SOURCE_CUSTOM);
             } else {
                 rule.put("resolvedPrompt", buildDefaultPrompt(copy, rule, templateName));
                 rule.put("promptSource", PROMPT_SOURCE_DEFAULT);
+            }
+            String generatorInstruction = trimToNull(stringValue(rule.get("promptGeneratorInstruction")));
+            if (generatorInstruction == null || isDefaultGeneratorInstruction(generatorInstruction, copy, rule, templateName)) {
+                rule.put("promptGeneratorInstruction", DEFAULT_PROMPT_GENERATOR_INSTRUCTION);
             }
             result.add(copy);
         }
@@ -506,8 +526,9 @@ public class InpatientEmrTemplateCacheService {
         return null;
     }
 
-    private void applyFieldGeneration(Map<String, Object> field, boolean aiSuitable, String templateName) {
+    private void applyFieldGeneration(Map<String, Object> field, boolean aiSuitable) {
         field.put("aiSuitable", Boolean.valueOf(aiSuitable));
+        field.put("presetStatus", aiSuitable ? "ai" : "exclude");
         Map<String, Object> rule = ensureRule(field);
         if (aiSuitable) {
             rule.put("source", "ai");
@@ -521,7 +542,7 @@ public class InpatientEmrTemplateCacheService {
                 rule.put("constraints", defaultConstraints());
             }
             if (!StringUtils.hasText(stringValue(rule.get("promptGeneratorInstruction")))) {
-                rule.put("promptGeneratorInstruction", defaultPromptGeneratorInstruction(field, rule, templateName));
+                rule.put("promptGeneratorInstruction", DEFAULT_PROMPT_GENERATOR_INSTRUCTION);
             }
             return;
         }
@@ -553,14 +574,14 @@ public class InpatientEmrTemplateCacheService {
 
     private List<String> defaultConstraints() {
         List<String> constraints = new ArrayList<String>();
-        constraints.add("仅依据已提供 HIS 数据生成，不补充未出现的检查结果或症状");
+        constraints.add("仅依据已提供资料生成，不补充未出现的检查结果或症状");
         constraints.add("围绕字段含义生成对应段落，不跨字段混写其他模板项");
         constraints.add("保留医生最终审核空间，避免给出绝对疗效判断");
         return constraints;
     }
 
-    private String defaultPromptGeneratorInstruction(Map<String, Object> field, Map<String, Object> rule, String templateName) {
-        return DEFAULT_PROMPT_GENERATOR_INSTRUCTION + "\n"
+    private String legacyDefaultPromptGeneratorInstruction(Map<String, Object> field, Map<String, Object> rule, String templateName) {
+        return LEGACY_DEFAULT_PROMPT_GENERATOR_INSTRUCTION + "\n"
             + "模板名称：" + templateDisplayName(templateName) + "\n"
             + "记录类型：" + templateDisplayName(templateName) + "\n"
             + "字段 data-id：" + defaultString(field.get("id"), "未命名字段") + "\n"
@@ -575,9 +596,28 @@ public class InpatientEmrTemplateCacheService {
                                         String generatorInstruction,
                                         String templateName) {
         List<String> lines = new ArrayList<String>();
-        lines.add(generatorInstruction.trim());
-        lines.add("");
-        lines.add("请为以下住院病历模板字段生成可直接回填的正文：");
+        lines.add(BODY_GENERATION_TASK);
+        lines.addAll(generatedPromptMetadata(field, rule, templateName));
+        if (!isDefaultGeneratorInstruction(generatorInstruction, field, rule, templateName)) {
+            lines.add("管理员附加正文约束：");
+            lines.add("以下内容仅补充正文要求，不改变当前字段正文生成任务及调用方约定的输出格式。");
+            lines.add(generatorInstruction.trim());
+        }
+        lines.add(BODY_OUTPUT_REQUIREMENT);
+        return String.join("\n", lines);
+    }
+
+    private List<String> generatedPromptMetadata(Map<String, Object> field,
+                                                 Map<String, Object> rule,
+                                                 String templateName) {
+        return generatedPromptMetadata(field, rule, templateName, false);
+    }
+
+    private List<String> generatedPromptMetadata(Map<String, Object> field,
+                                                 Map<String, Object> rule,
+                                                 String templateName,
+                                                 boolean legacyFallback) {
+        List<String> lines = new ArrayList<String>();
         lines.add("模板名称：" + templateDisplayName(templateName));
         lines.add("记录类型：" + templateDisplayName(templateName));
         lines.add("字段 data-id：" + defaultString(field.get("id"), "未命名字段"));
@@ -586,9 +626,41 @@ public class InpatientEmrTemplateCacheService {
         lines.add("字段含义：" + defaultString(field.get("meaning"), "模板字段，需结合模板上下文和 HIS 字段映射确认含义"));
         lines.add("生成意图：" + defaultString(rule.get("promptIntent"), defaultPromptIntent(field)));
         lines.add("依赖数据：" + joinList(rule.get("dependencies"), "住院登记、诊断、医嘱、体温单"));
-        lines.add("生成约束：" + joinList(rule.get("constraints"), "仅依据已提供 HIS 数据生成"));
-        lines.add("输出要求：只输出该字段应回填的正文，不输出字段名、JSON、解释、免责声明或无关内容。");
-        return String.join("\n", lines);
+        lines.add("生成约束：" + joinList(rule.get("constraints"), legacyFallback ? "仅依据已提供 HIS 数据生成" : "仅依据已提供资料生成"));
+        return lines;
+    }
+
+    private boolean isDefaultGeneratorInstruction(String instruction,
+                                                   Map<String, Object> field,
+                                                   Map<String, Object> rule,
+                                                   String templateName) {
+        return DEFAULT_PROMPT_GENERATOR_INSTRUCTION.equals(instruction)
+            || LEGACY_DEFAULT_PROMPT_GENERATOR_INSTRUCTION.equals(instruction)
+            || legacyDefaultPromptGeneratorInstruction(field, rule, templateName).equals(instruction);
+    }
+
+    private String normalizeLegacyGeneratedPrompt(String prompt,
+                                                  Map<String, Object> field,
+                                                  Map<String, Object> rule,
+                                                  String templateName) {
+        List<String> candidates = new ArrayList<String>();
+        String storedInstruction = trimToNull(stringValue(rule.get("promptGeneratorInstruction")));
+        if (storedInstruction != null) candidates.add(storedInstruction);
+        candidates.add(legacyDefaultPromptGeneratorInstruction(field, rule, templateName));
+        candidates.add(LEGACY_DEFAULT_PROMPT_GENERATOR_INSTRUCTION);
+        for (String instruction : candidates) {
+            List<String> legacy = new ArrayList<String>();
+            legacy.add(instruction);
+            legacy.add("");
+            legacy.add("请为以下住院病历模板字段生成可直接回填的正文：");
+            legacy.addAll(generatedPromptMetadata(field, rule, templateName, true));
+            legacy.add(BODY_OUTPUT_REQUIREMENT);
+            // Exact reconstruction only: unrelated custom prompts remain untouched.
+            if (String.join("\n", legacy).equals(prompt)) {
+                return buildGeneratedPrompt(field, rule, instruction, templateName);
+            }
+        }
+        return prompt;
     }
 
     private String buildDefaultPrompt(Map<String, Object> field, Map<String, Object> rule, String templateName) {
@@ -601,7 +673,7 @@ public class InpatientEmrTemplateCacheService {
         lines.add("字段含义：" + defaultString(field.get("meaning"), "模板字段，需结合模板上下文和 HIS 字段映射确认含义"));
         lines.add("生成意图：" + defaultString(rule.get("promptIntent"), "inpatientRecordSection"));
         lines.add("依赖数据：" + joinList(rule.get("dependencies"), "住院上下文"));
-        lines.add("约束：" + joinList(rule.get("constraints"), "仅依据已提供 HIS 数据生成"));
+        lines.add("约束：" + joinList(rule.get("constraints"), "仅依据已提供资料生成"));
         lines.add("输出要求：只生成该字段应回填的正文，不输出字段名、JSON、解释或免责声明。");
         return String.join("\n", lines);
     }

@@ -44,6 +44,8 @@ mvn -f server/pom.xml -Pgbase-postgresql package
 
 不要使用 Informix 的 `gbase/gbase8s` 分页类型。该 Spring profile 不设置自动 SQL 初始化，不关闭 schema readiness、设备令牌或 ECDSA 签名，不覆盖已有数据库/模型配置。
 
+readiness 组固定包含 `inpatientLogSchema`，以 `WHERE 1 = 0` 验证住院日志两表的全部持久化列。缺表、缺列或查询不可用时为 `DOWN`，健康响应仅提供固定的结构核对提示，不输出底层异常或连接详情。检查不自动建表、没有关闭开关，也不在启动阶段阻止服务进程；既有 `featureEventSchema` 启动门禁不变。新包可启动不代表住院日志可用，部署还需单独核对两表的约束和索引以及实际签名补传；完整初始化基线不应在存量库直接执行。
+
 ## 验证顺序
 
 1. 默认执行 `mvn -f server/pom.xml test`：管理端构建、Java 回归、方言/分页/配置/schema 与 JSON 统计检查。

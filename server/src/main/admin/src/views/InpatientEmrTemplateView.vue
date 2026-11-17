@@ -153,10 +153,11 @@
         <el-form-item label="当前生效提示词">
           <el-input :value="resolvePrompt(activeField)" type="textarea" :rows="6" readonly />
         </el-form-item>
-        <el-form-item label="生成指令">
+        <el-form-item label="附加正文约束">
           <el-input v-model="promptGeneratorInstruction" type="textarea" :rows="5" :disabled="!activeFieldAiSuitable" />
+          <p class="field-helper">按字段信息拼装草稿，不调用模型。补充约束将原文加入正文任务，请直接填写内容要求；不要填写“生成一个提示词”等元指令。</p>
           <div class="prompt-generator-actions">
-            <el-button icon="el-icon-magic-stick" :disabled="!activeFieldAiSuitable" :loading="generatingPrompt" @click="generatePrompt">自动生成</el-button>
+            <el-button icon="el-icon-magic-stick" :disabled="!activeFieldAiSuitable" :loading="generatingPrompt" @click="generatePrompt">生成草稿</el-button>
           </div>
         </el-form-item>
         <el-form-item label="已维护提示词">
@@ -512,6 +513,13 @@ export default {
 </script>
 
 <style scoped>
+.field-helper {
+  margin: 6px 0;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .inpatient-template-empty {
   min-height: 150px;
   display: flex;

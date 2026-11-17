@@ -4,6 +4,7 @@ export const recordFieldOptions = Object.freeze([
   { label: '既往史', value: 'pastMedicalHistory' },
   { label: '个人史', value: 'personalHistory' },
   { label: '月经史', value: 'menstrualHistory' },
+  { label: '婚育史', value: 'maritalReproductiveHistory' },
   { label: '家族史', value: 'familyHistory' },
   { label: '体格检查', value: 'physicalExam' },
   { label: '注意事项', value: 'precautions' }
@@ -15,6 +16,7 @@ export const mappingSourceLabels = Object.freeze({
   'canonical-id': '标准字段 ID',
   'deterministic-alias': '字段别名',
   'deterministic-article': '章节语义',
+  'manual-override': '人工维护',
   'unmapped': '未识别'
 })
 
@@ -125,6 +127,7 @@ function isMappingOverride(value) {
     !isNullableExactText(value.projectionMode) ||
     !isNullableExactText(value.automaticRecordField) ||
     !mappingSources.has(value.automaticMappingSource) ||
+    value.automaticMappingSource === 'manual-override' ||
     !isNullableExactText(value.automaticProjectionMode) ||
     (value.updatedAt !== null && value.updatedAt !== undefined && !Number.isInteger(value.updatedAt))
   ) return false

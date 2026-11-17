@@ -70,10 +70,13 @@ public class OutpatientEmrTemplateSnapshotService {
         "pastMedicalHistory",
         "personalHistory",
         "menstrualHistory",
+        "maritalReproductiveHistory",
         "familyHistory",
         "physicalExam",
         "precautions"
     );
+    private static final String MANUAL_OVERRIDE_SOURCE = "manual-override";
+    /** Sources a client-side automatic parse may register; manual-override is an overlay only. */
     private static final Set<String> MAPPING_SOURCES = unmodifiableSet(
         "definition-record-field",
         "definition-article-record-field",
@@ -133,7 +136,7 @@ public class OutpatientEmrTemplateSnapshotService {
         OutpatientEmrTemplateParseSnapshot parseResult = readParseResult(entity.getParseResultJson());
         validateParseResult(parseResult);
         applyMappingOverrides(entity.getIdSnapshot(), parseResult);
-        validateParseResult(parseResult);
+        validateEffectiveParseResult(parseResult);
         Long receivedAt = toEpochMillis(entity.getLastReceivedAt());
         if (receivedAt == null) {
             throw new BusinessException("历史模板解析接收时间缺失");
@@ -417,8 +420,23 @@ public class OutpatientEmrTemplateSnapshotService {
         );
     }
 
+    /** Validates an immutable automatic parse as registered by the client. */
     private ValidatedParseResult validateParseResult(
         OutpatientEmrTemplateParseSnapshot parseResult
+    ) {
+        return validateParseResult(parseResult, false);
+    }
+
+    /** Validates a parse after manual mapping overrides were overlaid in memory. */
+    private ValidatedParseResult validateEffectiveParseResult(
+        OutpatientEmrTemplateParseSnapshot parseResult
+    ) {
+        return validateParseResult(parseResult, true);
+    }
+
+    private ValidatedParseResult validateParseResult(
+        OutpatientEmrTemplateParseSnapshot parseResult,
+        boolean allowManualOverride
     ) {
         if (parseResult == null) {
             throw new BusinessException("parseResult 不能为空");
@@ -476,7 +494,8 @@ public class OutpatientEmrTemplateSnapshotService {
             validateDictionaryItems(dictionaryItems, path);
 
             String mappingSource = requireText(field.getMappingSource(), path + ".mappingSource", 64);
-            if (!MAPPING_SOURCES.contains(mappingSource)) {
+            boolean manualOverride = MANUAL_OVERRIDE_SOURCE.equals(mappingSource);
+            if (manualOverride ? !allowManualOverride : !MAPPING_SOURCES.contains(mappingSource)) {
                 throw new BusinessException(path + ".mappingSource 不支持");
             }
             String recordField = requireNullableText(
@@ -558,7 +577,7 @@ public class OutpatientEmrTemplateSnapshotService {
         applyMappingOverrides(snapshot.getIdSnapshot(), parseResult);
         OutpatientEmrTemplateFieldSnapshot field = requireField(parseResult, fieldId);
         applyMappingValue(field, recordField, projectionMode);
-        validateParseResult(parseResult);
+        validateEffectiveParseResult(parseResult);
         return new ValidatedMappingUpdate(fieldId, recordField, projectionMode);
     }
 
@@ -645,10 +664,8 @@ public class OutpatientEmrTemplateSnapshotService {
         field.setProjectionMode(projectionMode);
         if (recordField == null) {
             field.setMappingSource("unmapped");
-        } else if ("section-compose".equals(projectionMode)) {
-            field.setMappingSource("definition-article-record-field");
         } else {
-            field.setMappingSource("definition-record-field");
+            field.setMappingSource(MANUAL_OVERRIDE_SOURCE);
         }
     }
 
@@ -775,7 +792,7 @@ public class OutpatientEmrTemplateSnapshotService {
                 entity.getIdSnapshot(),
                 parseResult
             );
-            ValidatedParseResult validated = validateParseResult(parseResult);
+            ValidatedParseResult validated = validateEffectiveParseResult(parseResult);
             view.setParseResult(parseResult);
             view.setMappingOverrides(overrides);
             view.setMappedFieldCount(Integer.valueOf(validated.mappedFieldCount));
