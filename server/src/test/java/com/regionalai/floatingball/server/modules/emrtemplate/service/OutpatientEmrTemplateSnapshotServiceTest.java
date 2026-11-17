@@ -30,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -58,7 +59,7 @@ class OutpatientEmrTemplateSnapshotServiceTest {
     void setUp() {
         objectMapper = new ObjectMapper()
             .setSerializationInclusion(JsonInclude.Include.NON_NULL);
-        service = new OutpatientEmrTemplateSnapshotService(snapshotMapper, mappingMapper, objectMapper);
+        service = new OutpatientEmrTemplateSnapshotService(snapshotMapper, mappingMapper, objectMapper, new OutpatientEmrTemplateDecodeService(objectMapper));
     }
 
     @Test
@@ -619,6 +620,40 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         parseResult.setFields(Arrays.asList(textField(), dictionaryField()));
         request.setParseResult(parseResult);
         return request;
+    }
+
+    @Test
+    void encodedPairIsDecodedBeforeHashingAndStoredAsOriginalSources() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest request = validRequest();
+        String html = request.getTemplateHtml();
+        String definition = request.getTemplateDefinition();
+        request.setTemplateHtml(OutpatientEmrTemplateDecodeService.HTML_PREFIX
+            + Base64.getEncoder().encodeToString(html.getBytes(StandardCharsets.UTF_8)));
+        request.setTemplateDefinition(OutpatientEmrTemplateDecodeService.DEFINITION_PREFIX
+            + Base64.getEncoder().encodeToString(definition.getBytes(StandardCharsets.UTF_8)));
+        service.save(device(), request);
+        ArgumentCaptor<AiOutpatientEmrTemplateSnapshot> stored = ArgumentCaptor.forClass(AiOutpatientEmrTemplateSnapshot.class);
+        verify(snapshotMapper).insert(stored.capture());
+        assertEquals(html, stored.getValue().getTemplateHtml());
+        assertEquals(definition, stored.getValue().getTemplateDefinition());
+        assertEquals(request.getTemplateHash(), stored.getValue().getTemplateHash());
+        assertTrue(request.getTemplateHtml().startsWith(OutpatientEmrTemplateDecodeService.HTML_PREFIX));
+    }
+
+    @Test
+    void snapshotRejectsMixedAndUnsupportedDataUriSourcesBeforeAnyPersistence() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest mixed = validRequest();
+        mixed.setTemplateHtml(OutpatientEmrTemplateDecodeService.HTML_PREFIX
+            + Base64.getEncoder().encodeToString(mixed.getTemplateHtml().getBytes(StandardCharsets.UTF_8)));
+        assertThrows(BusinessException.class, () -> service.save(device(), mixed));
+        OutpatientEmrTemplateSnapshotRequest unsupported = validRequest();
+        unsupported.setTemplateDefinition("data:text/xml;base64,PHhtbC8+");
+        assertThrows(BusinessException.class, () -> service.save(device(), unsupported));
+        OutpatientEmrTemplateSnapshotRequest caseVariant = validRequest();
+        caseVariant.setTemplateHtml(" DATA:text/html;charset=utf-8;base64,PGgvPg==");
+        assertThrows(BusinessException.class, () -> service.save(device(), caseVariant));
+        verify(snapshotMapper, never()).selectList(any());
+        verify(snapshotMapper, never()).insert(any(AiOutpatientEmrTemplateSnapshot.class));
     }
 
     private OutpatientEmrTemplateSnapshotResolveRequest validResolveRequest(

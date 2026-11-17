@@ -196,6 +196,7 @@ pcie-server/
 - 封装“机构级 > 区域级 > 全局级”的配置查找优先级
 - `modules/config` 中的 AI 配置除主模型地址/密钥外，还负责托管 `chatFast` 独立模型、`enableThinking` 开关、独立审查 AI、`check_examination` 审查开关与 PMPHAI 的服务端密钥；`bootstrap` 只下发非密钥视图
 - `modules/symptom` 负责症状模板的逐条 CRUD、内置模板导入、JSON 模板文件导入、作用域合并、客户端 `templates/delta` 聚合与症状模板修改日志，数据结构对齐 `floating-ball` 的 `SymptomManagement.vue` / disease editor
+- 门诊模板 Base64 传输源由 `modules/emrtemplate` 的严格解码服务处理；新增签名 `/v1/client/outpatient-emr/templates/decode` 只解码不落库，快照登记复用同一解码器后继续按解码原文 hash/校验/保存。SDK/HIS 不承担解码；桌面端取得原文供安全预览，不执行模板脚本。每份原文 1 MiB，远端保密依赖部署 HTTPS，无新配置或数据库对象。
 - `modules/emrtemplate` 承载两条语义独立但管理口径一致的链路。住院链路继续缓存 HTML 模板解析结果，客户端按 HIS 传入的 `templateId` 复用已解析字段；管理端使用脱敏示例病例按桌面端相同的 `[data-id][data-type]` 规则预渲染缓存模板，空缓存时提供不依赖后端数据的内置示例，但不读取或保存真实患者数据。门诊链路不复用住院缓存，也不向桌面端下发模板：客户端在正式 HIS Bridge/SDK 门诊分析调用模型前，先通过签名 `POST /v1/client/outpatient-emr/templates/snapshots/resolve` 按认证机构、`templateId` 与模板对 hash 精确查询历史解析；未命中时客户端才执行严格解析并通过签名 `POST /v1/client/outpatient-emr/templates/snapshots` 登记 `outpatient-emr-template-pair-snapshot.v1`。该快照把同一模板的渲染 HTML、结构定义 JSON 与完整合并解析结果作为不可分割版本；服务端按约定公式复算模板对 hash，严格校验顶层、字段和字典项 schema，不修剪或补造字段身份，并按 `idOrg + templateId + templateHash` 保持唯一。首次出现的模板 ID 或任一原文字节变化都形成新记录；同一身份的重复/并发登记只返回已有记录，不更新原文、解析结果、设备或时间。`c_ai_outpatient_emr_tpl_snapshot` 只保存模板身份、两份原文、完整解析 JSON、字段统计、首次接收设备和时间，不保存患者、就诊、病历上下文、模型返回或医生编辑结果。
 
   门诊字段人工维护独立保存在 `c_ai_outpatient_emr_tpl_mapping`，以 `idSnapshot + fieldId` 唯一，不修改不可变快照。管理端保存覆盖前必须确认字段属于该快照，并对标准病例字段、投影方式和重复映射做完整校验；覆盖可以指定有效映射，也可以显式设为未映射。历史解析命中及管理端详情读取快照后，在内存中叠加该版本的激活覆盖，并重新计算有效映射数；删除覆盖即恢复原始自动映射。人工映射在叠加后统一投影为 `mappingSource="manual-override"`（`projectionMode` 保留 `direct / section-compose`），人工显式不映射为 `unmapped`；不可变快照登记时拒绝该来源，客户端、SDK 与 HIS 回参据此区分人工维护与模板定义映射。历史查询失败、存量解析损坏或覆盖冲突必须显式失败，不允许客户端重复解析兜底。未映射字段的 `recordField / projectionMode` 必须保留显式 `null`。
@@ -207,7 +208,7 @@ pcie-server/
 - `modules/recommendationpreference` 负责接收桌面端在目录匹配之后产生的诊断和医嘱标准候选选择事件，按机构/科室/医生聚合偏好分，并为灰度客户端返回带样本置信度与作用域权重的名次 boost；管理端提供只读观测页查看聚合偏好分、样本计数和原始事件，便于确认采集效果与排查上报链路。该模块不学习 AI 原始文案，不注入 Prompt，不生成新的候选项，首版管理端不提供人工编辑偏好分入口
 - `modules/release` 使用服务端本地文件目录托管桌面端安装包、签名文件、`latest.json` 元数据、`policy.json` 发布策略与历史发布快照，不新增数据库表；管理端上传后由客户端通过公开 `/v1/client/releases/{channel}/latest.json` 检测更新，并通过 `/v1/client/releases/{channel}/policy.json` 判断是否必须更新。普通客户端与 Win7 legacy 客户端共用发布服务实现，但通道、策略和历史目录完全隔离
 
-住院模板缓存按本次字段身份合并管理员配置后，统一投影有效 `aiSuitable / rule.source / presetStatus`，人工开启 AI 后不保留相冲突的自动排除标签；模型输入只消费正文生成所需字段。提示词草稿端点保持确定性拼装，将管理员自定义生成指令明确作为正文附加约束，不混入默认元级“生成提示词”任务。历史草稿仅在完整匹配旧生成器与字段元数据时于响应层纠正，不写回历史记录，不改写普通自定义提示词。接口与兼容识别边界见 [住院模板缓存接口](API.md#351-post-v1clientinpatient-emrtemplatesresolve)及 [字段提示词草稿](API.md#53931-post-adminapiinpatient-emrtemplatesidcachefieldsfieldidpromptgenerate)。
+住院模板缓存以有效 `aiSuitable` 为唯一生成开关，`rule.source` 据此归一化，仅历史缺少开关时兼容读取来源；同一字段 ID 的管理员已保存开关和规则覆盖本次自动解析结果。临时分类不进入共享字段、持久化或模型提示词，服务端在首次保存、合并、后台保存和响应副本中统一剔除旧 `presetStatus`，兼容旧客户端输入但不再返回；读取旧缓存不写库，后续合法保存清理旧属性，不做数据库批量迁移。模型输入只消费正文生成所需字段。提示词草稿端点保持确定性拼装，将管理员自定义生成指令明确作为正文附加约束，不混入默认元级“生成提示词”任务。历史草稿仅在完整匹配旧生成器与字段元数据时于响应层纠正，不写回历史记录，不改写普通自定义提示词正文；有效 `type=number` AI 字段的默认提示词、生成草稿和历史自定义提示词响应统一补充一次数值槽位约束，要求仅返回有依据的单个数值字符串、单位由模板展示、缺少数值返回空字符串，不推断或换算单位，文本字段原文保持不变。接口与兼容识别边界见 [住院模板缓存接口](API.md#351-post-v1clientinpatient-emrtemplatesresolve)及 [字段提示词草稿](API.md#53931-post-adminapiinpatient-emrtemplatesidcachefieldsfieldidpromptgenerate)。
 
 ### 4.2.1 内网客户端版本发布
 

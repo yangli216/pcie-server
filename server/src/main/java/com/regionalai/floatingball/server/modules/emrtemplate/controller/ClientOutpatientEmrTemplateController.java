@@ -3,11 +3,14 @@ package com.regionalai.floatingball.server.modules.emrtemplate.controller;
 import com.regionalai.floatingball.server.common.api.ApiResponse;
 import com.regionalai.floatingball.server.common.util.RequestIdUtils;
 import com.regionalai.floatingball.server.modules.device.entity.AiDevice;
+import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateDecodeRequest;
+import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateDecodedResponse;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateSnapshotReceipt;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateSnapshotRequest;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateSnapshotResolution;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateSnapshotResolveRequest;
 import com.regionalai.floatingball.server.modules.emrtemplate.service.OutpatientEmrTemplateSnapshotService;
+import com.regionalai.floatingball.server.modules.emrtemplate.service.OutpatientEmrTemplateDecodeService;
 import com.regionalai.floatingball.server.security.DeviceContextHolder;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,9 +24,23 @@ import javax.servlet.http.HttpServletRequest;
 public class ClientOutpatientEmrTemplateController {
 
     private final OutpatientEmrTemplateSnapshotService snapshotService;
+    private final OutpatientEmrTemplateDecodeService decodeService;
 
-    public ClientOutpatientEmrTemplateController(OutpatientEmrTemplateSnapshotService snapshotService) {
+    public ClientOutpatientEmrTemplateController(OutpatientEmrTemplateSnapshotService snapshotService,
+                                               OutpatientEmrTemplateDecodeService decodeService) {
         this.snapshotService = snapshotService;
+        this.decodeService = decodeService;
+    }
+
+    @PostMapping("/decode")
+    public ApiResponse<OutpatientEmrTemplateDecodedResponse> decode(
+        @RequestBody OutpatientEmrTemplateDecodeRequest request,
+        HttpServletRequest httpServletRequest
+    ) {
+        return ApiResponse.success(
+            decodeService.decode(DeviceContextHolder.get(), request),
+            RequestIdUtils.resolve(httpServletRequest)
+        );
     }
 
     @PostMapping("/snapshots/resolve")

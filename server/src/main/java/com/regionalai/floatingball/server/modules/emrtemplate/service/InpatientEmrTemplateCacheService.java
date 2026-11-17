@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -55,6 +56,8 @@ public class InpatientEmrTemplateCacheService {
         "任务：根据已提供的住院资料，为当前字段生成可直接回填的病历正文。";
     private static final String BODY_OUTPUT_REQUIREMENT =
         "输出要求：只输出该字段应回填的正文，不输出字段名、JSON、解释、免责声明或无关内容。";
+    private static final String NUMERIC_FIELD_REQUIREMENT =
+        "数值字段回填要求：该字段是数值输入槽位，单位由模板展示。只返回有可靠来源的单个数值字符串，不附加单位、字段名、范围或说明；缺少可靠数值时返回空字符串，不写“暂无记录”等文字，不编造数值，也不自行换算单位。";
 
     private static final TypeReference<List<Map<String, Object>>> FIELD_LIST_TYPE =
         new TypeReference<List<Map<String, Object>>>() {
@@ -382,7 +385,7 @@ public class InpatientEmrTemplateCacheService {
 
     private String writeFields(List<Map<String, Object>> fields) {
         try {
-            return objectMapper.writeValueAsString(fields == null ? Collections.emptyList() : fields);
+            return objectMapper.writeValueAsString(copyFields(fields));
         } catch (JsonProcessingException ex) {
             throw new BusinessException("字段结构无法序列化");
         }
@@ -470,7 +473,7 @@ public class InpatientEmrTemplateCacheService {
     private void normalizeFieldGeneration(Map<String, Object> field) {
         boolean aiSuitable = isAiGenerationField(field);
         field.put("aiSuitable", Boolean.valueOf(aiSuitable));
-        field.put("presetStatus", aiSuitable ? "ai" : "exclude");
+        field.remove("presetStatus");
         Map<String, Object> rule = ensureRule(field);
         if (aiSuitable) {
             rule.put("source", "ai");
@@ -487,7 +490,6 @@ public class InpatientEmrTemplateCacheService {
         List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
         for (Map<String, Object> field : fields) {
             Map<String, Object> copy = copyField(field);
-            normalizeFieldGeneration(copy);
             Map<String, Object> rule = ensureRule(copy);
             if (!isAiGenerationField(copy)) {
                 rule.remove("resolvedPrompt");
@@ -498,6 +500,7 @@ public class InpatientEmrTemplateCacheService {
             String customPrompt = stringValue(rule.get("prompt"));
             if (StringUtils.hasText(customPrompt)) {
                 customPrompt = normalizeLegacyGeneratedPrompt(customPrompt, copy, rule, templateName);
+                customPrompt = appendNumericFieldRequirement(copy, customPrompt);
                 rule.put("prompt", customPrompt);
                 rule.put("resolvedPrompt", customPrompt);
                 rule.put("promptSource", PROMPT_SOURCE_CUSTOM);
@@ -528,7 +531,7 @@ public class InpatientEmrTemplateCacheService {
 
     private void applyFieldGeneration(Map<String, Object> field, boolean aiSuitable) {
         field.put("aiSuitable", Boolean.valueOf(aiSuitable));
-        field.put("presetStatus", aiSuitable ? "ai" : "exclude");
+        field.remove("presetStatus");
         Map<String, Object> rule = ensureRule(field);
         if (aiSuitable) {
             rule.put("source", "ai");
@@ -603,8 +606,7 @@ public class InpatientEmrTemplateCacheService {
             lines.add("以下内容仅补充正文要求，不改变当前字段正文生成任务及调用方约定的输出格式。");
             lines.add(generatorInstruction.trim());
         }
-        lines.add(BODY_OUTPUT_REQUIREMENT);
-        return String.join("\n", lines);
+        return appendNumericFieldRequirement(field, String.join("\n", lines)) + "\n" + BODY_OUTPUT_REQUIREMENT;
     }
 
     private List<String> generatedPromptMetadata(Map<String, Object> field,
@@ -674,8 +676,16 @@ public class InpatientEmrTemplateCacheService {
         lines.add("生成意图：" + defaultString(rule.get("promptIntent"), "inpatientRecordSection"));
         lines.add("依赖数据：" + joinList(rule.get("dependencies"), "住院上下文"));
         lines.add("约束：" + joinList(rule.get("constraints"), "仅依据已提供资料生成"));
-        lines.add("输出要求：只生成该字段应回填的正文，不输出字段名、JSON、解释或免责声明。");
-        return String.join("\n", lines);
+        return appendNumericFieldRequirement(field, String.join("\n", lines))
+            + "\n输出要求：只生成该字段应回填的正文，不输出字段名、JSON、解释或免责声明。";
+    }
+
+    private String appendNumericFieldRequirement(Map<String, Object> field, String prompt) {
+        String type = stringValue(field.get("type")).trim().toLowerCase(Locale.ROOT);
+        if (!isAiGenerationField(field) || !"number".equals(type) || prompt.contains(NUMERIC_FIELD_REQUIREMENT)) {
+            return prompt;
+        }
+        return prompt + "\n" + NUMERIC_FIELD_REQUIREMENT;
     }
 
     private String templateDisplayName(String templateName) {
@@ -731,6 +741,7 @@ public class InpatientEmrTemplateCacheService {
             rule.remove("promptSource");
             copy.put("rule", rule);
         }
+        normalizeFieldGeneration(copy);
         return copy;
     }
 

@@ -788,10 +788,21 @@ Content-Type: application/json
 1. `templateId` 相同且缓存启用时，服务端直接返回缓存字段，避免桌面端重复解析同一病历模板；若请求携带的 `templateName` 或 `htmlContent` 与缓存记录不同，服务端会用本次传入值更新缓存展示名和原生模板内容。
 2. 未命中时，服务端保存请求中的 `templateId`、`templateName`、原生 `htmlContent`、内容 hash 与完整 `fields`；`fieldCount` 表示缓存字段总数。
 3. 响应给桌面端时，若请求携带了字段列表，服务端以本次字段列表为基线合并已缓存字段的 AI 生成类型、提示词和生成规则，避免丢失页眉、姓名、床号等 HIS/系统字段；若请求未携带字段列表，则返回缓存中的完整字段。
-4. 管理端维护的字段提示词覆盖会写入 `fields[*].rule.prompt`，桌面端生成住院病历时优先使用该提示词；未维护自定义提示词时，服务端返回的默认提示词会包含模板名称、记录类型、字段名称、所属段落和字段含义。管理端手动调整的 AI 生成类型同时维护 `fields[*].aiSuitable` 与 `fields[*].rule.source`；合并本次模板字段及响应投影后，AI 字段统一为 `aiSuitable=true / source=ai / presetStatus=ai`，非 AI 字段为 `aiSuitable=false / source!=ai / presetStatus=exclude`。`presetStatus` 只供客户端内部分类使用，不是模型正文生成约束，客户端不得把该实现元数据加入模型提示词。
-   `aiSuitable` 属性存在时以其值为准，显式关闭不能被陈旧的 `rule.source=ai` 再次开启；仅历史字段缺少该属性时兼容从 `rule.source` 推导。
-5. 对历史“生成指令 + 固定字段草稿”格式，只在整段文本与旧确定性生成器逐字一致、字段元数据匹配、前缀等于已保存生成指令或已知默认说明时，于响应层移除默认元指令；自定义生成指令迁入独立正文附加约束块。普通人工提示词保持原文，不按关键词或宽泛正则改写，也不自动更新数据库中的历史提示词。
+4. 管理端维护的字段提示词覆盖会写入 `fields[*].rule.prompt`，桌面端生成住院病历时优先使用该提示词；未维护自定义提示词时，服务端返回的默认提示词会包含模板名称、记录类型、字段名称、所属段落和字段含义。`fields[*].aiSuitable` 是是否生成的唯一有效开关，`rule.source` 随有效开关统一：AI 字段为 `source=ai`，非 AI 字段不保留陈旧的 `source=ai`。合并时同一字段 ID 的服务端已保存开关和规则优先于本次自动解析结果，字段集合仍取本次请求，首次保存也执行相同归一化。
+   `aiSuitable` 属性存在时以其值为准，显式关闭不能被陈旧的 `rule.source=ai` 再次开启；仅历史字段缺少该属性时兼容从 `rule.source` 推导。临时自动分类不属于字段持久化或响应契约；服务端兼容接收旧客户端 Map 中的 `presetStatus`，但忽略并剔除该属性，不生成、不保存、不返回，也不得进入模型提示词。查询旧缓存只清理响应副本，不写库；后续合法解析合并或后台保存会清除旧缓存中的该属性，保留管理员已保存开关及规则，不进行数据库批量迁移。
+5. 对历史“生成指令 + 固定字段草稿”格式，只在整段文本与旧确定性生成器逐字一致、字段元数据匹配、前缀等于已保存生成指令或已知默认说明时，于响应层移除默认元指令；自定义生成指令迁入独立正文附加约束块。普通人工提示词不按关键词或宽泛正则改写，也不自动更新数据库中的历史提示词。有效 AI 字段的 `type` 去除首尾空白并忽略大小写后为 `number` 时，默认提示词、生成草稿和自定义提示词响应统一附加且不重复附加以下约束；自定义提示词只在响应副本中补充，非数值字段保持原文，关闭 AI 的字段不补充：
+   “数值字段回填要求：该字段是数值输入槽位，单位由模板展示。只返回有可靠来源的单个数值字符串，不附加单位、字段名、范围或说明；缺少可靠数值时返回空字符串，不写“暂无记录”等文字，不编造数值，也不自行换算单位。”
 6. 本接口是桌面端模板缓存的唯一远程契约；后端不可用或未返回字段时，桌面端仅做确定性模板解析兜底，未知字段分类仍走服务端 LLM，不恢复第三方直连。
+
+### 门诊编码源：POST `/v1/client/outpatient-emr/templates/decode`
+
+仅供桌面端内部调用，沿用设备 Bearer 令牌、ECDSA P-256、nonce/机构隔离；HIS 仍只调本地 SDK/Bridge，不持有设备密钥。
+
+请求严格只接受 `schemaVersion="outpatient-emr-template-decode.v1"`、`templateHtml`、`templateDefinition`。两个源必须分别使用完整前缀 `data:text/html;charset=utf-8;base64,` 和 `data:application/json;charset=utf-8;base64,`。采用标准 Base64（必须规范填充，无空白、URL-safe 字符、非规范填充位），严格 UTF-8（非法字节拒绝），解码后每份最多 1 MiB；HTML 须非空 HTML，定义须非空章节 JSON 数组。拒绝未知/缺失/非字符串字段、混合编码或其他 data URI。保持解码原文，不执行脚本、关系或字典推断；本接口不存库、不调用 AI、不记录源正文。
+
+成功沿用标准 `ApiResponse`，`data` 严格为 `{ "schemaVersion": "outpatient-emr-template-decoded.v1", "templateHtml": "解码原文", "templateDefinition": "解码原文" }`。参数错误按既有 BusinessException/DTO 协议拒绝，不回退客户端解码。该校验限制解码后的源和后续处理，不改变全局 HTTP 正文读取限制。
+
+SDK 只转发编码源；桌面端为显示必须收到解码内容，传输保密依赖 HTTPS；Base64 与签名均不能替代 TLS。已有模板快照登记六字段源也接受同样成对封装，服务端先解码再执行既有 hash、定义/字段验证与保存；已解码原文请求语义不变。模板 hash 仍固定以解码原文字节计算，不增加数据库字段。机器契约见 [解码契约](../development-harness/contracts/outpatient-emr-template-decode.v1.schema.json)。
 
 ### 3.5.2 POST `/v1/client/outpatient-emr/templates/snapshots/resolve`
 
@@ -2622,6 +2633,8 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 ### 5.39.3.1 POST `/admin/api/inpatient-emr/templates/{idCache}/fields/{fieldId}/prompt/generate`
 用途：根据结构化字段信息确定性拼装可执行的正文生成规则草稿，不调用真实模型。草稿包含当前模板名称、记录类型、字段名称、所属段落、字段含义、依赖和约束；默认元级“生成提示词”说明不进入正文任务。`generatorInstruction` 继续原样返回并可由保存接口维护：非默认值作为“管理员附加正文约束”原文编入草稿，只补充正文要求，不替代正文任务及调用方约定的输出格式；管理员应直接填写内容要求，例如“按已提供资料逐项说明诊断依据”，不要填写“生成一个提示词”等元指令。该接口不声称理解或自动改写任意自然语言指令。生成结果不自动保存，管理员审核后再调用提示词保存接口。
+
+数值 AI 字段的草稿在最后的通用输出要求之前加入[模板缓存接口](#351-post-v1clientinpatient-emrtemplatesresolve)约定的数值回填要求；字段值只承载数值字符串，模板负责单位，缺少可靠数值时返回空字符串。该约束同样适用于历史自定义提示词的响应投影，不改写已保存原文。
 
 请求：
 

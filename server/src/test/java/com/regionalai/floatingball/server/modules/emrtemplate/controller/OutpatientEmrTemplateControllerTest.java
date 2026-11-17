@@ -12,6 +12,7 @@ import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrT
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateSnapshotResolveRequest;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateSnapshotVO;
 import com.regionalai.floatingball.server.modules.emrtemplate.service.OutpatientEmrTemplateSnapshotService;
+import com.regionalai.floatingball.server.modules.emrtemplate.service.OutpatientEmrTemplateDecodeService;
 import com.regionalai.floatingball.server.security.DeviceContextHolder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -62,7 +63,7 @@ class OutpatientEmrTemplateControllerTest {
                 Long.valueOf(1)
             ));
         MockMvc mockMvc = MockMvcBuilders
-            .standaloneSetup(new ClientOutpatientEmrTemplateController(snapshotService))
+            .standaloneSetup(new ClientOutpatientEmrTemplateController(snapshotService, new OutpatientEmrTemplateDecodeService(new ObjectMapper())))
             .build();
 
         mockMvc.perform(post("/v1/client/outpatient-emr/templates/snapshots")
@@ -99,7 +100,7 @@ class OutpatientEmrTemplateControllerTest {
         ObjectMapper objectMapper = new ObjectMapper()
             .setSerializationInclusion(JsonInclude.Include.NON_NULL);
         MockMvc mockMvc = MockMvcBuilders
-            .standaloneSetup(new ClientOutpatientEmrTemplateController(snapshotService))
+            .standaloneSetup(new ClientOutpatientEmrTemplateController(snapshotService, new OutpatientEmrTemplateDecodeService(new ObjectMapper())))
             .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
             .build();
 

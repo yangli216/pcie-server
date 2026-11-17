@@ -2,9 +2,11 @@ package com.regionalai.floatingball.server.modules.emrtemplate.dto;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.ToString;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
+@ToString(exclude = {"templateHtml", "templateDefinition", "parseResult"})
 public class OutpatientEmrTemplateSnapshotRequest extends StrictOutpatientEmrSnapshotDto {
 
     private String schemaVersion;

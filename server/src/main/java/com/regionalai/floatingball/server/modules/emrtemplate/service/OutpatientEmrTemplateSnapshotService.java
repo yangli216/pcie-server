@@ -19,6 +19,7 @@ import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrT
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateSnapshotResolveRequest;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateSnapshotVO;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.StrictOutpatientEmrSnapshotDto;
+import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateDecodedResponse;
 import com.regionalai.floatingball.server.modules.emrtemplate.entity.AiOutpatientEmrTemplateMapping;
 import com.regionalai.floatingball.server.modules.emrtemplate.entity.AiOutpatientEmrTemplateSnapshot;
 import com.regionalai.floatingball.server.modules.emrtemplate.mapper.AiOutpatientEmrTemplateMappingMapper;
@@ -90,13 +91,16 @@ public class OutpatientEmrTemplateSnapshotService {
     private final AiOutpatientEmrTemplateSnapshotMapper snapshotMapper;
     private final AiOutpatientEmrTemplateMappingMapper mappingMapper;
     private final ObjectMapper objectMapper;
+    private final OutpatientEmrTemplateDecodeService decodeService;
 
     public OutpatientEmrTemplateSnapshotService(AiOutpatientEmrTemplateSnapshotMapper snapshotMapper,
                                                  AiOutpatientEmrTemplateMappingMapper mappingMapper,
-                                                 ObjectMapper objectMapper) {
+                                                 ObjectMapper objectMapper,
+                                                 OutpatientEmrTemplateDecodeService decodeService) {
         this.snapshotMapper = snapshotMapper;
         this.mappingMapper = mappingMapper;
         this.objectMapper = objectMapper;
+        this.decodeService = decodeService;
     }
 
     public OutpatientEmrTemplateSnapshotResolution resolve(
@@ -160,6 +164,7 @@ public class OutpatientEmrTemplateSnapshotService {
 
     public OutpatientEmrTemplateSnapshotReceipt save(AiDevice device,
                                                       OutpatientEmrTemplateSnapshotRequest request) {
+        request = decodeSnapshotSources(request);
         ValidatedSnapshot validated = validate(device, request);
         LocalDateTime receivedAt = LocalDateTime.now();
         AiOutpatientEmrTemplateSnapshot existing = findExistingVersion(
@@ -203,6 +208,26 @@ public class OutpatientEmrTemplateSnapshotService {
             Boolean.FALSE,
             toEpochMillis(receivedAt)
         );
+    }
+
+    private OutpatientEmrTemplateSnapshotRequest decodeSnapshotSources(OutpatientEmrTemplateSnapshotRequest request) {
+        if (request == null || (!OutpatientEmrTemplateDecodeService.hasDataUriSource(request.getTemplateHtml())
+            && !OutpatientEmrTemplateDecodeService.hasDataUriSource(request.getTemplateDefinition()))) {
+            return request;
+        }
+        OutpatientEmrTemplateDecodedResponse decoded = decodeService.decodePair(
+            request.getTemplateHtml(), request.getTemplateDefinition()
+        );
+        OutpatientEmrTemplateSnapshotRequest normalized = new OutpatientEmrTemplateSnapshotRequest();
+        normalized.setSchemaVersion(request.getSchemaVersion());
+        normalized.setTemplateId(request.getTemplateId());
+        normalized.setTemplateName(request.getTemplateName());
+        normalized.setTemplateHash(request.getTemplateHash());
+        normalized.setTemplateHtml(decoded.getTemplateHtml());
+        normalized.setTemplateDefinition(decoded.getTemplateDefinition());
+        normalized.setParseResult(request.getParseResult());
+        normalized.getUnknownFields().putAll(request.getUnknownFields());
+        return normalized;
     }
 
     private OutpatientEmrTemplateSnapshotReceipt existingReceipt(
