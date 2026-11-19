@@ -99,7 +99,7 @@ function isSnapshotField(field) {
     !isExactText(field.articleTemplateId) ||
     !isExactText(field.articleId) ||
     !isExactText(field.articleName) ||
-    !isExactText(field.articleDefinitionName) ||
+    !(typeof field.articleDefinitionName === 'string' && field.articleDefinitionName.trim()) ||
     typeof field.readonly !== 'boolean' ||
     typeof field.aiSuitable !== 'boolean' ||
     !isExactText(field.baselineValue, true) ||

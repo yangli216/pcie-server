@@ -798,7 +798,7 @@ Content-Type: application/json
 
 仅供桌面端内部调用，沿用设备 Bearer 令牌、ECDSA P-256、nonce/机构隔离；HIS 仍只调本地 SDK/Bridge，不持有设备密钥。
 
-请求严格只接受 `schemaVersion="outpatient-emr-template-decode.v1"`、`templateHtml`、`templateDefinition`。两个源必须分别使用完整前缀 `data:text/html;charset=utf-8;base64,` 和 `data:application/json;charset=utf-8;base64,`。采用标准 Base64（必须规范填充，无空白、URL-safe 字符、非规范填充位），严格 UTF-8（非法字节拒绝），解码后每份最多 1 MiB；HTML 须非空 HTML，定义须非空章节 JSON 数组。拒绝未知/缺失/非字符串字段、混合编码或其他 data URI。保持解码原文，不执行脚本、关系或字典推断；本接口不存库、不调用 AI、不记录源正文。
+请求严格只接受 `schemaVersion="outpatient-emr-template-decode.v1"`、`templateHtml`、`templateDefinition`。两个源必须分别使用完整前缀 `data:text/html;charset=utf-8;base64,` 和 `data:application/json;charset=utf-8;base64,`。采用标准 Base64（必须规范填充，无空白、URL-safe 字符、非规范填充位），严格 UTF-8（非法字节拒绝），解码后每份最多 1 MiB；HTML 须非空 HTML，定义须非空章节 JSON 数组。章节字段的局部差错不阻断原文解码或其他章节分析。拒绝未知/缺失/非字符串字段、混合编码或其他 data URI。保持解码原文，不执行脚本、关系或字典推断；本接口不存库、不调用 AI、不记录源正文。
 
 成功沿用标准 `ApiResponse`，`data` 严格为 `{ "schemaVersion": "outpatient-emr-template-decoded.v1", "templateHtml": "解码原文", "templateDefinition": "解码原文" }`。参数错误按既有 BusinessException/DTO 协议拒绝，不回退客户端解码。该校验限制解码后的源和后续处理，不改变全局 HTTP 正文读取限制。
 
@@ -854,7 +854,7 @@ SDK 只转发编码源；桌面端为显示必须收到解码内容，传输保�
 约束：
 
 1. `templateId` 与 `templateHash` 均按原值严格校验；hash 只能是 64 位小写 SHA-256。查询键固定为认证设备的 `idOrg + templateId + templateHash`。
-2. `cacheHit=true` 时，`id / parseResult / receivedAt` 必须全部存在，`parseResult` 使用下节登记接口的完整严格 schema；服务端先读取不可变快照，再叠加该 `idSnapshot` 的激活字段映射覆盖并返回有效映射。人工映射一律以 `mappingSource="manual-override"` 返回，`projectionMode` 保留管理员选择的 `direct / section-compose`；人工显式不映射返回 `recordField=null / mappingSource="unmapped" / projectionMode=null`，不得把人工来源伪装成模板定义来源；服务端发现存量 JSON 损坏或覆盖后形成重复映射时直接失败，不返回伪命中。
+2. `cacheHit=true` 时，`id / parseResult / receivedAt` 必须全部存在，`parseResult` 使用下节登记接口的完整严格 schema；服务端先读取不可变快照，再叠加该 `idSnapshot` 的激活字段映射覆盖并返回有效映射。人工映射一律以 `mappingSource="manual-override"` 返回，`projectionMode` 保留管理员选择的 `direct / section-compose`；人工显式不映射返回 `recordField=null / mappingSource="unmapped" / projectionMode=null`，不得把人工来源伪装成模板定义来源；历史读取逐字段隔离无法恢复的条目、重复身份和冲突映射，其他独立有效字段继续使用其生效的人工映射。快照整体无法解码、schema 或身份错误，或损坏后没有安全可用的可写字段时返回错误。读取过程不修改库中快照。
 3. `cacheHit=false` 时，桌面端才允许执行模板定义解码、HTML/JSON 严格配对和字段映射，并随后调用登记接口；命中时禁止重新解析或重复登记。
 4. 查询失败或响应 schema/身份/hash 不一致时，桌面端必须在模型调用前停止，不得回退到本地重复解析、旧 schema 或早期实验协议。
 5. 命中只复用确定性模板 `parseResult`，不复用患者病例参数或模型输出；每次 HIS 分析请求仍按当前 `recordContext + targetFieldIds` 执行一次 `outpatient-emr-analysis`。
@@ -1384,7 +1384,7 @@ AI 调用类 `operation` 事件补充约束：
 - `consultationId`：可选，当前问诊或病历生成运行的业务锚点；服务端会写入 `c_ai_op_log.consultation_id`，供调用排障和业务关联查询使用
 - `operationAction` / `operationTitle`：可选，桌面端 AI trace 中的业务动作编码与展示标题；服务端代理日志优先使用这两个字段，缺失时兼容回退 `chat / chat_stream`
 - `enableSearch`：可选，默认 `false`。只有 `stream=true`、`scene=chat-stream`、`sourceModule=chat_panel` 同时满足时，服务端才向上游 OpenAI 兼容载荷附加 `enable_search=true`；其他场景即使传 `true` 也忽略，确保语音问诊、病历生成、诊疗推荐、风险分析和审查链路不受影响。当前只转发回答正文，不返回 DashScope 原生搜索来源列表或引用角标
-- `doctorId` / `doctorName` / `hisOrgId` / `hisOrgName`：可选身份快照，每项最长 128 字符；桌面端独立医学助手从 SDK 握手上下文读取，仅用于审计展示，不参与鉴权或上游推理，旧客户端可省略。后台 `idOrg` 始终来自设备令牌。
+- `doctorId` / `doctorName` / `hisOrgId` / `hisOrgName`：可选审计身份快照，字段长度不影响有效聊天消息进入模型；桌面端独立医学助手从 SDK 握手上下文读取，仅用于审计展示，不参与鉴权或上游推理，旧客户端可省略。后台 `idOrg` 始终来自设备令牌。完整快照保存在审计 JSON。HIS 机构编码或名称超出审计索引列容量时，对应列留空，日志展示从快照读取原值。
 - `enable_thinking` 是否开启由服务端当前 AI 配置统一决定；桌面端不单独透传该开关覆盖服务端配置
 
 非流式响应 `data`：

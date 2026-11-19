@@ -105,16 +105,5 @@ public class OutpatientEmrTemplateDecodeService {
         if (chapters == null || !chapters.isArray() || chapters.size() == 0) {
             throw new BusinessException("templateDefinition 解码后必须是非空章节 JSON 数组");
         }
-        for (JsonNode chapter : chapters) {
-            if (!chapter.isObject() || !isExactText(chapter.get("ID")) || !isExactText(chapter.get("NAME"))
-                || !isExactText(chapter.get("ARTICLE")) || !chapter.path("eles").isArray()) {
-                throw new BusinessException("templateDefinition 章节必须包含 ID、NAME、ARTICLE 和 eles 数组");
-            }
-        }
-    }
-
-    private boolean isExactText(JsonNode value) {
-        return value != null && value.isTextual() && !value.textValue().isEmpty()
-            && value.textValue().equals(value.textValue().trim());
     }
 }

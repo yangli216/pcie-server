@@ -3,6 +3,8 @@ package com.regionalai.floatingball.server.modules.emrtemplate.service;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.modules.device.entity.AiDevice;
 import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientEmrTemplateDictionaryItemSnapshot;
@@ -149,6 +151,96 @@ class OutpatientEmrTemplateSnapshotServiceTest {
 
         assertTrue(error.getMessage().contains("templateHtml"));
         verify(snapshotMapper, never()).selectList(any());
+    }
+
+    @Test
+    void resolveIsolatesDamagedRowsAndConflictingOwnersWhileHonoringManualMappings() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest source = validRequest();
+        AiOutpatientEmrTemplateSnapshot existing = snapshotEntity(source);
+        ObjectNode stored = (ObjectNode) objectMapper.readTree(existing.getParseResultJson());
+        ArrayNode rows = (ArrayNode) stored.get("fields");
+        ObjectNode unmapped = (ObjectNode) rows.get(1);
+        rows.add(unmapped.deepCopy().put("id", "SYN-DUPLICATE"));
+        rows.add(unmapped.deepCopy().put("id", "SYN-DUPLICATE").put("readonly", true));
+        rows.add(unmapped.deepCopy().put("id", "SYN-BAD-ROW").put("dictionaryItems", "damaged dictionary"));
+        rows.add(unmapped.deepCopy().put("id", "SYN-FALSE-BOOLEAN").put("readonly", "false"));
+        rows.add(unmapped.deepCopy().put("id", "SYN-CONFLICT-A").put("recordField", "familyHistory")
+            .put("mappingSource", "canonical-id").put("projectionMode", "direct"));
+        rows.add(unmapped.deepCopy().put("id", "SYN-CONFLICT-B").put("recordField", "familyHistory")
+            .put("mappingSource", "canonical-id").put("projectionMode", "direct"));
+        rows.addNull();
+        String original = objectMapper.writeValueAsString(stored);
+        existing.setParseResultJson(original);
+        when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(existing));
+        when(mappingMapper.selectList(any())).thenReturn(Arrays.asList(
+            mapping(existing.getIdSnapshot(), "chiefComplaint", null, null),
+            mapping(existing.getIdSnapshot(), "婚育状况", "personalHistory", "direct"),
+            mapping(existing.getIdSnapshot(), "SYN-BAD-ROW", "pastMedicalHistory", "direct")
+        ));
+
+        OutpatientEmrTemplateParseSnapshot resolved = service.resolve(device(), validResolveRequest(source)).getParseResult();
+        assertEquals(4, resolved.getFields().size());
+        assertEquals("chiefComplaint", resolved.getFields().get(0).getId());
+        assertEquals("unmapped", resolved.getFields().get(0).getMappingSource());
+        assertEquals(null, resolved.getFields().get(0).getRecordField());
+        assertEquals("婚育状况", resolved.getFields().get(1).getId());
+        assertEquals("manual-override", resolved.getFields().get(1).getMappingSource());
+        assertEquals("personalHistory", resolved.getFields().get(1).getRecordField());
+        assertEquals("SYN-CONFLICT-A", resolved.getFields().get(2).getId());
+        assertEquals("SYN-CONFLICT-B", resolved.getFields().get(3).getId());
+        for (OutpatientEmrTemplateFieldSnapshot field : resolved.getFields().subList(2, 4)) {
+            assertEquals("unmapped", field.getMappingSource());
+            assertEquals(null, field.getRecordField());
+            assertEquals(null, field.getProjectionMode());
+        }
+        assertEquals(original, existing.getParseResultJson());
+        verify(snapshotMapper, never()).updateById(any(AiOutpatientEmrTemplateSnapshot.class));
+    }
+
+    @Test
+    void resolveRejectsOnlyConflictedFieldsUnknownSchemaAndWrongOrganization() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest source = validRequest();
+        AiOutpatientEmrTemplateSnapshot existing = snapshotEntity(source);
+        ObjectNode stored = (ObjectNode) objectMapper.readTree(existing.getParseResultJson());
+        ArrayNode rows = (ArrayNode) stored.get("fields");
+        rows.remove(1);
+        rows.add(rows.get(0).deepCopy());
+        existing.setParseResultJson(stored.toString());
+        when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(existing));
+        assertThrows(BusinessException.class, () -> service.resolve(device(), validResolveRequest(source)));
+        existing.setParseResultJson(stored.put("schemaVersion", "unsupported").toString());
+        assertThrows(BusinessException.class, () -> service.resolve(device(), validResolveRequest(source)));
+        existing.setParseResultJson(objectMapper.writeValueAsString(source.getParseResult()));
+        existing.setIdOrg("SYN-OTHER-ORG");
+        assertThrows(BusinessException.class, () -> service.resolve(device(), validResolveRequest(source)));
+        verify(snapshotMapper, never()).updateById(any(AiOutpatientEmrTemplateSnapshot.class));
+    }
+
+    @Test
+    void historicalWritableFieldsDoNotRequireAnAiSuggestionAndIntactReadonlyMetadataStillResolves() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest source = validRequest();
+        AiOutpatientEmrTemplateSnapshot existing = snapshotEntity(source);
+        ObjectNode stored = (ObjectNode) objectMapper.readTree(existing.getParseResultJson());
+        ArrayNode rows = (ArrayNode) stored.get("fields");
+        ((ObjectNode) rows.get(0)).put("aiSuitable", false);
+        ((ObjectNode) rows.get(1)).remove("aiSuitable");
+        rows.add("synthetic damaged row");
+        existing.setParseResultJson(stored.toString());
+        when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(existing));
+        OutpatientEmrTemplateParseSnapshot result = service.resolve(device(), validResolveRequest(source)).getParseResult();
+        assertEquals(2, result.getFields().size());
+        for (OutpatientEmrTemplateFieldSnapshot field : result.getFields()) {
+            assertFalse(field.getReadonly());
+            assertFalse(field.getAiSuitable());
+        }
+        rows.remove(2);
+        ((ObjectNode) rows.get(0)).put("readonly", true);
+        ((ObjectNode) rows.get(1)).put("readonly", true);
+        existing.setParseResultJson(stored.toString());
+        assertEquals(2, service.resolve(device(), validResolveRequest(source)).getParseResult().getFields().size());
+        rows.addNull();
+        existing.setParseResultJson(stored.toString());
+        assertThrows(BusinessException.class, () -> service.resolve(device(), validResolveRequest(source)));
     }
 
     @Test
@@ -638,6 +730,33 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         assertEquals(definition, stored.getValue().getTemplateDefinition());
         assertEquals(request.getTemplateHash(), stored.getValue().getTemplateHash());
         assertTrue(request.getTemplateHtml().startsWith(OutpatientEmrTemplateDecodeService.HTML_PREFIX));
+    }
+
+    @Test
+    void incompleteChapterDoesNotPreventSavingAndResolvingIndependentlyPairedFields() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest request = validRequest();
+        OutpatientEmrTemplateFieldSnapshot field = textField();
+        field.setArticleDefinitionName("主诉 ");
+        request.getParseResult().setFields(Collections.singletonList(field));
+        String html = "<section data-id=\"article-chief\" data-article=\"chiefComplaint\" data-name=\"主诉\">"
+            + "<span data-id=\"chiefComplaint\" data-name=\"主诉\" data-type=\"text\" data-readonly=\"false\">咳嗽</span></section>";
+        String definition = "[{\"ID\":\"article-chief\",\"NAME\":\"主诉 \",\"ARTICLE\":\"chiefComplaint\","
+            + "\"eles\":[{\"ID\":\"chiefComplaint\",\"NAME\":\"主诉\",\"TYPE\":\"text\",\"TEXT\":\"咳嗽\",\"READONLY\":false}]},"
+            + "{\"NAME\":\"缺少章节标识\",\"eles\":[]}]";
+        request.setTemplateHash(sha256("outpatient-emr-template-pair.v1:" + sha256(html) + ":" + sha256(definition)));
+        request.setTemplateHtml(OutpatientEmrTemplateDecodeService.HTML_PREFIX
+            + Base64.getEncoder().encodeToString(html.getBytes(StandardCharsets.UTF_8)));
+        request.setTemplateDefinition(OutpatientEmrTemplateDecodeService.DEFINITION_PREFIX
+            + Base64.getEncoder().encodeToString(definition.getBytes(StandardCharsets.UTF_8)));
+        service.save(device(), request);
+        ArgumentCaptor<AiOutpatientEmrTemplateSnapshot> captor = ArgumentCaptor.forClass(AiOutpatientEmrTemplateSnapshot.class);
+        verify(snapshotMapper).insert(captor.capture());
+        assertEquals(definition, captor.getValue().getTemplateDefinition());
+        when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(captor.getValue()));
+        OutpatientEmrTemplateSnapshotResolution resolved = service.resolve(device(), validResolveRequest(request));
+        assertEquals(Boolean.TRUE, resolved.getCacheHit());
+        assertEquals("主诉 ", resolved.getParseResult().getFields().get(0).getArticleDefinitionName());
+        assertEquals(1, resolved.getParseResult().getFields().size());
     }
 
     @Test

@@ -102,6 +102,10 @@ public class AssistantLogService {
                 item.setContentAvailable(payload.path("requestBody").path("messages").isArray() || payload.path("responseText").isTextual());
                 item.setDoctorId(text(payload.path("doctorId")));
                 item.setDoctorName(text(payload.path("doctorName")));
+                String hisOrgId = text(payload.path("hisOrgId"));
+                String hisOrgName = text(payload.path("hisOrgName"));
+                if (hisOrgId != null) item.setHisOrgId(hisOrgId);
+                if (hisOrgName != null) item.setOrgName(hisOrgName);
                 JsonNode messages = payload.path("requestBody").path("messages");
                 if (messages.isArray()) {
                     for (int i = messages.size() - 1; i >= 0; i--) {

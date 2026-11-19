@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -174,10 +175,8 @@ public class AuditService {
     }
 
     private String extractText(Map<String, Object> payload, String key) {
-        if (payload == null || !payload.containsKey(key)) {
-            return null;
-        }
-        return trimToNull(String.valueOf(payload.get(key)));
+        Object value = payload == null ? null : payload.get(key);
+        return value == null ? null : trimToNull(String.valueOf(value));
     }
 
     @SuppressWarnings("unchecked")
@@ -241,6 +240,12 @@ public class AuditService {
             return null;
         }
         return value.trim();
+    }
+
+    // Keep the original in payload_json when it exceeds the portable VARCHAR byte width.
+    // A shortened HIS identifier could point to a different institution.
+    private String indexableAuditText(String value, int columnBytes) {
+        return value != null && value.getBytes(StandardCharsets.UTF_8).length <= columnBytes ? value : null;
     }
 
     public PageResponse<AiOpLog> list(long current,
@@ -345,15 +350,17 @@ public class AuditService {
         opLog.setSdLogType(logType);
         opLog.setNaModule(module);
         Map<String, Object> payloadMap = asPayloadMap(payload);
-        opLog.setHisOrgId(firstNonBlank(
+        String hisOrgId = firstNonBlank(
             extractText(payloadMap, "hisOrgId"),
             extractNestedText(payloadMap, "context", "hisOrgId")
-        ));
-        opLog.setHisOrgName(firstNonBlank(
+        );
+        String hisOrgName = firstNonBlank(
             extractText(payloadMap, "hisOrgName"),
             extractText(payloadMap, "orgName"),
             extractNestedText(payloadMap, "context", "hisOrgName")
-        ));
+        );
+        opLog.setHisOrgId(indexableAuditText(hisOrgId, 64));
+        opLog.setHisOrgName(indexableAuditText(hisOrgName, 255));
         opLog.setOpAction(action);
         opLog.setOpTitle(resolveTitle(payloadMap, action));
         opLog.setSourceModule(resolveSourceModule(payloadMap));

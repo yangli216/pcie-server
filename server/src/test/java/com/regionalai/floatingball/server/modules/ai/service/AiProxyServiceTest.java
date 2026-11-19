@@ -1,6 +1,8 @@
 package com.regionalai.floatingball.server.modules.ai.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.regionalai.floatingball.server.common.exception.BusinessException;
 import com.regionalai.floatingball.server.common.outbound.OutboundSecurityProperties;
 import com.regionalai.floatingball.server.common.outbound.OutboundSecurityService;
@@ -13,13 +15,17 @@ import com.regionalai.floatingball.server.modules.device.entity.AiDevice;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.mock.http.client.MockClientHttpRequest;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
 
 import java.lang.reflect.Constructor;
+import javax.validation.Validation;
+import javax.validation.ValidatorFactory;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,6 +42,45 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class AiProxyServiceTest {
+
+    @Test
+    void longAuditIdentityKeepsCompleteMessagesOnBothModelTransports() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode messages = mapper.readTree("[{\"role\":\"user\",\"content\":\"合成首次描述\"},"
+            + "{\"role\":\"assistant\",\"content\":\"合成追问\"},"
+            + "{\"role\":\"user\",\"content\":\"医生修订为四天；请结合上轮\"}]");
+        String longIdentity = String.join("", Collections.nCopies(129, "院"));
+        try (ValidatorFactory validators = Validation.buildDefaultValidatorFactory()) {
+            for (boolean stream : new boolean[] {false, true}) {
+                RestTemplate rest = new RestTemplate();
+                MockRestServiceServer upstream = MockRestServiceServer.createServer(rest);
+                ConfigService configs = mock(ConfigService.class);
+                when(configs.resolveByDevice(any(AiDevice.class))).thenReturn(resolvedChatConfig());
+                AiProxyService service = new AiProxyService(configs, mock(AuditService.class), rest, mapper,
+                    new OutboundSecurityService(new OutboundSecurityProperties()), Runnable::run);
+                ChatRequest request = chatRequest(stream);
+                request.setSourceModule("chat_panel");
+                request.setDoctorId(longIdentity);
+                request.setDoctorName(longIdentity);
+                request.setHisOrgId(longIdentity);
+                request.setHisOrgName(longIdentity);
+                request.setMessages(mapper.convertValue(messages, new TypeReference<List<Map<String, Object>>>() {}));
+                assertThat(validators.getValidator().validate(request)).isEmpty();
+                upstream.expect(requestTo("http://127.0.0.1:18080/chat/completions"))
+                    .andExpect(outgoing -> {
+                        JsonNode body = mapper.readTree(((MockClientHttpRequest) outgoing).getBodyAsBytes());
+                        assertThat(body.get("messages")).isEqualTo(messages);
+                        assertThat(body.toString()).doesNotContain(longIdentity);
+                    })
+                    .andRespond(stream
+                        ? withSuccess("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n", MediaType.TEXT_EVENT_STREAM)
+                        : withSuccess("{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}", MediaType.APPLICATION_JSON));
+                if (stream) service.chatStream(new AiDevice(), request);
+                else assertThat(service.chat(new AiDevice(), request)).isEqualTo("ok");
+                upstream.verify();
+            }
+        }
+    }
 
     @Test
     @SuppressWarnings("unchecked")

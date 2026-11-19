@@ -3,6 +3,8 @@ package com.regionalai.floatingball.server.modules.emrtemplate.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.regionalai.floatingball.server.common.api.PageResponse;
 import com.regionalai.floatingball.server.common.api.PageRequest;
@@ -133,14 +135,11 @@ public class OutpatientEmrTemplateSnapshotService {
         String id = requireText(entity.getIdSnapshot(), "历史解析.id", 32);
         String storedTemplateId = requireText(entity.getTemplateId(), "历史解析.templateId", 128);
         String storedTemplateHash = requireSha256(entity.getTemplateHash(), "历史解析.templateHash");
-        if (!validated.templateId.equals(storedTemplateId)
+        if (!validated.idOrg.equals(entity.getIdOrg()) || !validated.templateId.equals(storedTemplateId)
             || !validated.templateHash.equals(storedTemplateHash)) {
             throw new BusinessException("历史模板解析身份与查询不一致");
         }
-        OutpatientEmrTemplateParseSnapshot parseResult = readParseResult(entity.getParseResultJson());
-        validateParseResult(parseResult);
-        applyMappingOverrides(entity.getIdSnapshot(), parseResult);
-        validateEffectiveParseResult(parseResult);
+        OutpatientEmrTemplateParseSnapshot parseResult = readHistoricalFields(entity);
         Long receivedAt = toEpochMillis(entity.getLastReceivedAt());
         if (receivedAt == null) {
             throw new BusinessException("历史模板解析接收时间缺失");
@@ -483,72 +482,13 @@ public class OutpatientEmrTemplateSnapshotService {
         for (int index = 0; index < fields.size(); index += 1) {
             OutpatientEmrTemplateFieldSnapshot field = fields.get(index);
             String path = "parseResult.fields[" + index + "]";
-            if (field == null) {
-                throw new BusinessException(path + " 不能为空");
+            validateField(field, path, allowManualOverride);
+            if (!fieldIds.add(field.getId())) {
+                throw new BusinessException("parseResult.fields 存在重复 id: " + field.getId());
             }
-            assertNoUnknownFields(field, path);
-            String fieldId = requireText(field.getId(), path + ".id", 512);
-            if (!fieldIds.add(fieldId)) {
-                throw new BusinessException("parseResult.fields 存在重复 id: " + fieldId);
-            }
-            requireText(field.getName(), path + ".name", 512);
-            requireText(field.getType(), path + ".type", 64);
-            requireText(field.getArticleTemplateId(), path + ".articleTemplateId", 512);
-            requireText(field.getArticleId(), path + ".articleId", 512);
-            requireText(field.getArticleName(), path + ".articleName", 512);
-            requireText(field.getArticleDefinitionName(), path + ".articleDefinitionName", 512);
-            if (field.getReadonly() == null || field.getAiSuitable() == null) {
-                throw new BusinessException(path + ".readonly/aiSuitable 不能为空");
-            }
-            requireTextIncludingEmpty(field.getBaselineValue(), path + ".baselineValue", 262144);
-            requireTextIncludingEmpty(
-                field.getBaselineDictionaryValue(),
-                path + ".baselineDictionaryValue",
-                262144
-            );
-            if (!Boolean.TRUE.equals(field.getReadonly())) {
-                writableFieldCount += 1;
-            }
-            List<OutpatientEmrTemplateDictionaryItemSnapshot> dictionaryItems = field.getDictionaryItems();
-            if (dictionaryItems == null) {
-                throw new BusinessException(path + ".dictionaryItems 不能为空");
-            }
-            if (!dictionaryItems.isEmpty()) {
-                dictionaryFieldCount += 1;
-            }
-            validateDictionaryItems(dictionaryItems, path);
-
-            String mappingSource = requireText(field.getMappingSource(), path + ".mappingSource", 64);
-            boolean manualOverride = MANUAL_OVERRIDE_SOURCE.equals(mappingSource);
-            if (manualOverride ? !allowManualOverride : !MAPPING_SOURCES.contains(mappingSource)) {
-                throw new BusinessException(path + ".mappingSource 不支持");
-            }
-            String recordField = requireNullableText(
-                field.getRecordField(),
-                path + ".recordField",
-                64
-            );
-            String projectionMode = requireNullableText(
-                field.getProjectionMode(),
-                path + ".projectionMode",
-                64
-            );
-            if (recordField == null) {
-                if (!"unmapped".equals(mappingSource) || projectionMode != null) {
-                    throw new BusinessException(path + " 未映射字段的 mappingSource/projectionMode 不一致");
-                }
-            } else {
-                if (!RECORD_FIELDS.contains(recordField)) {
-                    throw new BusinessException(path + ".recordField 不支持");
-                }
-                if ("unmapped".equals(mappingSource)) {
-                    throw new BusinessException(path + ".mappingSource 与 recordField 不一致");
-                }
-                if (!PROJECTION_MODES.contains(projectionMode)) {
-                    throw new BusinessException(path + ".projectionMode 不支持");
-                }
-                mappedFieldCount += 1;
-            }
+            if (!Boolean.TRUE.equals(field.getReadonly())) writableFieldCount++;
+            if (!field.getDictionaryItems().isEmpty()) dictionaryFieldCount++;
+            if (field.getRecordField() != null) mappedFieldCount++;
         }
         validateRecordFieldOwnership(fields);
 
@@ -564,6 +504,68 @@ public class OutpatientEmrTemplateSnapshotService {
             dictionaryFieldCount,
             mappedFieldCount
         );
+    }
+
+    private void validateField(OutpatientEmrTemplateFieldSnapshot field, String path, boolean allowManualOverride) {
+        if (field == null) {
+            throw new BusinessException(path + " 不能为空");
+        }
+        assertNoUnknownFields(field, path);
+        requireText(field.getId(), path + ".id", 512);
+        requireText(field.getName(), path + ".name", 512);
+        requireText(field.getType(), path + ".type", 64);
+        requireText(field.getArticleTemplateId(), path + ".articleTemplateId", 512);
+        requireText(field.getArticleId(), path + ".articleId", 512);
+        requireText(field.getArticleName(), path + ".articleName", 512);
+        // A chapter label is display text. Keep its original whitespace in the stored snapshot.
+        if (!StringUtils.hasText(field.getArticleDefinitionName())) {
+            throw new BusinessException(path + ".articleDefinitionName 不能为空");
+        }
+        if (field.getReadonly() == null || field.getAiSuitable() == null) {
+            throw new BusinessException(path + ".readonly/aiSuitable 不能为空");
+        }
+        requireTextIncludingEmpty(field.getBaselineValue(), path + ".baselineValue", 262144);
+        requireTextIncludingEmpty(
+            field.getBaselineDictionaryValue(),
+            path + ".baselineDictionaryValue",
+            262144
+        );
+        List<OutpatientEmrTemplateDictionaryItemSnapshot> dictionaryItems = field.getDictionaryItems();
+        if (dictionaryItems == null) {
+            throw new BusinessException(path + ".dictionaryItems 不能为空");
+        }
+        validateDictionaryItems(dictionaryItems, path);
+
+        String mappingSource = requireText(field.getMappingSource(), path + ".mappingSource", 64);
+        boolean manualOverride = MANUAL_OVERRIDE_SOURCE.equals(mappingSource);
+        if (manualOverride ? !allowManualOverride : !MAPPING_SOURCES.contains(mappingSource)) {
+            throw new BusinessException(path + ".mappingSource 不支持");
+        }
+        String recordField = requireNullableText(
+            field.getRecordField(),
+            path + ".recordField",
+            64
+        );
+        String projectionMode = requireNullableText(
+            field.getProjectionMode(),
+            path + ".projectionMode",
+            64
+        );
+        if (recordField == null) {
+            if (!"unmapped".equals(mappingSource) || projectionMode != null) {
+                throw new BusinessException(path + " 未映射字段的 mappingSource/projectionMode 不一致");
+            }
+        } else {
+            if (!RECORD_FIELDS.contains(recordField)) {
+                throw new BusinessException(path + ".recordField 不支持");
+            }
+            if ("unmapped".equals(mappingSource)) {
+                throw new BusinessException(path + ".mappingSource 与 recordField 不一致");
+            }
+            if (!PROJECTION_MODES.contains(projectionMode)) {
+                throw new BusinessException(path + ".projectionMode 不支持");
+            }
+        }
     }
 
     private ValidatedMappingUpdate validateMappingUpdate(
@@ -607,6 +609,14 @@ public class OutpatientEmrTemplateSnapshotService {
     }
 
     private void validateRecordFieldOwnership(List<OutpatientEmrTemplateFieldSnapshot> fields) {
+        for (Map.Entry<String, List<String>> conflict : conflictingOwners(fields).entrySet()) {
+            throw new BusinessException("标准字段 " + conflict.getKey() + " 存在重复映射: " + String.join("、", conflict.getValue()));
+        }
+    }
+
+    private Map<String, List<String>> conflictingOwners(Iterable<OutpatientEmrTemplateFieldSnapshot> fields) {
+        Map<String, List<String>> conflicts = new LinkedHashMap<>();
+
         Map<String, List<OutpatientEmrTemplateFieldSnapshot>> owners =
             new LinkedHashMap<String, List<OutpatientEmrTemplateFieldSnapshot>>();
         for (OutpatientEmrTemplateFieldSnapshot field : fields) {
@@ -639,11 +649,10 @@ public class OutpatientEmrTemplateSnapshotService {
                 for (OutpatientEmrTemplateFieldSnapshot field : mappedFields) {
                     fieldIds.add(field.getId());
                 }
-                throw new BusinessException(
-                    "标准字段 " + entry.getKey() + " 存在重复映射: " + String.join("、", fieldIds)
-                );
+                conflicts.put(entry.getKey(), fieldIds);
             }
         }
+        return conflicts;
     }
 
     private List<OutpatientEmrTemplateMappingOverrideVO> applyMappingOverrides(
@@ -834,6 +843,89 @@ public class OutpatientEmrTemplateSnapshotService {
         } catch (JsonProcessingException ex) {
             throw new BusinessException("门诊模板解析快照损坏");
         }
+    }
+
+    /** Resolve an immutable version without repairing or resaving its stored source. */
+    private OutpatientEmrTemplateParseSnapshot readHistoricalFields(AiOutpatientEmrTemplateSnapshot entity) {
+        String json = entity.getParseResultJson();
+        if (!StringUtils.hasText(json)) throw new BusinessException("门诊模板解析快照缺失");
+        if (utf8Length(json) > MAX_PARSE_RESULT_BYTES) throw new BusinessException("parseResult 超过 2 MiB");
+        JsonNode root;
+        try {
+            root = objectMapper.reader().with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
+                .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(json);
+        } catch (JsonProcessingException ex) {
+            throw new BusinessException("门诊模板解析快照损坏");
+        }
+        if (!root.isObject() || !PARSE_SCHEMA.equals(root.path("schemaVersion").textValue())) {
+            throw new BusinessException("历史模板解析 schemaVersion 不支持");
+        }
+        JsonNode rows = root.path("fields");
+        if (!rows.isArray() || rows.size() == 0 || rows.size() > MAX_FIELD_COUNT || root.size() != 2) {
+            throw new BusinessException("parseResult.fields 或快照结构损坏");
+        }
+        Set<String> seen = new HashSet<>();
+        Set<String> duplicates = new HashSet<>();
+        for (JsonNode row : rows) {
+            String id = row.path("id").textValue();
+            if (id != null && !seen.add(id)) duplicates.add(id);
+        }
+        Map<String, OutpatientEmrTemplateFieldSnapshot> fields = new LinkedHashMap<>();
+        Set<String> disputedTargets = new HashSet<>();
+        for (JsonNode row : rows) {
+            String id = row.path("id").textValue();
+            if (id != null && !duplicates.contains(id) && row.path("readonly").isBoolean()
+                && (!row.has("aiSuitable") || row.path("aiSuitable").isBoolean())) {
+                try {
+                    OutpatientEmrTemplateFieldSnapshot field = objectMapper.treeToValue(row, OutpatientEmrTemplateFieldSnapshot.class);
+                    // Older snapshots can omit this advisory annotation. The HTML and readonly flag govern editability.
+                    if (field.getAiSuitable() == null) field.setAiSuitable(false);
+                    validateField(field, "parseResult.fields", false);
+                    fields.put(id, field);
+                    continue;
+                } catch (JsonProcessingException | BusinessException ex) {
+                    // A malformed stored field cannot grant another row ownership of its target.
+                }
+            }
+            if (row.path("recordField").isTextual()) disputedTargets.add(row.get("recordField").textValue());
+        }
+
+        Set<String> overridden = new HashSet<>();
+        Set<String> ambiguousMappings = new HashSet<>();
+        for (AiOutpatientEmrTemplateMapping mapping : listMappings(entity.getIdSnapshot())) {
+            String id = mapping.getFieldId();
+            OutpatientEmrTemplateFieldSnapshot field = fields.get(id);
+            if (field == null || !overridden.add(id)) {
+                if (field != null) {
+                    disputedTargets.add(field.getRecordField());
+                    ambiguousMappings.add(id);
+                }
+                disputedTargets.add(mapping.getRecordField());
+                continue;
+            }
+            applyMappingValue(field, mapping.getRecordField(), mapping.getProjectionMode());
+            try {
+                validateField(field, "parseResult.fields", true);
+            } catch (BusinessException ex) {
+                disputedTargets.add(mapping.getRecordField());
+                ambiguousMappings.add(id);
+            }
+        }
+        for (String id : ambiguousMappings) applyMappingValue(fields.get(id), null, null);
+        disputedTargets.addAll(conflictingOwners(fields.values()).keySet());
+        for (OutpatientEmrTemplateFieldSnapshot field : fields.values()) {
+            if (field.getRecordField() != null && disputedTargets.contains(field.getRecordField())) {
+                applyMappingValue(field, null, null);
+            }
+        }
+        boolean partial = fields.size() != rows.size() || !disputedTargets.isEmpty() || !ambiguousMappings.isEmpty();
+        if (partial && fields.values().stream().noneMatch(field -> !field.getReadonly())) {
+            throw new BusinessException("历史模板解析无可用生成字段");
+        }
+        OutpatientEmrTemplateParseSnapshot result = new OutpatientEmrTemplateParseSnapshot();
+        result.setSchemaVersion(PARSE_SCHEMA);
+        result.setFields(new ArrayList<>(fields.values()));
+        return result;
     }
 
     private String writeParseResult(OutpatientEmrTemplateParseSnapshot value) {

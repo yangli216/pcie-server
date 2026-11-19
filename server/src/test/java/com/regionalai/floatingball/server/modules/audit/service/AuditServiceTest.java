@@ -26,6 +26,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
@@ -157,6 +158,25 @@ class AuditServiceTest {
             OBJECT_MAPPER.readTree("{\"operationType\":\"api_call\",\"operationName\":\"reference_feedback:diagnosis\",\"success\":false,\"details\":{\"consultationId\":\"CONSULT-001\",\"traceId\":\"TRACE-001\"}}"),
             OBJECT_MAPPER.readTree(log.getPayloadJson())
         );
+    }
+
+    @Test
+    void longHisIdentityIsRetainedInJsonWhileDeviceOrganizationRemainsAuthoritative() throws Exception {
+        AiDevice device = new AiDevice();
+        device.setIdOrg("SYN-DEVICE-ORG");
+        String longOrgName = String.join("", Collections.nCopies(129, "院"));
+        String longOrgId = String.join("", Collections.nCopies(65, "I"));
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("hisOrgId", longOrgId);
+        payload.put("hisOrgName", longOrgName);
+        auditService.saveSystemLog(device, "ai_proxy", "ai", "chat", payload, true);
+        ArgumentCaptor<AiOpLog> captor = ArgumentCaptor.forClass(AiOpLog.class);
+        verify(aiOpLogMapper).insert(captor.capture());
+        AiOpLog row = captor.getValue();
+        assertEquals("SYN-DEVICE-ORG", row.getIdOrg());
+        assertNull(row.getHisOrgId());
+        assertNull(row.getHisOrgName());
+        assertEquals(OBJECT_MAPPER.valueToTree(payload), OBJECT_MAPPER.readTree(row.getPayloadJson()));
     }
 
     @Test

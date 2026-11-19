@@ -43,6 +43,17 @@ class OutpatientEmrTemplateDecodeServiceTest {
     }
 
     @Test
+    void returnsEverySourceChapterIncludingPartialChaptersAndUntrimmedDisplayNames() {
+        String definition = "[null,{\"ID\":\"incomplete\",\"eles\":[{\"TEXT\":\"合成背景\"}]},"
+            + "{\"ID\":\"history\",\"NAME\":\" 既往史 \",\"ARTICLE\":\"病史\",\"eles\":[{\"ID\":\"priorVisit\"}]}]";
+        OutpatientEmrTemplateDecodeRequest request = request();
+        request.setTemplateDefinition(definitionUri(definition));
+        OutpatientEmrTemplateDecodedResponse response = service.decode(device(), request);
+        assertEquals(definition, response.getTemplateDefinition());
+        assertEquals(HTML, response.getTemplateHtml());
+    }
+
+    @Test
     void requiresTheExactPairOfDataUriPrefixes() {
         String[] htmlSources = { null, HTML, base64(HTML), "data:text/html;base64," + base64(HTML),
             "data:text/html;charset=UTF-8;base64," + base64(HTML),
@@ -68,11 +79,11 @@ class OutpatientEmrTemplateDecodeServiceTest {
     }
 
     @Test
-    void rejectsInvalidHtmlAndNonChapterJsonDefinitions() {
+    void rejectsInvalidHtmlAndMalformedDefinitionEnvelopes() {
         for (String html : Arrays.asList("", "   ", "咳嗽", "<>", "<!-- comment only -->")) {
             assertThrows(BusinessException.class, () -> service.decodePair(htmlUri(html), definitionUri(DEFINITION)));
         }
-        for (String definition : Arrays.asList("", "[]", "{}", "[null]", "[1]", "[{}]", "<xml/>",
+        for (String definition : Arrays.asList("", "[]", "{}", "<xml/>",
             DEFINITION + "{}", DEFINITION.replace("\"ID\":\"chief\"", "\"ID\":\"first\",\"ID\":\"chief\""))) {
             assertThrows(BusinessException.class, () -> service.decodePair(htmlUri(HTML), definitionUri(definition)));
         }

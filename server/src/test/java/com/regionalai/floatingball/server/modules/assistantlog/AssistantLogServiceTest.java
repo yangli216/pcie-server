@@ -51,6 +51,21 @@ class AssistantLogServiceTest {
     }
 
     @Test
+    void displaysFullHisOrganizationSnapshotWhenItExceedsTheIndexedColumns() throws Exception {
+        String hisOrgId = String.join("", Collections.nCopies(65, "A"));
+        String hisOrgName = String.join("", Collections.nCopies(129, "院"));
+        AssistantLogRow log = row(objectMapper.createObjectNode()
+            .put("hisOrgId", hisOrgId).put("hisOrgName", hisOrgName).toString());
+        log.setIdOrg("device-organization");
+        when(mapper.detail("oversized")).thenReturn(log);
+
+        AssistantLogDetail detail = service.detail("oversized");
+        assertThat(detail.getOrgName()).isEqualTo(hisOrgName);
+        assertThat(detail.getHisOrgId()).isEqualTo(hisOrgId);
+        assertThat(detail.getIdOrg()).isEqualTo("device-organization");
+    }
+
+    @Test
     void damagedHistoricalPayloadRemainsUnavailableAndFailedPartialAnswerIsPreserved() {
         when(mapper.detail("damaged")).thenReturn(row("not-json"));
         AssistantLogDetail damaged = service.detail("damaged");
