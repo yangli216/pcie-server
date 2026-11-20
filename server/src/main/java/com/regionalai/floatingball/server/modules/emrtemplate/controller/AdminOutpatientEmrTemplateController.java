@@ -10,6 +10,11 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.regionalai.floatingball.server.common.exception.BusinessException;
+import java.util.Map;
+import java.util.LinkedHashMap;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -32,15 +37,16 @@ public class AdminOutpatientEmrTemplateController {
         @RequestParam(defaultValue = "1") long current,
         @RequestParam(defaultValue = "10") long size,
         @RequestParam(required = false) String keyword,
+        @RequestParam(required = false) String templateState,
         HttpServletRequest request
     ) {
         return ApiResponse.success(
-            snapshotService.list(current, size, keyword),
+            templateState == null ? snapshotService.list(current, size, keyword) : snapshotService.list(current, size, keyword, templateState),
             RequestIdUtils.resolve(request)
         );
     }
 
-    @GetMapping("/{idSnapshot}")
+    @GetMapping({"/{idSnapshot}", "/{idSnapshot}/field-rules"})
     public ApiResponse<OutpatientEmrTemplateSnapshotVO> get(
         @PathVariable String idSnapshot,
         HttpServletRequest request
@@ -64,11 +70,40 @@ public class AdminOutpatientEmrTemplateController {
     public ApiResponse<OutpatientEmrTemplateSnapshotVO> clearMapping(
         @PathVariable String idSnapshot,
         @RequestParam String fieldId,
+        @RequestParam(required = false) Long expectedRevision,
         HttpServletRequest request
     ) {
         return ApiResponse.success(
-            snapshotService.clearMapping(idSnapshot, fieldId),
+            expectedRevision == null ? snapshotService.clearMapping(idSnapshot, fieldId) : snapshotService.clearMapping(idSnapshot, fieldId, expectedRevision),
             RequestIdUtils.resolve(request)
         );
+    }
+
+    @PostMapping("/{idSnapshot}/field-rules/draft")
+    public ApiResponse<Map<String,Object>> draft(@PathVariable String idSnapshot, @RequestBody JsonNode body, HttpServletRequest request) {
+        return ApiResponse.success(snapshotService.draftRule(idSnapshot, body), RequestIdUtils.resolve(request));
+    }
+
+    @PutMapping("/{idSnapshot}/field-rules")
+    public ApiResponse<OutpatientEmrTemplateSnapshotVO> saveRule(@PathVariable String idSnapshot, @RequestBody JsonNode body, HttpServletRequest request) {
+        return ApiResponse.success(snapshotService.saveRule(idSnapshot, body), RequestIdUtils.resolve(request));
+    }
+
+    @PutMapping("/{idSnapshot}/state")
+    public ApiResponse<OutpatientEmrTemplateSnapshotVO> state(@PathVariable String idSnapshot, @RequestBody JsonNode body, HttpServletRequest request) {
+        if (body.size() != 2 || !body.path("templateState").isTextual() || "deleted".equals(body.path("templateState").textValue()))
+            throw new BusinessException("请选择启用或停用");
+        return ApiResponse.success(snapshotService.changeState(idSnapshot, OutpatientEmrTemplateSnapshotService.expectedRevision(body),
+            body.get("templateState").textValue()), RequestIdUtils.resolve(request));
+    }
+
+    @DeleteMapping("/{idSnapshot}")
+    public ApiResponse<Map<String,Object>> delete(@PathVariable String idSnapshot, @RequestParam long expectedRevision, HttpServletRequest request) {
+        OutpatientEmrTemplateSnapshotVO item = snapshotService.changeState(idSnapshot, expectedRevision, "deleted");
+        Map<String,Object> result = new LinkedHashMap<>();
+        result.put("id", item.getId());
+        result.put("templateState", item.getTemplateState());
+        result.put("revision", item.getRevision());
+        return ApiResponse.success(result, RequestIdUtils.resolve(request));
     }
 }

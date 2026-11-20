@@ -22,3 +22,5 @@ HIS 机构统计与客户端使用情况字段升级必须使用 DIsql 执行，
 ```
 
 脚本可重复执行。`c_ai_chronic_followup` 保存原 `TcdVisitForm` 强类型融合随访：`id_phr/id_record/sd_visit_kind` 独立检索，`form_data_json` 保存完整 DTO，`request_id` 来自 `X-Request-Id`；`c_ai_chronic_artifact` 保存健康处方和年度评估打印前的患者证据、版本与医生确认快照。两表均包含机构内请求幂等索引和必要查询索引。
+
+已有快照表的五个字段策略列可按需使用同目录的 [update_outpatient_emr_field_policy.sql](update_outpatient_emr_field_policy.sql) 增补。该脚本仅增加列，历史版本从启用、修订号 0 开始。

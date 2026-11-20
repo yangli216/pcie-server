@@ -8,6 +8,8 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 public class OutpatientEmrTemplateMappingRequest extends StrictOutpatientEmrSnapshotDto {
 
+    private Long expectedRevision;
+
     private String fieldId;
 
     private String mappingStatus;

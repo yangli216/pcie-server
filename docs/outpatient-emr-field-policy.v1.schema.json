@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pcie:outpatient-emr-field-policy.v1",
+  "title": "门诊模板生效字段规则",
+  "description": "设备快照 v2 命中或登记成功的 fieldPolicy。外层响应负责绑定认证机构、模板 ID 和模板对 hash。启用时字段 ID 唯一，与同一一致性视图返回的可恢复解析字段逐项对应。部署前不属于现行设备 v1 协议。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "templateState", "revision", "ruleSetVersion", "fields"],
+  "properties": {
+    "schemaVersion": { "const": "outpatient-emr-field-policy.v1" },
+    "templateState": { "enum": ["enabled", "disabled", "deleted"] },
+    "revision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "ruleSetVersion": { "type": "string", "pattern": "^outpatient-emr-field-prompt[.]v[1-9][0-9]*$" },
+    "fields": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 2000,
+      "items": { "$ref": "#/$defs/field" }
+    }
+  },
+  "if": { "properties": { "templateState": { "const": "enabled" } } },
+  "then": { "properties": { "fields": { "minItems": 1 } } },
+  "else": { "properties": { "fields": { "maxItems": 0 } } },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fieldId", "meaning", "aiSuitable", "generationSource", "promptSource", "resolvedPrompt", "unmentionedDefault"],
+      "properties": {
+        "fieldId": { "type": "string", "minLength": 1, "maxLength": 512, "not": { "pattern": "^\\s|\\s$" } },
+        "meaning": { "$ref": "#/$defs/text" },
+        "aiSuitable": { "type": "boolean" },
+        "generationSource": { "enum": ["default", "manual-override", "protected"] },
+        "promptSource": { "enum": ["default", "custom", "not_ai"] },
+        "resolvedPrompt": { "anyOf": [{ "$ref": "#/$defs/text" }, { "type": "null" }] },
+        "unmentionedDefault": { "anyOf": [{ "$ref": "#/$defs/text" }, { "type": "null" }] }
+      },
+      "if": { "properties": { "aiSuitable": { "const": true } } },
+      "then": {
+        "properties": {
+          "generationSource": { "enum": ["default", "manual-override"] },
+          "promptSource": { "enum": ["default", "custom"] },
+          "resolvedPrompt": { "$ref": "#/$defs/text" }
+        }
+      },
+      "else": {
+        "properties": {
+          "promptSource": { "const": "not_ai" },
+          "resolvedPrompt": { "type": "null" },
+          "unmentionedDefault": { "type": "null" }
+        }
+      }
+    }
+  }
+}

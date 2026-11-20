@@ -190,6 +190,21 @@ function removeActiveContent(doc) {
   })
 }
 
+// Walk adjacent inline text only within this clause. Another control or paragraph ends a suffix.
+function fixedSuffix(slot) {
+  const root = slot.closest('p,li,td,.fragment,[data-article]') || slot.parentElement
+  if (!root) return ''
+  const walker = slot.ownerDocument.createTreeWalker(root, 5)
+  walker.currentNode = slot
+  let node
+  while ((node = walker.nextNode())) {
+    if (slot.contains(node)) continue
+    if (node.nodeType === 1 && node.matches('[data-type],br,p,li,td,[data-article]')) break
+    if (node.nodeType === 3 && node.textContent.trim()) return node.textContent.trim()
+  }
+  return ''
+}
+
 export function buildOutpatientPreviewDocument(templateHtml, fields = []) {
   const doc = new DOMParser().parseFromString(templateHtml || '', 'text/html')
   removeActiveContent(doc)
@@ -209,7 +224,7 @@ export function buildOutpatientPreviewDocument(templateHtml, fields = []) {
       projectionMode: node.getAttribute('data-record-field') ? 'direct' : null
     }
     const valueNode = node.matches('.tag-value') ? node : (node.querySelector('.tag-value') || node)
-    valueNode.textContent = sampleValueForField(field)
+    valueNode.textContent = syntheticSlotValue(field, fixedSuffix(node))
     valueNode.setAttribute('contenteditable', 'false')
     valueNode.setAttribute('data-outpatient-emr-field-id', id)
     valueNode.classList.add('outpatient-emr-field')
@@ -234,4 +249,63 @@ export function buildOutpatientPreviewDocument(templateHtml, fields = []) {
 </head>
 <body>${doc.body.innerHTML}</body>
 </html>`
+}
+
+/** Replace every source slot with its label before showing a synthetic composition. */
+export function fieldClausePreview(html, fields, current, mapping) {
+  if (!current) return { sentence: '', result: '', parts: [] }
+  const doc = new DOMParser().parseFromString(html || '', 'text/html')
+  removeActiveContent(doc)
+  const slot = Array.from(doc.querySelectorAll('[data-id][data-type]')).find(node =>
+    node.getAttribute('data-id') === current.id && node.closest('[data-article]')?.getAttribute('data-id') === current.articleTemplateId)
+  if (!slot) return { sentence: '', result: '', parts: [] }
+  const block = slot.closest('p,li,td,.fragment,[data-article]') || slot.parentElement
+  const byId = new Map(fields.map(f => [f.id, f]))
+  const parts = []
+  function visit(node) {
+    if (node.nodeType === 3) {
+      if (node.textContent.trim()) parts.push({ text: node.textContent.trim() })
+      return
+    }
+    if (node.nodeType !== 1 || node.matches('script,style,button,[hidden],[aria-hidden="true"],.tag-marker,.tag-article-title,.placeholder')) return
+    if (node.hasAttribute('data-type') && node.hasAttribute('data-id')) {
+      const field = byId.get(node.getAttribute('data-id'))
+      if (field) parts.push({ field })
+      return
+    }
+    Array.from(node.childNodes).forEach(visit)
+  }
+  visit(block)
+  const tokens = parts.map(part => part.field ? { id: part.field.id, text: '〔' + part.field.name + '〕' } : { text: part.text })
+  const sentence = tokens.map(token => token.text).join('')
+  const bySlot = new Map(Array.from(doc.querySelectorAll('[data-id][data-type]')).map(node => [node.getAttribute('data-id'), node]))
+  const renderedParts = parts.map(part => part.field
+    ? { label: part.field.name, value: syntheticSlotValue(part.field, fixedSuffix(bySlot.get(part.field.id))) }
+    : { label: '模板固定字', value: part.text })
+  const preview = { sentence, tokens, parts: renderedParts, result: renderedParts.map(part => part.value).join(''), standard: '' }
+  if (mapping.mappingStatus !== 'mapped') return { ...preview, note: '本栏仅返回原始字段值。' }
+  if (!mapping.recordField) return preview
+  const composedFields = fields.filter(f => !f.readonly && (f.id === current.id || f.recordField === mapping.recordField))
+  if (composedFields.length > 1 && !composedFields.every(f => f.articleId && f.articleId === composedFields[0].articleId
+    && (f.id === current.id ? mapping.projectionMode : f.projectionMode) === 'section-compose')) {
+    return { ...preview, note: '标准段映射冲突，请核对' + composedFields.map(f => '「' + f.name + '」').join('、') + '。' }
+  }
+  const standard = composedFields.flatMap(f => {
+    const node = bySlot.get(f.id)
+    if (!node) return []
+    const value = syntheticSlotValue(f, fixedSuffix(node))
+    if (!value) return []
+    const name = f.name.replace(/标志$/, '').trim() || f.name
+    return [mapping.projectionMode === 'direct' || value.startsWith(name + '：') || value.startsWith(name + ':') ? value : name + '：' + value]
+  }).join('；')
+  return { ...preview, standard }
+}
+
+function syntheticSlotValue(field, suffix) {
+  if (field.dictionaryItems?.length) return field.dictionaryItems[0].text
+  if (/持续时间|时长|duration/i.test(field.name + field.id)) return /^\s*(天|日|周|月|年|小时|分钟)/.test(suffix) || field.type === 'number' ? '3' : '3天'
+  if (/症状名称|chiefSymptom/i.test(field.name + field.id)) return '咳嗽'
+  if (field.recordField === 'chiefComplaint' && field.projectionMode === 'direct') return '咳嗽3天'
+  if (field.type === 'number') return '3'
+  return sampleValueForField({ ...field, baselineValue: '', baselineDictionaryValue: '' })
 }

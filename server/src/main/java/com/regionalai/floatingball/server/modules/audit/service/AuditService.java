@@ -321,7 +321,8 @@ public class AuditService {
                               String action,
                               Object payload,
                               boolean success) {
-        saveSystemLogInternal(device, logType, module, action, payload, success, null, null);
+        saveSystemLogInternal(device == null ? null : device.getIdDevice(), device == null ? null : device.getIdOrg(),
+            logType, module, action, payload, success, null, null);
     }
 
     public void saveSystemLogWithAudioFile(AiDevice device,
@@ -332,10 +333,16 @@ public class AuditService {
                                            boolean success,
                                            byte[] audioBytes,
                                            String audioFileName) {
-        saveSystemLogInternal(device, logType, module, action, payload, success, audioBytes, audioFileName);
+        saveSystemLogInternal(device == null ? null : device.getIdDevice(), device == null ? null : device.getIdOrg(),
+            logType, module, action, payload, success, audioBytes, audioFileName);
     }
 
-    private void saveSystemLogInternal(AiDevice device,
+    public void saveAdminOperation(String orgId, String module, String action, Map<String, Object> details) {
+        saveSystemLogInternal(null, orgId, "ADMIN", module, action, details, true, null, null);
+    }
+
+    private void saveSystemLogInternal(String deviceId,
+                                       String orgId,
                                        String logType,
                                        String module,
                                        String action,
@@ -345,8 +352,8 @@ public class AuditService {
                                        String audioFileName) {
         AiOpLog opLog = new AiOpLog();
         opLog.setIdLog(UUID.randomUUID().toString().replace("-", ""));
-        opLog.setIdDevice(device == null ? null : device.getIdDevice());
-        opLog.setIdOrg(device == null ? null : device.getIdOrg());
+        opLog.setIdDevice(deviceId);
+        opLog.setIdOrg(orgId);
         opLog.setSdLogType(logType);
         opLog.setNaModule(module);
         Map<String, Object> payloadMap = asPayloadMap(payload);
@@ -383,11 +390,11 @@ public class AuditService {
             audioLogStorageService.deleteQuietly(storedAudioPath);
             if (success) {
                 log.error("audit system log save failed for successful operation. logType={}, module={}, action={}, deviceId={}",
-                    logType, module, action, device == null ? null : device.getIdDevice(), ex);
+                    logType, module, action, deviceId, ex);
                 throw new BusinessException("AUDIT-PERSIST-FAILED", "审计日志写入失败，请稍后重试；如持续出现，请联系管理员查看日志");
             }
             log.error("audit system log save failed for failed operation. logType={}, module={}, action={}, deviceId={}",
-                logType, module, action, device == null ? null : device.getIdDevice(), ex);
+                logType, module, action, deviceId, ex);
         }
     }
 

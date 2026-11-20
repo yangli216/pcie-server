@@ -7,3 +7,7 @@
 住院病历日志基线包含 `c_ai_inpatient_emr_log` 与 `c_ai_inpatient_emr_log_event`，其列、非空约束、外键、注释和 7 个索引与当前 GaussDB PG 基线保持一致；轮次、事件 ID 与事件序号分别由唯一索引约束。该完整初始化基线不自动迁移已存在的测试库对象，也不新增 GBase 现场迁移脚本。
 
 连接与显式验证命令、驱动来源和未完成项目见 [`deploy/gbase-postgresql/README.md`](../../../../../../deploy/gbase-postgresql/README.md)。默认 schema 回归检查实体（含继承列）、定向更新 DDL 覆盖、对象唯一及种子顺序；静态通过不代替真实空库执行。
+
+门诊模板版本行保存字段书写配置、启停状态和修订号。既有快照按启用、修订 0 读取。现场增列由 DBA 对照本目录初始化基线执行。
+
+已有快照表的五个字段策略列可按需使用同目录的 [update_outpatient_emr_field_policy.sql](update_outpatient_emr_field_policy.sql) 增补。该脚本仅增加列，历史版本从启用、修订号 0 开始。

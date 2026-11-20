@@ -20,6 +20,13 @@ import com.regionalai.floatingball.server.modules.emrtemplate.entity.AiOutpatien
 import com.regionalai.floatingball.server.modules.emrtemplate.entity.AiOutpatientEmrTemplateSnapshot;
 import com.regionalai.floatingball.server.modules.emrtemplate.mapper.AiOutpatientEmrTemplateMappingMapper;
 import com.regionalai.floatingball.server.modules.emrtemplate.mapper.AiOutpatientEmrTemplateSnapshotMapper;
+import com.regionalai.floatingball.server.common.exception.ConflictException;
+import com.regionalai.floatingball.server.common.exception.ForbiddenException;
+import com.regionalai.floatingball.server.modules.auth.dto.AdminCurrentUser;
+import com.regionalai.floatingball.server.modules.audit.service.AuditService;
+import com.regionalai.floatingball.server.security.AdminContextHolder;
+import com.regionalai.floatingball.server.modules.emrtemplate.dto.OutpatientFieldPolicy;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,14 +61,26 @@ class OutpatientEmrTemplateSnapshotServiceTest {
     @Mock
     private AiOutpatientEmrTemplateMappingMapper mappingMapper;
 
+    @Mock
+    private AuditService auditService;
+
     private ObjectMapper objectMapper;
     private OutpatientEmrTemplateSnapshotService service;
 
     @BeforeEach
     void setUp() {
+        AdminCurrentUser admin = new AdminCurrentUser();
+        admin.setIdOrg("ORG001");
+        admin.setIdUser("SYN-ADMIN");
+        AdminContextHolder.set(admin);
         objectMapper = new ObjectMapper()
             .setSerializationInclusion(JsonInclude.Include.NON_NULL);
-        service = new OutpatientEmrTemplateSnapshotService(snapshotMapper, mappingMapper, objectMapper, new OutpatientEmrTemplateDecodeService(objectMapper));
+        service = new OutpatientEmrTemplateSnapshotService(snapshotMapper, mappingMapper, objectMapper, new OutpatientEmrTemplateDecodeService(objectMapper), auditService);
+    }
+
+    @AfterEach
+    void clearAdmin() {
+        AdminContextHolder.clear();
     }
 
     @Test
@@ -633,6 +652,200 @@ class OutpatientEmrTemplateSnapshotServiceTest {
 
         assertTrue(error.getMessage().contains("空值必须使用 null"));
         verify(snapshotMapper, never()).insert(any(AiOutpatientEmrTemplateSnapshot.class));
+    }
+
+    private ObjectNode rule(String id, long revision, String mode, String body, String extra) {
+        return objectMapper.createObjectNode().put("fieldId", id).put("expectedRevision", revision)
+            .put("generationMode", mode).putNull("meaningOverride").put("customBody", body).put("additionalConstraint", extra);
+    }
+
+    @Test
+    void remappingAFullTextChiefComplaintKeepsItsOriginalDefaultWritingTask() throws Exception {
+        AiOutpatientEmrTemplateSnapshot row = snapshotEntity(validRequest());
+        String id = row.getIdSnapshot();
+        when(snapshotMapper.selectById(id)).thenReturn(row);
+        OutpatientFieldPolicy.Detail automatic = service.get(id).getFields().get(0);
+        when(mappingMapper.selectList(any())).thenReturn(Collections.singletonList(mapping(id, "chiefComplaint", "physicalExam", "direct")));
+        OutpatientFieldPolicy.Detail mapped = service.get(id).getFields().get(0);
+        assertEquals("physicalExam", mapped.getOriginalField().getRecordField());
+        assertEquals("manual-override", mapped.getOriginalField().getMappingSource());
+        assertEquals(automatic.getDefaultMeaning(), mapped.getDefaultMeaning());
+        assertEquals(automatic.getDefaultBody(), mapped.getDefaultBody());
+        assertEquals(automatic.getEffective().getResolvedPrompt(), mapped.getEffective().getResolvedPrompt());
+        assertTrue(mapped.getDefaultBody().contains("持续时间"));
+    }
+
+    @Test
+    void scopedRulesSurviveMappingEditsDisableAndDeleteWithoutChangingTheSource() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest source = validRequest();
+        AiOutpatientEmrTemplateSnapshot row = snapshotEntity(source);
+        String original = row.getParseResultJson();
+        when(snapshotMapper.selectById(row.getIdSnapshot())).thenReturn(row);
+        when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(row));
+        OutpatientEmrTemplateSnapshotResolveRequest query = validResolveRequest(source);
+        query.setSchemaVersion("outpatient-emr-template-pair-resolve.v2");
+        String id = row.getIdSnapshot();
+        ObjectNode edit = rule("chiefComplaint", 0, "ai", "只填写症状名称", "保留原话");
+        assertTrue(service.draftRule(id, edit).get("resolvedPrompt").toString().contains("保留原话"));
+        assertEquals(0L, service.get(id).getRevision().longValue());
+        OutpatientEmrTemplateSnapshotVO saved = service.saveRule(id, edit);
+        assertEquals(1L, saved.getRevision().longValue());
+        OutpatientFieldPolicy.Field effective = saved.getFields().get(0).getEffective();
+        assertEquals("custom", effective.getPromptSource());
+        assertEquals(2, effective.getResolvedPrompt().split("保留原话", -1).length);
+        assertEquals(effective.getResolvedPrompt(), objectMapper.valueToTree(service.resolve(device(), query))
+            .at("/fieldPolicy/fields/0/resolvedPrompt").asText());
+        assertThrows(ConflictException.class, () -> service.saveRule(id, edit));
+        assertEquals(1L, service.saveRule(id, edit.put("expectedRevision", 1)).getRevision().longValue());
+        assertThrows(ConflictException.class, () -> service.resolve(device(), validResolveRequest(source)));
+        OutpatientEmrTemplateMappingRequest mapping = mappingRequest("chiefComplaint", "unmapped", null, null);
+        mapping.setExpectedRevision(1L);
+        assertEquals("custom", service.updateMapping(id, mapping).getFields().get(0).getEffective().getPromptSource());
+        service.saveRule(id, edit.put("expectedRevision", 2).put("generationMode", "manual_or_his"));
+        JsonNode manual = objectMapper.valueToTree(service.resolve(device(), query));
+        assertTrue(manual.at("/fieldPolicy/fields/0/resolvedPrompt").isNull());
+        assertFalse(manual.at("/fieldPolicy/fields/0/aiSuitable").asBoolean());
+        assertEquals("只填写症状名称", service.get(id).getFields().get(0).getSettings().getCustomBody());
+        service.changeState(id, 3, "disabled");
+        assertEquals(0, objectMapper.valueToTree(service.resolve(device(), query)).at("/fieldPolicy/fields").size());
+        service.changeState(id, 4, "enabled");
+        assertFalse(service.get(id).getFields().get(0).getEffective().isAiSuitable());
+        service.changeState(id, 5, "deleted");
+        source.setSchemaVersion("outpatient-emr-template-pair-snapshot.v2");
+        when(snapshotMapper.readRevision(id)).thenReturn(6L);
+        JsonNode receipt = objectMapper.valueToTree(service.save(device(), source));
+        assertEquals("deleted", receipt.at("/fieldPolicy/templateState").asText());
+        assertTrue(receipt.path("deduplicated").asBoolean());
+        assertThrows(BusinessException.class, () -> service.changeState(id, 6, "enabled"));
+        assertEquals(original, row.getParseResultJson());
+        verify(auditService).saveAdminOperation(org.mockito.ArgumentMatchers.eq("ORG001"),
+            org.mockito.ArgumentMatchers.eq("outpatient-emr-template"), org.mockito.ArgumentMatchers.eq("deleted"),
+            org.mockito.ArgumentMatchers.argThat(log -> "SYN-ADMIN".equals(log.get("operatorId"))
+                && Long.valueOf(6).equals(log.get("revision")) && !log.containsKey("customBody")));
+    }
+
+    @Test
+    void adminRequiresOrganizationAndCannotEnableProtectedFields() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest source = validRequest();
+        source.getParseResult().getFields().get(0).setReadonly(true);
+        AiOutpatientEmrTemplateSnapshot row = snapshotEntity(source);
+        String id = row.getIdSnapshot();
+        when(snapshotMapper.selectById(id)).thenReturn(row);
+        assertThrows(BusinessException.class, () -> service.saveRule(id, rule("chiefComplaint", 0, "ai", null, null)));
+        AdminContextHolder.get().setIdOrg("OTHER");
+        assertThrows(ForbiddenException.class, () -> service.get(id));
+        AdminContextHolder.get().setIdOrg(null);
+        assertThrows(ForbiddenException.class, () -> service.get(id));
+        AdminContextHolder.clear();
+        assertThrows(ForbiddenException.class, () -> service.get(id));
+    }
+
+    @Test
+    void originalAiDeclarationAndLegacyMissingDeclarationStayDistinct() throws Exception {
+        OutpatientEmrTemplateFieldSnapshot legacy = textField();
+        legacy.setAiSuitable(false);
+        OutpatientEmrTemplateFieldSnapshot manual = textField();
+        manual.setId("manual");
+        OutpatientEmrTemplateFieldSnapshot duration = textField();
+        duration.setId("duration");
+        duration.setName("持续时间");
+        duration.setProjectionMode("section-compose");
+        String definition = "[{\"ID\":\"article-chief\",\"eles\":[{\"ID\":\"chiefComplaint\"},"
+            + "{\"ID\":\"manual\",\"AI_SUITABLE\":false},{\"ID\":\"duration\",\"AI_SUITABLE\":true}]}]";
+        OutpatientFieldRuleCompiler compiler = new OutpatientFieldRuleCompiler(objectMapper, definition,
+            Arrays.asList(legacy, manual, duration), Collections.emptyMap());
+        assertTrue(compiler.describe(legacy).getEffective().isAiSuitable());
+        assertFalse(compiler.describe(manual).getEffective().isAiSuitable());
+        assertTrue(compiler.describe(duration).getEffective().getResolvedPrompt().contains("只填数量"));
+    }
+
+    @Test
+    void splitChiefComplaintProducesMatchingAdminAndDeviceWireExamples() throws Exception {
+        String html = "<section data-id='chief' data-article='主诉' data-name='主诉'><p>"
+            + "<span data-id='symptom' data-type='text' data-name='症状名称' data-readonly='false'></span>"
+            + "<span data-id='duration' data-type='number' data-name='持续时间' data-readonly='false'></span>天</p></section>"
+            + "<section data-id='notes' data-article='备注' data-name='备注'><p>"
+            + "<span data-id='manualRemark' data-type='text' data-name='登记备注' data-readonly='false'>HIS已登记</span></p></section>";
+        String definition = "[{\"ID\":\"chief\",\"NAME\":\"主诉\",\"ARTICLE\":\"主诉\",\"eles\":["
+            + "{\"ID\":\"symptom\",\"TYPE\":\"text\",\"NAME\":\"症状名称\",\"READONLY\":false,\"VALUE\":\"\",\"TEXT\":\"\"},"
+            + "{\"ID\":\"duration\",\"TYPE\":\"number\",\"NAME\":\"持续时间\",\"READONLY\":false,\"VALUE\":\"\",\"TEXT\":\"\"}]},"
+            + "{\"ID\":\"notes\",\"NAME\":\"备注\",\"ARTICLE\":\"备注\",\"eles\":["
+            + "{\"ID\":\"manualRemark\",\"TYPE\":\"text\",\"NAME\":\"登记备注\",\"READONLY\":false,\"VALUE\":\"HIS已登记\",\"TEXT\":\"HIS已登记\"}]}]";
+        OutpatientEmrTemplateSnapshotRequest source = validRequest();
+        source.setSchemaVersion("outpatient-emr-template-pair-snapshot.v2");
+        source.setTemplateId("SYN-CHIEF");
+        source.setTemplateName("合成门诊病历");
+        source.setTemplateHtml(html);
+        source.setTemplateDefinition(definition);
+        source.setTemplateHash(sha256("outpatient-emr-template-pair.v1:" + sha256(html) + ":" + sha256(definition)));
+        OutpatientEmrTemplateFieldSnapshot symptom = splitField("symptom", "症状名称", "text");
+        OutpatientEmrTemplateFieldSnapshot duration = splitField("duration", "持续时间", "number");
+        OutpatientEmrTemplateFieldSnapshot remark = splitField("manualRemark", "登记备注", "text");
+        remark.setArticleTemplateId("notes");
+        remark.setArticleId("备注");
+        remark.setArticleName("备注");
+        remark.setArticleDefinitionName("备注");
+        remark.setRecordField(null);
+        remark.setMappingSource("unmapped");
+        remark.setProjectionMode(null);
+        remark.setBaselineValue("HIS已登记");
+        remark.setBaselineDictionaryValue("HIS已登记");
+        source.getParseResult().setFields(Arrays.asList(symptom, duration, remark));
+
+        String id = "SYN-POLICY-SNAPSHOT";
+        java.util.concurrent.atomic.AtomicReference<AiOutpatientEmrTemplateSnapshot> store = new java.util.concurrent.atomic.AtomicReference<>();
+        when(snapshotMapper.selectList(any())).thenAnswer(inv -> store.get() == null
+            ? Collections.emptyList() : Collections.singletonList(store.get()));
+        when(snapshotMapper.insert(any(AiOutpatientEmrTemplateSnapshot.class))).thenAnswer(inv -> {
+            AiOutpatientEmrTemplateSnapshot inserted = inv.getArgument(0);
+            inserted.setIdSnapshot(id);
+            inserted.setInsertTime(LocalDateTime.of(2026, 11, 19, 9, 0));
+            inserted.setUpdateTime(inserted.getInsertTime());
+            inserted.setLastReceivedAt(inserted.getInsertTime());
+            store.set(inserted);
+            return 1;
+        });
+        when(snapshotMapper.readRevision(id)).thenAnswer(inv -> store.get().getPolicyRevision());
+        when(snapshotMapper.selectById(id)).thenAnswer(inv -> store.get());
+        OutpatientEmrTemplateSnapshotResolveRequest query = validResolveRequest(source);
+        query.setSchemaVersion("outpatient-emr-template-pair-resolve.v2");
+        ObjectNode capture = objectMapper.createObjectNode();
+        capture.set("request", objectMapper.valueToTree(source));
+        capture.set("miss", objectMapper.valueToTree(service.resolve(device(), query)));
+        capture.set("firstReceipt", objectMapper.valueToTree(service.save(device(), source)));
+        capture.set("defaultAdmin", objectMapper.valueToTree(service.get(id)));
+        assertTrue(capture.at("/firstReceipt/fieldPolicy/fields/0/aiSuitable").asBoolean());
+        ObjectNode edit = rule("symptom", 0, "ai", "仅填写患者本次主症状名称。", "持续时间由相邻栏填写。");
+        capture.set("draft", objectMapper.valueToTree(service.draftRule(id, edit)));
+        capture.set("writtenAdmin", objectMapper.valueToTree(service.saveRule(id, edit)));
+        capture.set("configuredAdmin", objectMapper.valueToTree(service.saveRule(id, rule("manualRemark", 1, "manual_or_his", null, null))));
+        capture.set("configured", objectMapper.valueToTree(service.resolve(device(), query)));
+        capture.set("deduplicated", objectMapper.valueToTree(service.save(device(), source)));
+        assertEquals(capture.at("/configured/fieldPolicy"), capture.at("/deduplicated/fieldPolicy"));
+        assertEquals(capture.at("/configured/fieldPolicy/fields/0/resolvedPrompt"),
+            capture.at("/configuredAdmin/fields/0/effective/resolvedPrompt"));
+        assertTrue(capture.at("/configured/fieldPolicy/fields/2/resolvedPrompt").isNull());
+        service.changeState(id, 2, "disabled");
+        capture.set("disabled", objectMapper.valueToTree(service.resolve(device(), query)));
+        assertEquals(0, capture.at("/disabled/fieldPolicy/fields").size());
+        // The cross-repository fixture reader and the synthetic browser scenario use the exact serialized responses.
+        java.nio.file.Path evidence = java.nio.file.Paths.get("target", "outpatient-field-policy-evidence.json");
+        java.nio.file.Files.createDirectories(evidence.getParent());
+        objectMapper.writerWithDefaultPrettyPrinter().writeValue(evidence.toFile(), capture);
+    }
+
+    private OutpatientEmrTemplateFieldSnapshot splitField(String id, String name, String type) {
+        OutpatientEmrTemplateFieldSnapshot field = textField();
+        field.setId(id);
+        field.setName(name);
+        field.setType(type);
+        field.setAiSuitable(false);
+        field.setBaselineValue("");
+        field.setArticleTemplateId("chief");
+        field.setArticleId("主诉");
+        field.setMappingSource("deterministic-article");
+        field.setProjectionMode("section-compose");
+        return field;
     }
 
     private AiDevice device() {

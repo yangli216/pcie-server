@@ -919,6 +919,56 @@ SDK 只转发编码源；桌面端为显示必须收到解码内容，传输保�
 }
 ```
 
+<a id="outpatient-field-policy"></a>
+
+### 3.5.4 门诊模板字段规则协议
+
+新增设备快照外层 v2，沿用 3.5.2、3.5.3 的 POST 路径、设备 Bearer、ECDSA P-256、nonce 与认证机构。设备以请求的 `schemaVersion` 显式选择协议。模板解码、hash 公式、内层自动解析 `outpatient-emr-template-pair.v1` 和 HIS 的本地入参／回参沿用原契约。v1 的成功响应保持原严格字段集。产品行为和状态转换见[字段维护设计](docs/outpatient-emr-field-rules.md)。
+
+| 请求 | 成功响应 `data` 的完整顶层字段 |
+| --- | --- |
+| `snapshots/resolve`，`schemaVersion=outpatient-emr-template-pair-resolve.v2`，另含 `templateId, templateHash` | `schemaVersion=outpatient-emr-template-pair-resolution.v2`，另含 `cacheHit, id, templateId, templateHash, parseResult, fieldPolicy, receivedAt`。未命中时 `id, parseResult, fieldPolicy, receivedAt` 全部显式为 null。命中时全部有值。 |
+| `snapshots`，`schemaVersion=outpatient-emr-template-pair-snapshot.v2`，其余五个字段同 3.5.3 | `schemaVersion=outpatient-emr-template-pair-receipt.v2`，另含 `id, templateId, templateHash, deduplicated, parseResult, fieldPolicy, receivedAt`。新建和并发去重均返回完整有效视图，避免第一次调用漏用刚保存的配置。 |
+
+两种成功结果均以服务端同一修订读取的 `parseResult`（含有效映射）及 `fieldPolicy` 作为本次生成依据。设备上传的解析永远只有自动结果；上传人工映射、规则、患者或模型结果予以拒绝。命中、并发去重、停用和逻辑删除时均不改写不可变原文。已有快照表补齐策略列后，未维护的版本按启用、修订号 0 解析。解析字段和规则通过原始 ID 连接，启用版本中每个可恢复字段恰有一项规则。规范的 `fieldPolicy` 见[共享 JSON Schema](docs/outpatient-emr-field-policy.v1.schema.json)。
+
+以下是含两个字段的合成版本在管理员保存后的完整 `fieldPolicy` 示例。
+
+```json
+{
+  "schemaVersion": "outpatient-emr-field-policy.v1",
+  "templateState": "enabled",
+  "revision": 2,
+  "ruleSetVersion": "outpatient-emr-field-prompt.v5",
+  "fields": [
+    {
+      "fieldId": "chiefSymptom",
+      "meaning": "本次主诉的主要症状名称，时长由相邻栏承载",
+      "aiSuitable": true,
+      "generationSource": "default",
+      "promptSource": "custom",
+      "resolvedPrompt": "仅依据本次就诊资料填写主要症状名称。时长另栏填写。只输出本栏正文。",
+      "unmentionedDefault": null
+    },
+    {
+      "fieldId": "manualRemark",
+      "meaning": "医生手工补记",
+      "aiSuitable": false,
+      "generationSource": "manual-override",
+      "promptSource": "not_ai",
+      "resolvedPrompt": null,
+      "unmentionedDefault": null
+    }
+  ]
+}
+```
+
+`generationSource` 区分默认、人工维护、受保护。`promptSource=custom` 表示存在自定义正文或附加约束。仅维护字段含义时，默认生成器使用新含义，提示词来源仍为 `default`，管理端独立显示含义覆盖。AI 字段返回可直接执行的 `resolvedPrompt`，以及按字段约定接受模型 JSON null 后可使用的 `unmentionedDefault`。人工栏的两项均为 null。停用／删除版本仍是命中，返回相应 `templateState` 和空 `fields`，完整解析供原业务核对。当前规则库版本为 v5。
+
+**错误与版本共存。** 不支持的协议版本明确报错。请求身份、机构、hash 或响应整体身份错误沿用现行整次失败。个别规则缺失、重复、类型错误或无法与本次控件配对时，隔离该 ID 的模型输出，保留其原文和来源供参考，其他有效字段继续生成。规则传输失败可重试，客户端不得用旧缓存或仅凭映射恢复未知的生成权限。草稿及现有手工操作按既有授权保留。
+
+旧设备只发送 v1。在本版本无新生成覆盖且启用时可继续使用现行映射协议。有新生成覆盖、停用或删除标记时，旧设备在 v1 查询及并发登记两处都收到 HTTP 409 和标准错误包 `code=OUTPATIENT_TEMPLATE_RULES_CLIENT_UPGRADE_REQUIRED`，避免在新发起的模板任务中忽略显式关闭。新客户端访问只支持 v1 的服务端时显示版本不兼容，不静默降级。已发起的旧轮次和已交医生核对的草稿按原任务处理。部署顺序为服务端识别两种显式版本、桌面端接入 v2、再开始本机构字段维护；判定以请求契约为准。旧设备退出以机构实际升级和 HIS 联调记录为据。本设计不发布版本或启用现场配置。
+
 ### 3.6 GET `/v1/client/mappings/delta`
 
 请求参数：`version`
@@ -2664,7 +2714,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 ### 5.39.7 GET `/admin/api/outpatient-emr/templates`
 
-用途：分页查询门诊病例模板版本。管理端入口与住院侧统一命名为“门诊病例模板”，但底层仍是不可变模板对快照，不提供模板启停或删除。
+用途：分页查询门诊病例模板版本。现行接口读取不可变模板对快照。版本状态筛选、启停和逻辑删除见[门诊字段维护管理接口](#outpatient-field-admin)。
 
 请求参数：
 
@@ -2737,6 +2787,36 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 - `fieldId`：必填，必须存在于该快照
 
 成功响应返回最新详情。不存在覆盖时按幂等成功处理，不修改模板快照。
+
+<a id="outpatient-field-admin"></a>
+
+### 5.39.11 门诊字段维护和版本状态
+
+以下路径相对于 `/admin/api/outpatient-emr/templates`。复用模板管理权限，并在读写时校验管理员可管理的机构和快照。原映射接口继续独立操作；映射保存或恢复时与版本修订在同一事务更新。
+
+| 方法和路径 | 请求与响应 |
+| --- | --- |
+| `GET /` | 现有分页增加可选 `templateState=enabled/disabled/deleted`。无状态条件时显示启用、停用版本；删除记录仅在显式查询时返回。列表项增加状态、修订号、配置允许的 AI 字段数及自定义提示词数。 |
+| `GET /{idSnapshot}/field-rules` | 返回模板详情、有效解析及映射覆盖，含 `id, templateId, templateHash, templateState, revision, ruleSetVersion, fields`。字段展示原始 ID、章节、类型、只读、自动和有效映射、默认含义和默认生成类型、默认规则、已保存的四个维护值及当前生效规则。同一字段当前提示词与设备 `resolvedPrompt` 由同一函数产生。停用和删除后仍可查看已保存配置，界面标明停止执行。 |
+| `POST /{idSnapshot}/field-rules/draft` | 接受下面的候选字段配置，返回 `fieldId, revision, bodyDraft, resolvedPrompt`。以默认含义及本次候选含义拼装 `bodyDraft`，按“采用这个草稿”预览最终正文规则。无模型调用、无落库、修订号不变。 |
+| `PUT /{idSnapshot}/field-rules` | 一次替换指定字段的四个维护值。成功返回上述 GET 的最新详情。恢复默认以该维护值的明确空值或 `inherit` 提交，其余值原样保留。字段 ID 放在请求体，支持包含 `/` 的原始 ID。 |
+| `PUT /{idSnapshot}/state` | 请求 `{ "expectedRevision": 2, "templateState": "disabled" }`，目标允许 `enabled/disabled`，成功返回最新详情。 |
+| `DELETE /{idSnapshot}?expectedRevision=2` | 仅逻辑删除版本策略，保留快照、映射、配置和删除标记；重复删除按已达成返回。成功返回 `id, templateState, revision`。 |
+
+合成的保存请求如下。四个维护值均须出现；`null` 表示使用默认含义／正文或清除附加约束。
+
+```json
+{
+  "fieldId": "chiefSymptom",
+  "expectedRevision": 1,
+  "generationMode": "inherit",
+  "meaningOverride": "本次主诉的主要症状名称，时长由相邻栏承载",
+  "customBody": "仅依据本次就诊资料填写主要症状名称。",
+  "additionalConstraint": "时长另栏填写。"
+}
+```
+
+`generationMode` 接受 `inherit/ai/manual_or_his`。字段不属该版本、给受保护字段开启 AI、未知键或类型错误均返回参数错误。删除态禁止编辑；停用态可维护草稿并显式启用。写请求在事务内校验版本修订，发生竞争时返回 HTTP 409、`code=OUTPATIENT_TEMPLATE_REVISION_CONFLICT`；管理员重读详情后核对。一次保存失败不改变任何字段，其他机构或其他 hash 的记录不受影响。审计关联机构、快照、字段、操作者、动作和修订号。
 
 ### 5.40 GET `/admin/api/data-packages`
 用途：分页查询数据包列表。

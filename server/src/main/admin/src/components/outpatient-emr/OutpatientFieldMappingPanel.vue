@@ -4,7 +4,7 @@
       <el-input
         v-model.trim="keyword"
         clearable
-        placeholder="搜索字段 ID、名称、章节或标准字段…"
+        placeholder="搜索字段、含义或提示词…"
         class="mapping-filter-bar__search"
         prefix-icon="el-icon-search"
       />
@@ -21,13 +21,12 @@
         <el-option label="AI 字段" value="ai" />
         <el-option label="字典字段" value="dictionary" />
       </el-select>
-      <div class="mapping-filter-bar__quick" aria-label="常用过滤">
-        <span>常用过滤</span>
-        <el-button size="mini" plain :type="mappingFilter === 'all' ? 'primary' : ''" @click="applyQuickFilter('all')">全部</el-button>
-        <el-button size="mini" plain :type="mappingFilter === 'automatic' ? 'primary' : ''" @click="applyQuickFilter('automatic')">自动映射</el-button>
-        <el-button size="mini" plain :type="mappingFilter === 'overridden' ? 'primary' : ''" @click="applyQuickFilter('overridden')">人工维护</el-button>
-        <el-button size="mini" plain :type="mappingFilter === 'pending' ? 'primary' : ''" @click="applyQuickFilter('pending')">待映射</el-button>
-      </div>
+      <el-select v-model="generation" aria-label="生成类型" class="mapping-filter-bar__select">
+        <el-option label="全部生成类型" value="all" /><el-option label="AI 生成" value="ai" /><el-option label="人工/HIS" value="manual" />
+      </el-select>
+      <el-select v-model="prompt" aria-label="提示词来源" class="mapping-filter-bar__select">
+        <el-option label="全部提示词" value="all" /><el-option label="已维护" value="custom" /><el-option label="默认待维护" value="default" /><el-option label="非 AI" value="not_ai" />
+      </el-select>
       <span class="mapping-filter-bar__count">显示 {{ filteredFields.length }} / {{ fields.length }} 个字段</span>
     </div>
 
@@ -38,18 +37,11 @@
       class="mapping-table"
       aria-label="门诊病例模板字段映射"
     >
-      <el-table-column label="字段 ID" min-width="170" show-overflow-tooltip>
-        <template slot-scope="{ row }">
-          <code-tag class="mapping-code-tag" :value="row.id" />
-        </template>
+      <el-table-column label="原始字段 / 章节" min-width="160" show-overflow-tooltip>
+        <template slot-scope="{ row }"><div class="mapping-primary-cell"><strong>{{ row.name }}</strong><span>{{ row.articleName }}</span><code-tag :value="row.id" /></div></template>
       </el-table-column>
-      <el-table-column label="字段名称 / 章节" min-width="210" show-overflow-tooltip>
-        <template slot-scope="{ row }">
-          <div class="mapping-primary-cell">
-            <strong>{{ row.name }}</strong>
-            <span>{{ row.articleName }} · {{ row.articleDefinitionName }}</span>
-          </div>
-        </template>
+      <el-table-column label="字段含义" min-width="165" show-overflow-tooltip>
+        <template slot-scope="{ row }">{{ row.policy.effective.meaning }}</template>
       </el-table-column>
       <el-table-column label="类型 / 属性" width="150">
         <template slot-scope="{ row }">
@@ -57,14 +49,6 @@
             <span>{{ row.type }}</span>
             <status-pill :tone="row.readonly ? 'muted' : 'success'" :label="row.readonly ? '只读' : '可写'" />
             <span v-if="row.dictionaryItems.length" class="mapping-field-meta__dictionary">字典 {{ row.dictionaryItems.length }}</span>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column label="自动映射" min-width="190" show-overflow-tooltip>
-        <template slot-scope="{ row }">
-          <div class="mapping-value-cell">
-            <code-tag :value="automaticRecordField(row) || '未映射'" />
-            <span>{{ mappingSourceLabel(automaticMappingSource(row)) }} · {{ projectionLabel(automaticProjectionMode(row)) }}</span>
           </div>
         </template>
       </el-table-column>
@@ -76,10 +60,11 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="110">
-        <template slot-scope="{ row }">
-          <status-pill :tone="mappingState(row).tone" :label="mappingState(row).label" />
-        </template>
+      <el-table-column label="生成类型" width="92">
+        <template slot-scope="{ row }"><status-pill :tone="row.policy.effective.aiSuitable ? 'success' : 'muted'" :label="row.policy.effective.aiSuitable ? 'AI' : '人工/HIS'" /></template>
+      </el-table-column>
+      <el-table-column label="当前生效提示词" min-width="220" show-overflow-tooltip>
+        <template slot-scope="{ row }"><template v-if="row.policy.effective.aiSuitable">{{ row.policy.effective.promptSource === 'custom' ? '已维护' : '默认' }} · {{ row.policy.effective.resolvedPrompt }}</template><span v-else>—</span></template>
       </el-table-column>
       <el-table-column label="操作" width="76" fixed="right">
         <template slot-scope="{ row }">
@@ -121,7 +106,7 @@ export default {
   },
   data() {
     return {
-      keyword: '',
+      keyword: '', generation: 'all', prompt: 'all',
       mappingFilter: 'all',
       propertyFilter: 'all'
     }
@@ -136,6 +121,9 @@ export default {
     filteredFields() {
       const keyword = String(this.keyword || '').toLowerCase()
       return this.fields.filter((field) => {
+        const rule = field.policy.effective
+        if (this.generation !== 'all' && rule.aiSuitable !== (this.generation === 'ai')) return false
+        if (this.prompt !== 'all' && this.prompt !== rule.promptSource) return false
         const override = this.overrideFor(field)
         if (this.mappingFilter === 'automatic' && (override || !field.recordField)) return false
         if (this.mappingFilter === 'overridden' && !override) return false
@@ -146,7 +134,7 @@ export default {
         if (this.propertyFilter === 'dictionary' && field.dictionaryItems.length === 0) return false
         if (!keyword) return true
         return [
-          field.id,
+          rule.meaning, rule.resolvedPrompt, field.id,
           field.name,
           field.type,
           field.articleTemplateId,

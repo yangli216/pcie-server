@@ -60,6 +60,21 @@ public class AiOutpatientEmrTemplateSnapshot extends BaseEntity {
     @TableField("mapped_field_count")
     private Integer mappedFieldCount;
 
+    @TableField("template_state")
+    private String templateState;
+
+    @TableField("policy_revision")
+    private Long policyRevision;
+
+    @TableField("field_rules_json")
+    private String fieldRulesJson;
+
+    @TableField("ai_field_count")
+    private Integer aiFieldCount;
+
+    @TableField("custom_prompt_count")
+    private Integer customPromptCount;
+
     @TableField("dt_last_received")
     private LocalDateTime lastReceivedAt;
 }

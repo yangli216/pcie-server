@@ -35,6 +35,7 @@ class OracleSchemaScriptTest {
             "update_chronic_disease_followup.sql",
             "update_chronic_disease_artifact.sql",
             "update_outpatient_emr_template_snapshot.sql",
+            "update_outpatient_emr_field_policy.sql",
             "update_inpatient_emr_logs.sql"
         ));
         assertTrue(actualSqlFiles.equals(expectedSqlFiles),
@@ -182,6 +183,7 @@ class OracleSchemaScriptTest {
             "update_chronic_disease_followup.sql",
             "update_chronic_disease_artifact.sql",
             "update_outpatient_emr_template_snapshot.sql",
+            "update_outpatient_emr_field_policy.sql",
             "update_inpatient_emr_logs.sql"
         ));
         assertTrue(actualSqlFiles.equals(expectedSqlFiles),
@@ -407,6 +409,22 @@ class OracleSchemaScriptTest {
             assertNotContains(sql, "DELETE FROM c_ai_outpatient_emr_tpl_snapshot");
             assertNotContains(sql, "UPDATE c_ai_outpatient_emr_tpl_snapshot");
             assertNotContains(sql, "INSERT INTO c_ai_outpatient_emr_tpl_snapshot");
+        }
+    }
+
+    @Test
+    void fieldPolicyUpgradeAndFreshSchemasHaveTheSameColumns() throws IOException {
+        for (String engine : Arrays.asList("oracle", "dameng", "gaussdb", "gbase-postgresql")) {
+            Path dir = Paths.get("src/main/resources/sql", engine);
+            String upgrade = readSql(dir.resolve("update_outpatient_emr_field_policy.sql"));
+            String baseline = "dameng".equals(engine) ? upgrade : readSql(dir.resolve("init.sql"));
+            for (String name : Arrays.asList("template_state", "policy_revision", "field_rules_json",
+                    "ai_field_count", "custom_prompt_count")) {
+                assertContains(upgrade, name);
+                assertContains(baseline, name);
+            }
+            assertFalse(upgrade.toUpperCase().contains("DROP "));
+            assertFalse(upgrade.toUpperCase().contains("DELETE FROM "));
         }
     }
 

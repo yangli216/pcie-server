@@ -31,6 +31,13 @@ public class OutpatientEmrTemplateSnapshotVO {
 
     private List<OutpatientEmrTemplateMappingOverrideVO> mappingOverrides;
 
+    private String templateState;
+    private Long revision;
+    private Integer aiFieldCount;
+    private Integer customPromptCount;
+    private String ruleSetVersion;
+    private List<OutpatientFieldPolicy.Detail> fields;
+
     private Integer fieldCount;
 
     private Integer writableFieldCount;

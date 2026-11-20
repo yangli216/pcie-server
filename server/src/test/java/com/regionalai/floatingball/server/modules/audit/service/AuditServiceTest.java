@@ -60,6 +60,24 @@ class AuditServiceTest {
     }
 
     @Test
+    void storesTheTemplateOperatorAndOrganizationWithoutADevice() throws Exception {
+        Map<String, Object> details = new HashMap<>();
+        details.put("operatorId", "SYN-ADMIN");
+        details.put("snapshotId", "SYN-TEMPLATE");
+        details.put("revision", 2);
+        auditService.saveAdminOperation("ORG001", "outpatient-emr-template", "field-rule-save", details);
+        ArgumentCaptor<AiOpLog> captor = ArgumentCaptor.forClass(AiOpLog.class);
+        verify(aiOpLogMapper).insert(captor.capture());
+        AiOpLog row = captor.getValue();
+        assertEquals("ADMIN", row.getSdLogType());
+        assertEquals("ORG001", row.getIdOrg());
+        assertNull(row.getIdDevice());
+        assertEquals("outpatient-emr-template", row.getNaModule());
+        assertEquals("field-rule-save", row.getOpAction());
+        assertEquals(OBJECT_MAPPER.valueToTree(details), OBJECT_MAPPER.readTree(row.getPayloadJson()));
+    }
+
+    @Test
     void listShouldRejectInvalidDateFormat() {
         BusinessException ex = assertThrows(
             BusinessException.class,
