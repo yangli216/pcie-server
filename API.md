@@ -939,7 +939,7 @@ SDK 只转发编码源；桌面端为显示必须收到解码内容，传输保�
   "schemaVersion": "outpatient-emr-field-policy.v1",
   "templateState": "enabled",
   "revision": 2,
-  "ruleSetVersion": "outpatient-emr-field-prompt.v5",
+  "ruleSetVersion": "outpatient-emr-field-prompt.v6",
   "fields": [
     {
       "fieldId": "chiefSymptom",

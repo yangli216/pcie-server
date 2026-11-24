@@ -8,7 +8,7 @@ import java.util.List;
 @Data
 @JsonInclude(JsonInclude.Include.ALWAYS)
 public class OutpatientFieldPolicy {
-    public static final String RULE_SET = "outpatient-emr-field-prompt.v5";
+    public static final String RULE_SET = "outpatient-emr-field-prompt.v6";
     private final String schemaVersion = "outpatient-emr-field-policy.v1";
     private final String ruleSetVersion = RULE_SET;
     private String templateState;

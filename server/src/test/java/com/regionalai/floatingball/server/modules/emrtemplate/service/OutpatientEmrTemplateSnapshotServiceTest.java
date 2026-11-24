@@ -676,6 +676,47 @@ class OutpatientEmrTemplateSnapshotServiceTest {
     }
 
     @Test
+    void regeneratedDraftMatchesSavedAndDeviceRuleWithSourceConflictGuard() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest source = validRequest();
+        AiOutpatientEmrTemplateSnapshot row = snapshotEntity(source);
+        String id = row.getIdSnapshot();
+        when(snapshotMapper.selectById(id)).thenReturn(row);
+        when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(row));
+        ObjectNode edit = rule("chiefComplaint", 0, "inherit", null, "医院原有的20字约束");
+        java.util.Map<String, Object> draft = service.draftRule(id, edit);
+        String body = (String) draft.get("bodyDraft");
+        assertTrue(body.contains("本次已选病种"));
+        edit.put("customBody", body);
+        String effective = service.saveRule(id, edit).getFields().get(0).getEffective().getResolvedPrompt();
+        assertEquals(draft.get("resolvedPrompt"), effective);
+        assertTrue(effective.contains("未经医生核实时返回空字符串"));
+        assertEquals(2, effective.split("医院原有的20字约束", -1).length);
+        OutpatientEmrTemplateSnapshotResolveRequest query = validResolveRequest(source);
+        query.setSchemaVersion("outpatient-emr-template-pair-resolve.v2");
+        assertEquals(effective, objectMapper.valueToTree(service.resolve(device(), query))
+            .at("/fieldPolicy/fields/0/resolvedPrompt").asText());
+    }
+
+    @Test
+    void quantityUnitAndExaminationSourcesProduceDifferentClinicalTasks() {
+        OutpatientEmrTemplateFieldSnapshot quantity = splitField("q", "时间", "text");
+        OutpatientEmrTemplateFieldSnapshot unit = splitField("u", "时间单位1", "select");
+        OutpatientEmrTemplateFieldSnapshot exam = splitField("x", "呼吸音", "text");
+        exam.setRecordField("physicalExam");
+        OutpatientFieldRuleCompiler compiler = new OutpatientFieldRuleCompiler(objectMapper, null,
+            Arrays.asList(quantity, unit, exam), Collections.emptyMap());
+        assertTrue(compiler.describe(quantity).getDefaultBody().contains("只填数量"));
+        assertTrue(compiler.describe(unit).getDefaultBody().contains("不重复数量"));
+        OutpatientEmrTemplateDictionaryItemSnapshot phase = new OutpatientEmrTemplateDictionaryItemSnapshot();
+        phase.setText("全程");
+        phase.setValue("1");
+        quantity.setDictionaryItems(Collections.singletonList(phase));
+        assertTrue(compiler.describe(quantity).getDefaultBody().contains("阶段选项只能匹配明确的阶段"));
+        assertTrue(compiler.describe(exam).getDefaultBody().contains("候选呼吸音不能作为查体所见"));
+        assertTrue(compiler.describe(exam).getEffective().getUnmentionedDefault() == null);
+    }
+
+    @Test
     void scopedRulesSurviveMappingEditsDisableAndDeleteWithoutChangingTheSource() throws Exception {
         OutpatientEmrTemplateSnapshotRequest source = validRequest();
         AiOutpatientEmrTemplateSnapshot row = snapshotEntity(source);
