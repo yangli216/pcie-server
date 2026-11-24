@@ -27,6 +27,10 @@ public class EmrQcTaskVO {
         private String status;
         private Integer score;
         private Integer findingCount;
+        private Integer highSeverityCount;
+        private String analysisId;
+        private LocalDateTime analyzedAt;
+        private String resultSource;
         private String errorCode;
         private String errorMessage;
     }

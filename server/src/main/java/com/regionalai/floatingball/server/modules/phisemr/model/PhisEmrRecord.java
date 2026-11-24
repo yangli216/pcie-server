@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 public class PhisEmrRecord {
 
     private String idMedrecdoc;
+    private String recordStatus;
     private String idTep;
     private String templateName;
     @ToString.Exclude

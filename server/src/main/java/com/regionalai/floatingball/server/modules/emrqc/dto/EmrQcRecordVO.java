@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 public class EmrQcRecordVO {
 
     private String idMedrecdoc;
+    private String recordStatus;
     private String templateName;
     private String patientName;
     private String gender;

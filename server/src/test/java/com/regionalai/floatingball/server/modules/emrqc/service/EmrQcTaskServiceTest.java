@@ -148,6 +148,9 @@ class EmrQcTaskServiceTest {
         EmrQcAnalysisVO success = new EmrQcAnalysisVO();
         success.setScore(82);
         success.setFindingCount(5);
+        success.setHighSeverityCount(1);
+        success.setAnalysisId("ANALYSIS-CURRENT");
+        success.setResultSource("ai");
         when(emrQcService.analyzeForTask(any(), org.mockito.ArgumentMatchers.argThat(r -> r != null && "A".equals(r.getIdMedrecdoc())), eq(false))).thenReturn(success);
         when(emrQcService.analyzeForTask(any(), org.mockito.ArgumentMatchers.argThat(r -> r != null && "B".equals(r.getIdMedrecdoc())), eq(false)))
             .thenThrow(new ServiceUnavailableException("EMR-PHIS-UNAVAILABLE", "PHIS 服务读取超时"));
@@ -166,6 +169,10 @@ class EmrQcTaskServiceTest {
         assertTrue(task.getFinishedAt() != null);
         verify(emrQcService, org.mockito.Mockito.times(1)).requireRecord(any(), eq("A"));
         verify(emrQcService, org.mockito.Mockito.times(1)).requireRecord(any(), eq("B"));
+        com.fasterxml.jackson.databind.JsonNode items = new ObjectMapper().readTree(saved.get().getItemsJson());
+        assertEquals(1, items.get(0).path("highSeverityCount").asInt());
+        assertEquals("ANALYSIS-CURRENT", items.get(0).path("analysisId").asText());
+        assertEquals("ai", items.get(0).path("resultSource").asText());
         verify(auditService).record(any(), eq("batch_analyze"), isNull(), anyString(), eq("queued"));
     }
 

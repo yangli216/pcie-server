@@ -259,6 +259,10 @@ public class EmrQcTaskService {
             result.setStatus("succeeded");
             result.setScore(analysis.getScore());
             result.setFindingCount(analysis.getFindingCount());
+            result.setHighSeverityCount(analysis.getHighSeverityCount());
+            result.setAnalysisId(analysis.getAnalysisId());
+            result.setAnalyzedAt(analysis.getAnalyzedAt());
+            result.setResultSource(analysis.getResultSource());
         } catch (RuntimeException ex) {
             result.setStatus("failed");
             result.setErrorCode(errorCode(ex));

@@ -63,9 +63,11 @@
             </el-select>
           </div>
           <div class="filter-item">
-            <div class="filter-label">质控状态</div>
-            <el-select v-model="qcStatus" size="small" aria-label="质控状态">
-              <el-option v-for="item in qcStatuses" :key="item.value" :value="item.value" :label="item.label" />
+            <div class="filter-label">病历状态</div>
+            <el-select v-model="recordStatus" size="small" aria-label="病历状态">
+              <el-option label="全部" value="all" />
+              <el-option label="草稿" value="draft" />
+              <el-option label="已完成" value="completed" />
             </el-select>
           </div>
           <div class="filter-actions">
@@ -126,16 +128,17 @@
               size="small"
               icon="el-icon-magic-stick"
               :loading="taskCreating"
-              :disabled="sessionBlocked || !selectedRows.length || (task && ['queued', 'running'].includes(task.status))"
+              :disabled="sessionBlocked || queryAnalyzing || !selectedRows.length || (task && ['queued', 'running'].includes(task.status))"
               @click="createBatchTask"
             >
-              批量质控{{ selectedRows.length ? `（${selectedRows.length}）` : '' }}
+              重新质控所选{{ selectedRows.length ? `（${selectedRows.length}）` : '' }}
             </el-button>
           </div>
         </div>
         <el-alert v-if="listError" :title="listError" type="error" :closable="false" show-icon />
-        <div v-if="applied.qcStatus === 'analyzed'" class="emr-qc-page__hint">
-          已质控列表来自本地快照，请从“全部”列表核验最新状态。旧结果信息不完整，部分筛选可能无法命中，需重新质控。
+        <div class="emr-qc-page__hint" role="status" aria-live="polite">
+          {{ queryAnalyzing ? `正在计算当前页：已完成 ${queryProcessed} / ${records.length} 份。` : '查询和翻页后自动计算当前页；历史结果不作为本次计算结果。' }}
+          <span v-if="queryError" class="emr-qc-page__error">{{ queryError }}</span>
         </div>
         <div class="emr-qc-page__table-body">
           <el-table
@@ -156,6 +159,9 @@
             <el-table-column label="科室 / 医生" min-width="140" show-overflow-tooltip>
               <template slot-scope="{ row }">{{ [row.deptName, row.doctorName].filter(Boolean).join(' / ') || '未记录' }}</template>
             </el-table-column>
+            <el-table-column label="病历状态" width="90">
+              <template slot-scope="{ row }"><status-pill :tone="row.recordStatus === 'completed' ? 'success' : 'muted'" :label="row.recordStatus === 'draft' ? '草稿' : row.recordStatus === 'completed' ? '已完成' : '待核验'" /></template>
+            </el-table-column>
             <el-table-column prop="templateName" label="文书模板" min-width="150" show-overflow-tooltip />
             <el-table-column label="就诊时间" width="128" class-name="emr-qc-page__time-cell">
               <template slot-scope="{ row }"><span :title="formatDateTime(row.visitTime)">{{ formatTimeShort(row.visitTime) }}</span></template>
@@ -163,9 +169,9 @@
             <el-table-column label="更新时间" width="128" class-name="emr-qc-page__time-cell">
               <template slot-scope="{ row }"><span :title="formatDateTime(row.updateTime)">{{ formatTimeShort(row.updateTime) }}</span></template>
             </el-table-column>
-            <el-table-column label="质控状态" width="84">
+            <el-table-column label="质控状态" width="104">
               <template slot-scope="{ row }">
-                <status-pill :tone="qcTone(row.qcStatus)" :label="row.snapshot ? '待核验' : qcLabel(row.qcStatus)" />
+                <status-pill :tone="qcTone(row.qcStatus)" :label="row.snapshot ? '待核验' : qcLabel(row.qcStatus)" :title="row.queryError" />
               </template>
             </el-table-column>
             <el-table-column label="总分" width="56" align="center">
@@ -186,15 +192,15 @@
             <el-table-column label="操作" width="116" fixed="right" class-name="emr-qc-page__actions-cell">
               <template slot-scope="{ row }">
                 <span class="emr-qc-page__row-actions">
-                  <el-button type="text" size="small" :disabled="row.snapshotIncomplete" @click="openDetail(row.idMedrecdoc)">查看</el-button>
-                  <el-button type="text" size="small" :disabled="row.snapshotIncomplete" @click="analyzeRow(row)">质控</el-button>
+                  <el-button type="text" size="small" :disabled="row.snapshotIncomplete || ['queued', 'running'].includes(row.qcStatus)" @click="openDetail(row.idMedrecdoc)">查看</el-button>
+                  <el-button type="text" size="small" :disabled="row.snapshotIncomplete || queryAnalyzing || taskCreating || Boolean(task && ['queued', 'running'].includes(task.status))" @click="analyzeRow(row)">质控</el-button>
                 </span>
               </template>
             </el-table-column>
           </el-table>
         </div>
         <div class="page-footer">
-          <admin-pagination :current.sync="current" :size.sync="size" :total="total" @change="loadData" />
+          <admin-pagination :current.sync="current" :size.sync="size" :total="total" @change="loadData(true)" />
         </div>
       </section>
     </template>
@@ -207,7 +213,7 @@
           <el-button
             size="small"
             icon="el-icon-edit-outline"
-            :disabled="!detail || !detail.qc || detail.qc.stale || detail.record.stale || detail.qc.ruleVersion !== 'emr-qc-rules-v6' || sessionBlocked || analyzing || reviewEditing || reviewing"
+            :disabled="!detail || !detail.qc || detail.qc.stale || detail.record.stale || detail.qc.ruleVersion !== 'emr-qc-rules-v6' || sessionBlocked || queryAnalyzing || Boolean(task && ['queued', 'running'].includes(task.status)) || analyzing || reviewEditing || reviewing"
             @click="reviewEditing = true"
           >{{ reviewEditing ? '调整中' : '人工调整' }}</el-button>
           <el-button
@@ -215,7 +221,7 @@
             type="primary"
             icon="el-icon-magic-stick"
             :loading="analyzing"
-            :disabled="!detail || sessionBlocked || reviewEditing || reviewing"
+            :disabled="!detail || sessionBlocked || queryAnalyzing || Boolean(task && ['queued', 'running'].includes(task.status)) || reviewEditing || reviewing"
             @click="analyzeDetail(true)"
           >
             {{ detail && detail.qc ? '重新质控' : '立即质控' }}
@@ -224,6 +230,7 @@
       </div>
 
       <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon />
+      <el-alert v-if="detailQueryError" :title="detailQueryError" type="warning" :closable="false" show-icon />
       <template v-if="detail">
         <div v-if="detail.record.stale || (detail.qc && detail.qc.stale)" class="emr-qc-page__stale" role="alert">
           {{ detail.qc && detail.qc.staleReason === 'snapshot_unverified' ? '当前结果来自本地快照，请从“全部”列表打开病历以核验最新状态。' : '病历已更新，质控结果可能过期，建议重新质控。' }}
@@ -304,6 +311,7 @@ import { assistantLogDateRange } from '../utils/assistantLogDates'
 import { formatDateTime } from '../utils/admin'
 import { clearAdminAuth } from '../utils/auth'
 import { isWithinOneCalendarYear } from '../utils/emrQcDateRange'
+import { applyQueryItems, pendingQueryRows, queryTaskItems, runPageQuery } from '../utils/emrQcQuery'
 import { decorateEmrHtmlPreview, findingUsesStructuredPreview, normalizeEmrText, resolveFindingTarget } from '../utils/emrQcResults'
 import EmrQcResultPanel from '../components/emr-qc/EmrQcResultPanel.vue'
 
@@ -332,16 +340,15 @@ export default {
       patientName: '',
       doctorUserId: '',
       doctorOptions: [],
-      qcStatus: 'all',
+      recordStatus: 'all',
+      queryAnalyzing: false,
+      queryError: '',
+      querySequence: 0,
       timeOptions: [
         { value: 'day', label: '本日' },
         { value: 'week', label: '本周' },
         { value: 'month', label: '本月' },
         { value: 'custom', label: '自定义' }
-      ],
-      qcStatuses: [
-        { value: 'all', label: '全部' },
-        { value: 'analyzed', label: '已质控' }
       ],
       session: null,
       sessionError: '',
@@ -359,11 +366,13 @@ export default {
       taskLoading: false,
       taskCreating: false,
       taskSequence: 0,
+      taskApplySequence: -1,
       pollTimer: null,
       detailOpen: false,
       detail: null,
       detailLoading: false,
       detailError: '',
+      detailQueryError: '',
       detailSequence: 0,
       analyzing: false,
       reviewEditing: false,
@@ -374,6 +383,9 @@ export default {
     }
   },
   computed: {
+    queryProcessed() {
+      return this.records.filter(row => ['succeeded', 'failed'].includes(row.queryState)).length
+    },
     sessionBlocked() {
       return Boolean(this.sessionError) || !this.session || !this.session.available
     },
@@ -409,7 +421,6 @@ export default {
   },
   mounted() {
     this.loadSession()
-    this.search()
     this.handleWindowResize = () => {
       if (this.$refs.recordTable) {
         this.$refs.recordTable.doLayout()
@@ -420,6 +431,7 @@ export default {
   beforeDestroy() {
     window.removeEventListener('resize', this.handleWindowResize)
     this.listSequence++
+    this.querySequence++
     this.detailSequence++
     this.taskSequence++
     if (this.pollTimer) {
@@ -477,7 +489,10 @@ export default {
         this.session = await fetchSession()
         if (this.session && this.session.available) {
           this.loadDoctors()
-          this.loadLatestTask()
+          const range = this.resolveRange()
+          this.applied = { ...range, qcStatus: 'all', recordStatus: this.recordStatus }
+          await this.loadData(false)
+          await this.loadLatestTask(true)
         }
       } catch (error) {
         this.session = null
@@ -535,10 +550,11 @@ export default {
         ...range,
         patientName: this.patientName.trim() || undefined,
         doctorUserId: this.doctorUserId || undefined,
-        qcStatus: this.qcStatus
+        qcStatus: 'all',
+        recordStatus: this.recordStatus
       }
       this.current = 1
-      this.loadData()
+      this.loadData(true)
     },
     reset() {
       this.preset = 'week'
@@ -546,11 +562,15 @@ export default {
       this.dateTo = ''
       this.patientName = ''
       this.doctorUserId = ''
-      this.qcStatus = 'all'
+      this.recordStatus = 'all'
       this.search()
     },
-    async loadData() {
+    async loadData(autoAnalyze = false) {
       const sequence = ++this.listSequence
+      const querySequence = ++this.querySequence
+      this.queryAnalyzing = false
+      this.queryError = ''
+      const previous = new Map(this.records.map(row => [row.idMedrecdoc, row]))
       this.loading = true
       this.listError = ''
       this.records = []
@@ -560,10 +580,18 @@ export default {
         if (sequence !== this.listSequence) {
           return
         }
-        this.records = data.records || []
+        this.records = pendingQueryRows(data.records || [])
+        if (!autoAnalyze) {
+          this.records = this.records.map(row => {
+            const old = previous.get(row.idMedrecdoc)
+            return old && old.queryState === 'succeeded' && old.updateTime === row.updateTime
+              ? { ...row, ...old } : { ...row, qcStatus: 'pending' }
+          })
+        }
         this.total = data.total || 0
         this.current = data.current || this.current
         this.size = data.size || this.size
+        if (autoAnalyze && this.records.length) this.startQueryAnalysis(querySequence)
       } catch (error) {
         if (sequence === this.listSequence) {
           this.listError = error.message
@@ -575,24 +603,51 @@ export default {
         }
       }
     },
+    applyTaskItems(task) {
+      this.records = applyQueryItems(this.records, queryTaskItems(task))
+    },
+    async startQueryAnalysis(sequence) {
+      this.queryAnalyzing = true
+      try {
+        await runPageQuery({ records: this.records, createTask, fetchTask,
+          isCurrent: () => sequence === this.querySequence,
+          onTask: task => { this.task = task; this.taskApplySequence = -1 },
+          onItems: items => { this.records = applyQueryItems(this.records, items) }
+        })
+      } catch (error) {
+        if (sequence !== this.querySequence) return
+        this.queryError = error.message
+        this.records = applyQueryItems(this.records, this.records
+          .filter(row => !['succeeded', 'failed'].includes(row.queryState))
+          .map(row => ({ idMedrecdoc: row.idMedrecdoc, status: 'failed', errorMessage: error.message })))
+        this.loadLatestTask()
+      } finally {
+        if (sequence === this.querySequence) this.queryAnalyzing = false
+      }
+    },
     handleSelectionChange(rows) {
       this.selectedRows = rows || []
     },
     async analyzeRow(row) {
+      const sequence = this.querySequence
       try {
         this.loading = true
-        const analysis = await analyzeRecord(row.idMedrecdoc, false)
+        this.records = this.records.map(item => item.idMedrecdoc === row.idMedrecdoc ? pendingQueryRows([item])[0] : item)
+        const analysis = await analyzeRecord(row.idMedrecdoc, true)
         this.$message.success(
           analysis.reused ? '已复用未过期的质控结果，可在详情中查看' : `质控完成，总分 ${analysis.score}`
         )
-        await this.loadData()
+        if (sequence !== this.querySequence) return
+        this.records = applyQueryItems(this.records, [{ ...analysis, idMedrecdoc: row.idMedrecdoc, status: 'succeeded' }])
         if (this.detailOpen) {
           await this.loadDetail(this.detail.record.idMedrecdoc)
         }
       } catch (error) {
+        if (sequence === this.querySequence) this.records = applyQueryItems(this.records,
+          [{ idMedrecdoc: row.idMedrecdoc, status: 'failed', errorMessage: error.message }])
         this.$message.error(error.message)
       } finally {
-        this.loading = false
+        if (sequence === this.querySequence) this.loading = false
       }
     },
     async openDetail(idMedrecdoc) {
@@ -607,11 +662,14 @@ export default {
       this.activeFindingKey = null
       this.activeTarget = null
       this.detailError = ''
+      this.detailQueryError = ''
       this.detailLoading = true
       try {
         const detail = await fetchDetail(idMedrecdoc)
         if (sequence === this.detailSequence) {
-          this.detail = detail
+          const row = this.records.find(item => item.idMedrecdoc === idMedrecdoc)
+          this.detailQueryError = row && row.queryState !== 'succeeded' ? row.queryError || '本次查询尚未取得质控结果，可重新质控。' : ''
+          this.detail = row && row.queryState !== 'succeeded' ? { ...detail, qc: null } : detail
           this.showSections = !detail.htmlPreview
         }
       } catch (error) {
@@ -634,7 +692,7 @@ export default {
       this.detail = null
       this.activeFindingKey = null
       this.activeTarget = null
-      this.loadData()
+      // Returning to the list preserves the current query and never creates another batch.
     },
     async analyzeDetail(force) {
       if (force && this.detail && this.detail.qc && this.detail.qc.resultSource === 'manual') {
@@ -646,7 +704,9 @@ export default {
       this.analyzing = true
       try {
         const analysis = await analyzeRecord(this.detail.record.idMedrecdoc, force)
+        this.detailQueryError = ''
         this.detail = { ...this.detail, qc: analysis, record: { ...this.detail.record, stale: Boolean(analysis.stale) } }
+        this.records = applyQueryItems(this.records, [{ ...analysis, idMedrecdoc: this.detail.record.idMedrecdoc, status: 'succeeded' }])
         this.activeFindingKey = null
         this.activeTarget = null
         this.$message.success(
@@ -671,6 +731,8 @@ export default {
         this.records = this.records.map(row => row.idMedrecdoc === this.detail.record.idMedrecdoc
           ? {
               ...row,
+              queryState: 'succeeded',
+              qcStatus: 'analyzed',
               score: analysis.score,
               findingCount: analysis.findingCount,
               highSeverityCount: analysis.highSeverityCount,
@@ -694,8 +756,12 @@ export default {
         return
       }
       this.taskCreating = true
+      const sequence = this.querySequence
       try {
-        const created = await createTask(this.selectedRows.map(row => row.idMedrecdoc), false)
+        const ids = this.selectedRows.map(row => row.idMedrecdoc)
+        const created = await createTask(ids, true)
+        this.taskApplySequence = sequence
+        if (sequence === this.querySequence) this.records = this.records.map(row => ids.includes(row.idMedrecdoc) ? pendingQueryRows([row])[0] : row)
         this.$message.success(`已创建批量质控任务，共 ${created.total} 份`)
         this.selectedRows = []
         if (this.$refs.recordTable) {
@@ -708,12 +774,16 @@ export default {
         this.taskCreating = false
       }
     },
-    async loadLatestTask() {
+    async loadLatestTask(restoreRows = false) {
+      const sequence = this.querySequence
       try {
         const task = await fetchLatestTask()
+        if (sequence !== this.querySequence) return
         if (task) {
           this.task = task
           if (task.status === 'queued' || task.status === 'running') {
+            this.taskApplySequence = restoreRows ? this.querySequence : -1
+            if (this.taskApplySequence === this.querySequence) this.applyTaskItems(task)
             this.scheduleTaskPoll(task.taskId, 2000)
           }
         }
@@ -730,10 +800,9 @@ export default {
           return
         }
         this.task = task
+        if (this.taskApplySequence === this.querySequence) this.applyTaskItems(task)
         if (task.status === 'queued' || task.status === 'running') {
           this.scheduleTaskPoll(taskId, 2500)
-        } else {
-          this.loadData()
         }
       } catch (error) {
         if (sequence === this.taskSequence) {
@@ -755,7 +824,7 @@ export default {
       }, delay)
     },
     refreshTask() {
-      if (this.task && this.task.taskId) {
+      if (!this.queryAnalyzing && this.task && this.task.taskId) {
         this.pollTask(this.task.taskId)
       }
     },
@@ -766,10 +835,11 @@ export default {
       if (status === 'stale') {
         return 'warning'
       }
+      if (status === 'failed') return 'danger'
       return 'muted'
     },
     qcLabel(status) {
-      return { pending: '待质控', analyzed: '已质控', stale: '结果过期' }[status] || '待质控'
+      return { pending: '待查询', queued: '待计算', running: '计算中', failed: '计算失败', analyzed: '已质控', stale: '结果过期' }[status] || '待质控'
     },
     taskStatusLabel(status) {
       return {

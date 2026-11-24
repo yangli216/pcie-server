@@ -36,6 +36,14 @@ public class EmrQcWriter {
             .orderByAsc("sort_no"));
     }
 
+    /** The success audit participates in the same transaction as projection and findings. */
+    @Transactional
+    public AiEmrQcRecord saveWithAudit(EmrQcDraft draft, Runnable audit) {
+        AiEmrQcRecord saved = save(draft);
+        audit.run();
+        return saved;
+    }
+
     @Transactional
     public AiEmrQcRecord save(EmrQcDraft draft) {
         AiEmrQcRecord entity = findRecord(draft.getIdOrg(), draft.getIdMedrecdoc());

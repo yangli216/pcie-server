@@ -761,7 +761,7 @@ class EmrQcServiceTest {
         when(aiClient.analyze(eq(config), any())).thenReturn(ai);
         AiEmrQcRecord saved = new AiEmrQcRecord();
         saved.setDimensionsJson("[]");
-        when(writer.save(any())).thenReturn(saved);
+        when(writer.saveWithAudit(any(), any())).thenReturn(saved);
         when(writer.findFindings(any())).thenReturn(Collections.emptyList());
 
         service.analyze(user, "A", true, "req");
@@ -771,11 +771,118 @@ class EmrQcServiceTest {
         org.assertj.core.api.Assertions.assertThat(input.getValue()).contains("姓名：已提供（已脱敏）", "身份证号：已提供（已脱敏）", "性别：女", "外阴瘙痒1个月", "月经规律，5-6/30天", "已婚已育")
             .doesNotContain("张三", "330102199001011234", "BA0001", "<p>", "secret");
         org.mockito.ArgumentCaptor<EmrQcDraft> draft = org.mockito.ArgumentCaptor.forClass(EmrQcDraft.class);
-        verify(writer).save(draft.capture());
+        verify(writer).saveWithAudit(draft.capture(), any());
         assertEquals(1, draft.getValue().getFindings().size());
         assertEquals("其他", draft.getValue().getFindings().get(0).getCategory());
         assertEquals(97, draft.getValue().getScore());
         assertEquals(EmrQcRubric.RULE_VERSION, draft.getValue().getRuleVersion());
+    }
+
+
+    @Test
+    void draftFilterIsPassedToPhisAndReturnedSeparatelyFromQualityStatus() {
+        AdminCurrentUser user = user();
+        when(sessionScope.require(user)).thenReturn(scope());
+        PhisEmrRecord draft = record("A");
+        draft.setRecordStatus("draft");
+        PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
+        page.setRecords(Collections.singletonList(draft)); page.setTotal(1);
+        when(phisClient.list(any(), any(), any(), any(), any(), any(), any(), eq(1), eq(10), eq("draft")))
+            .thenReturn(page);
+        when(recordMapper.selectList(any())).thenReturn(Collections.emptyList());
+        EmrQcRecordVO row = service.list(user, null, null, null, null, null, "all", 1, 10, null, "draft").getRecords().get(0);
+        assertEquals("draft", row.getRecordStatus());
+        assertEquals("pending", row.getQcStatus());
+        assertEquals("A", recordCache.get("s1", "A").getIdMedrecdoc());
+    }
+
+    @Test
+    void historicalSnapshotsCannotPretendToHaveCurrentRecordStatus() {
+        AdminCurrentUser user = user();
+        when(sessionScope.require(user)).thenReturn(scope());
+        assertEquals("EMR-QC-400", assertThrows(BusinessException.class,
+            () -> service.list(user, null, null, null, null, null, "analyzed", 1, 10, null, "draft")).getCode());
+        verify(recordMapper, never()).selectPage(any(), any());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"draft", "completed"})
+    void sameCurrentContentAndModelResponseKeepsExistingV6ScoreForBothStates(String status) {
+        AdminCurrentUser user = user();
+        when(sessionScope.require(user)).thenReturn(scope());
+        PhisEmrRecord record = record("A"); record.setRecordStatus(status);
+        recordCache.putAll("s1", Collections.singletonList(record));
+        ObjectNode data = objectMapper.createObjectNode().put("xmlContent", "[{\"ARTICLE\":\"现病史\",\"eles\":[{\"NAME\":\"内容\",\"TEXT\":\"咳嗽三天\"}]}]").put("htmlContent", "<p>主诉：咳嗽三天</p>");
+        when(phisClient.detail(any(), eq("A"))).thenReturn(data);
+        stubAnalysis(finding("medium", "其他", 3, false));
+        service.analyze(user, "A", true, "req");
+        org.mockito.ArgumentCaptor<EmrQcDraft> draft = org.mockito.ArgumentCaptor.forClass(EmrQcDraft.class);
+        verify(writer).saveWithAudit(draft.capture(), any());
+        assertEquals(97, draft.getValue().getScore());
+        assertEquals(9, objectMapper.valueToTree(fullDimensions()).size());
+        assertEquals("emr-qc-rules-v6", draft.getValue().getRuleVersion());
+        verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
+    }
+
+    @Test
+    void repeatedDraftSavesUseCurrentContentAndReplaceDeduplicatedFindingsAfterRepair() {
+        AdminCurrentUser user = user();
+        when(sessionScope.require(user)).thenReturn(scope());
+        PhisEmrRecord record = record("A"); record.setRecordStatus("draft");
+        recordCache.putAll("s1", Collections.singletonList(record));
+        ObjectNode content = objectMapper.createObjectNode().put("xmlContent", "[{\"ARTICLE\":\"现病史\",\"eles\":[{\"NAME\":\"内容\",\"TEXT\":\"咳嗽三天\"}]}]").put("htmlContent", "<p>现病史：咳嗽；主诉未填写</p>");
+        when(phisClient.detail(any(), eq("A"))).thenAnswer(inv -> content.deepCopy());
+        com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config = new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
+        config.setModel("fake"); config.setBaseUrl("https://model.invalid"); when(configService.resolveByScope(eq("ORG001"), isNull())).thenReturn(config);
+        when(aiClient.analyze(eq(config), any())).thenAnswer(inv -> {
+            EmrQcAiClient.Result ai = new EmrQcAiClient.Result(); ai.setDimensions(fullDimensions());
+            ai.setFindings(inv.<String>getArgument(1).contains("主诉未填写")
+                ? Arrays.asList(finding("medium", "主诉", 5, false), finding("medium", "主诉", 5, false))
+                : Collections.emptyList()); return ai;
+        });
+        AiEmrQcRecord saved = new AiEmrQcRecord(); saved.setDimensionsJson("[]");
+        when(writer.saveWithAudit(any(), any())).thenReturn(saved);
+        service.analyze(user, "A", true, "first");
+        content.put("htmlContent", "<p>主诉：咳嗽三天；现病史：咳嗽三天</p>");
+        service.analyze(user, "A", true, "repaired");
+        org.mockito.ArgumentCaptor<EmrQcDraft> drafts = org.mockito.ArgumentCaptor.forClass(EmrQcDraft.class);
+        verify(writer, org.mockito.Mockito.times(2)).saveWithAudit(drafts.capture(), any());
+        assertEquals(1, drafts.getAllValues().get(0).getFindings().size());
+        assertEquals(95, drafts.getAllValues().get(0).getScore());
+        assertEquals(0, drafts.getAllValues().get(1).getFindings().size());
+        assertEquals(100, drafts.getAllValues().get(1).getScore());
+        org.junit.jupiter.api.Assertions.assertNotEquals(drafts.getAllValues().get(0).getContentHash(), drafts.getAllValues().get(1).getContentHash());
+        org.junit.jupiter.api.Assertions.assertNotEquals(drafts.getAllValues().get(0).getAnalysisId(), drafts.getAllValues().get(1).getAnalysisId());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void refusesResultsIfContentOrTimestampChangesWhileAiIsRunning(boolean timestampOnly) {
+        AdminCurrentUser user = user(); when(sessionScope.require(user)).thenReturn(scope());
+        recordCache.putAll("s1", Collections.singletonList(record("A")));
+        ObjectNode before = objectMapper.createObjectNode().put("xmlContent", "[{\"ARTICLE\":\"现病史\",\"eles\":[{\"NAME\":\"内容\",\"TEXT\":\"咳嗽三天\"}]}]").put("htmlContent", "<p>主诉：咳嗽三天</p>")
+            .put("updateTime", "2026-11-23 10:00:00");
+        ObjectNode after = before.deepCopy();
+        if (timestampOnly) after.put("updateTime", "2026-11-23 10:01:00");
+        else after.put("htmlContent", "<p>主诉：头痛一天</p>");
+        when(phisClient.detail(any(), eq("A"))).thenReturn(before, after);
+        com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config = new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
+        config.setModel("fake"); config.setBaseUrl("https://model.invalid"); when(configService.resolveByScope(eq("ORG001"), isNull())).thenReturn(config);
+        EmrQcAiClient.Result ai = new EmrQcAiClient.Result(); ai.setDimensions(fullDimensions()); ai.setFindings(Collections.emptyList());
+        when(aiClient.analyze(eq(config), any())).thenReturn(ai);
+        assertEquals("EMR-QC-CONFLICT", assertThrows(ConflictException.class,
+            () -> service.analyze(user, "A", true, "req")).getCode());
+        verify(writer, never()).saveWithAudit(any(), any());
+        verify(auditService).record(any(), eq("analyze"), eq("A"), isNull(), eq("failed"));
+    }
+
+    private void stubAnalysis(EmrQcAnalysisVO.Finding finding) {
+        com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config = new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
+        config.setModel("fake"); config.setBaseUrl("https://model.invalid"); when(configService.resolveByScope(eq("ORG001"), isNull())).thenReturn(config);
+        EmrQcAiClient.Result ai = new EmrQcAiClient.Result(); ai.setDimensions(fullDimensions()); ai.setFindings(Collections.singletonList(finding));
+        when(aiClient.analyze(eq(config), any())).thenReturn(ai);
+        AiEmrQcRecord saved = new AiEmrQcRecord(); saved.setDimensionsJson("[]");
+        when(writer.saveWithAudit(any(), any())).thenReturn(saved);
     }
 
     private EmrQcAnalysisVO.Finding finding(String severity, String category, int deduction, boolean ignored) {

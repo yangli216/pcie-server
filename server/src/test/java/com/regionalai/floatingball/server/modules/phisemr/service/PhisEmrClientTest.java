@@ -69,7 +69,7 @@ class PhisEmrClientTest {
     }
 
     @Test
-    void listUsesHospitalWideCompletedOutpatientQueryWithinSessionOrganization() {
+    void listUsesUnifiedOutpatientQueryWithinSessionOrganization() {
         ObjectMapper mapper = new ObjectMapper();
         AdminSecurityProperties security = new AdminSecurityProperties();
         security.getAuth().getBbp().setBaseUrl("http://127.0.0.1:8080/phis");
@@ -82,10 +82,10 @@ class PhisEmrClientTest {
             (RestTemplate) ReflectionTestUtils.getField(client, "restTemplate"));
         mock.expect(once(), requestTo("http://127.0.0.1:8080/phis/api/otms.emr.rpcHistoryRecordService/queryHistoryRecord"))
             .andExpect(method(HttpMethod.POST))
-            .andExpect(content().json("[{\"idApp\":\"42\",\"userType\":\"0\",\"fgCheck\":\"2\",\"pageNum\":2,\"pageSize\":20,"
+            .andExpect(content().json("[{\"idApp\":\"42\",\"userType\":\"0\",\"fgCheck\":\"\",\"pageNum\":2,\"pageSize\":20,"
                 + "\"insertDept\":\"\",\"insertUser\":\"\",\"orgIdList\":[\"4061\"],"
                 + "\"deptIdList\":[],\"userIdList\":[],\"deptMapList\":[]}]"))
-            .andRespond(withSuccess("{\"code\":200,\"body\":{\"code\":200,\"data\":{\"list\":[{\"idMedrecdoc\":\"A\",\"insertUser\":\"D1\",\"createTime\":\"2026-10-27 09:00:00\"}],\"total\":17509}}}", MediaType.APPLICATION_JSON));
+            .andRespond(withSuccess("{\"code\":200,\"body\":{\"code\":200,\"data\":{\"list\":[{\"idMedrecdoc\":\"A\",\"fgCheck\":\"2\",\"insertUser\":\"D1\",\"createTime\":\"2026-10-27 09:00:00\"}],\"total\":17509}}}", MediaType.APPLICATION_JSON));
 
         PhisEmrClient.ListPage page = client.list(new BbpCookieJar(), LocalDate.of(2026, 10, 1),
             LocalDate.of(2026, 10, 27), null, null, null, "4061", 2, 20);
@@ -95,4 +95,82 @@ class PhisEmrClientTest {
         assertEquals(java.time.LocalDateTime.of(2026, 10, 27, 9, 0), page.getRecords().get(0).getCreateTime());
         mock.verify();
     }
+    @Test
+    void unifiedPaginationIncludesBothStatesAndPreservesSupplierTotal() {
+        ObjectMapper mapper = new ObjectMapper();
+        PhisEmrClient client = client(mapper);
+        MockRestServiceServer mock = MockRestServiceServer.createServer(
+            (RestTemplate) ReflectionTestUtils.getField(client, "restTemplate"));
+        mock.expect(requestTo("http://127.0.0.1:8080/phis/api/otms.emr.rpcHistoryRecordService/queryHistoryRecord"))
+            .andExpect(content().json("[{\"idApp\":\"42\",\"userType\":\"0\",\"fgCheck\":\"\",\"pageNum\":3,\"pageSize\":100,\"orgIdList\":[\"4061\"]}]"))
+            .andRespond(withSuccess("{\"code\":200,\"body\":{\"data\":{\"list\":[{\"idMedrecdoc\":\"DRAFT\",\"fgCheck\":0},{\"idMedrecdoc\":\"DONE\",\"fgCheck\":\"2\"}],\"total\":243}}}", MediaType.APPLICATION_JSON));
+        PhisEmrClient.ListPage page = client.list(new BbpCookieJar(), null, null, null, null, null, "4061", 3, 100);
+        assertEquals(243, page.getTotal());
+        assertEquals("draft", page.getRecords().get(0).getRecordStatus());
+        assertEquals("completed", page.getRecords().get(1).getRecordStatus());
+        mock.verify();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"draft,0", "completed,2"})
+    void stateFilterUsesVerifiedSupplierEnum(String filter, String upstream) {
+        ObjectMapper mapper = new ObjectMapper();
+        PhisEmrClient client = client(mapper);
+        MockRestServiceServer mock = MockRestServiceServer.createServer(
+            (RestTemplate) ReflectionTestUtils.getField(client, "restTemplate"));
+        mock.expect(requestTo("http://127.0.0.1:8080/phis/api/otms.emr.rpcHistoryRecordService/queryHistoryRecord"))
+            .andExpect(content().json("[{\"fgCheck\":\"" + upstream + "\"}]"))
+            .andRespond(withSuccess("{\"code\":200,\"body\":{\"data\":{\"list\":[{\"idMedrecdoc\":\"A\",\"fgCheck\":\"" + upstream + "\"}],\"total\":1}}}", MediaType.APPLICATION_JSON));
+        assertEquals(filter, client.list(new BbpCookieJar(), null, null, null, null, null, "4061", 1, 10, filter)
+            .getRecords().get(0).getRecordStatus());
+        mock.verify();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"null", "true", "1", "3", "0.0", "{}", "[]", "\"\"", "\"draft\""})
+    void unsupportedOrMalformedStatusFailsThePageWithoutSilentlyDroppingRows(String status) {
+        PhisEmrClient client = client(new ObjectMapper());
+        MockRestServiceServer mock = MockRestServiceServer.createServer(
+            (RestTemplate) ReflectionTestUtils.getField(client, "restTemplate"));
+        mock.expect(requestTo("http://127.0.0.1:8080/phis/api/otms.emr.rpcHistoryRecordService/queryHistoryRecord"))
+            .andRespond(withSuccess("{\"code\":200,\"body\":{\"data\":{\"list\":[{\"idMedrecdoc\":\"A\",\"fgCheck\":" + status + "}],\"total\":1}}}", MediaType.APPLICATION_JSON));
+        assertEquals("EMR-PHIS-UNAVAILABLE", assertThrows(ServiceUnavailableException.class,
+            () -> client.list(new BbpCookieJar(), null, null, null, null, null, "4061", 1, 10)).getCode());
+        mock.verify();
+    }
+
+    @Test
+    void invalidFilterIsRejectedBeforeAnUpstreamRequest() {
+        PhisEmrClient client = client(new ObjectMapper());
+        MockRestServiceServer mock = MockRestServiceServer.createServer(
+            (RestTemplate) ReflectionTestUtils.getField(client, "restTemplate"));
+        assertEquals("EMR-QC-400", assertThrows(BusinessException.class,
+            () -> client.list(new BbpCookieJar(), null, null, null, null, null, "4061", 1, 10, "signing")).getCode());
+        mock.verify();
+    }
+
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"{}", "{\"fgCheck\":2}"})
+    void missingOrFilterMismatchedStatusCannotBeAcceptedAsDraft(String row) {
+        PhisEmrClient client = client(new ObjectMapper());
+        MockRestServiceServer mock = MockRestServiceServer.createServer(
+            (RestTemplate) ReflectionTestUtils.getField(client, "restTemplate"));
+        mock.expect(requestTo("http://127.0.0.1:8080/phis/api/otms.emr.rpcHistoryRecordService/queryHistoryRecord"))
+            .andRespond(withSuccess("{\"code\":200,\"body\":{\"data\":{\"list\":[" + row + "],\"total\":1}}}", MediaType.APPLICATION_JSON));
+        assertEquals("EMR-PHIS-UNAVAILABLE", assertThrows(ServiceUnavailableException.class,
+            () -> client.list(new BbpCookieJar(), null, null, null, null, null, "4061", 1, 10, "draft")).getCode());
+        mock.verify();
+    }
+
+    private PhisEmrClient client(ObjectMapper mapper) {
+        AdminSecurityProperties security = new AdminSecurityProperties();
+        security.getAuth().getBbp().setBaseUrl("http://127.0.0.1:8080/phis");
+        OutboundSecurityProperties outbound = new OutboundSecurityProperties();
+        outbound.setAllowAllHosts(true);
+        outbound.setAllowPrivateNetwork(true);
+        return new PhisEmrClient(mapper, new AdminAuthMode(security), new EmrQcProperties(),
+            new OutboundSecurityService(outbound), new PhisContentNormalizer(mapper));
+    }
+
 }

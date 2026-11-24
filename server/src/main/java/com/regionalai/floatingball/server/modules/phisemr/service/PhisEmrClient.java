@@ -12,6 +12,7 @@ import com.regionalai.floatingball.server.modules.auth.bbp.BbpCookieJar;
 import com.regionalai.floatingball.server.modules.auth.config.AdminAuthMode;
 import com.regionalai.floatingball.server.modules.emrqc.config.EmrQcProperties;
 import com.regionalai.floatingball.server.modules.phisemr.model.PhisEmrRecord;
+import com.regionalai.floatingball.server.modules.phisemr.model.PhisRecordStatus;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -70,6 +71,13 @@ public class PhisEmrClient {
                          String hisOrgId,
                          int pageNum,
                          int pageSize) {
+        return list(cookies, dateFrom, dateTo, patientName, idCard, insertUser, hisOrgId, pageNum, pageSize, "all");
+    }
+
+    public ListPage list(BbpCookieJar cookies, LocalDate dateFrom, LocalDate dateTo,
+                         String patientName, String idCard, String insertUser, String hisOrgId,
+                         int pageNum, int pageSize, String recordStatus) {
+        PhisRecordStatus status = PhisRecordStatus.filter(recordStatus);
         ObjectNode param = objectMapper.createObjectNode();
         param.put("idApp", ID_APP_OUTPATIENT);
         param.put("idHospital", "");
@@ -78,7 +86,7 @@ public class PhisEmrClient {
         param.put("insertDept", "");
         param.put("beginDate", dateFrom == null ? "" : dateFrom.toString());
         param.put("endDate", dateTo == null ? "" : dateTo.toString());
-        param.put("fgCheck", "2");
+        param.put("fgCheck", status == null ? "" : status.getUpstream());
         param.put("insertUser", text(insertUser));
         param.put("name", text(patientName));
         param.put("idCard", text(idCard));
@@ -99,7 +107,11 @@ public class PhisEmrClient {
         }
         List<PhisEmrRecord> records = new ArrayList<PhisEmrRecord>();
         for (JsonNode item : data.path("list")) {
-            records.add(mapRecord(item));
+            PhisEmrRecord record = mapRecord(item);
+            if (status != null && !status.getValue().equals(record.getRecordStatus())) {
+                throw new ServiceUnavailableException("EMR-PHIS-UNAVAILABLE", "PHIS 返回的病历状态与筛选条件不一致");
+            }
+            records.add(record);
         }
         ListPage page = new ListPage();
         page.setRecords(records);
@@ -199,6 +211,7 @@ public class PhisEmrClient {
     private PhisEmrRecord mapRecord(JsonNode item) {
         PhisEmrRecord record = new PhisEmrRecord();
         record.setIdMedrecdoc(value(item, "idMedrecdoc"));
+        record.setRecordStatus(PhisRecordStatus.fromUpstream(item.get("fgCheck")).getValue());
         record.setIdTep(value(item, "idTep"));
         record.setTemplateName(value(item, "naMed"));
         record.setPatientName(value(item, "name"));

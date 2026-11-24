@@ -3970,7 +3970,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 ### GET `/admin/api/emr-qc/records`
 
-用途：查询 PHIS 门诊病历列表（`idApp=42`）并附带本平台最近一次质控投影。服务端固定调用上游 `queryHistoryRecord`，使用 PHIS「门诊病历查询（全院）」的 `userType=0` 和已完成状态 `fgCheck=2`；`orgIdList` 由会话作用域派生。不按登录医生固定过滤，也不固定传入登录科室，实际可见范围仍由 PHIS `tk` 会话裁剪。上游医生标识通过当前机构 BBP 人员目录唯一映射为姓名；无法匹配或目录不可用时保留原值。
+用途：查询 PHIS 门诊病历列表（`idApp=42`）并附带本平台最近一次质控投影。服务端固定调用上游 `queryHistoryRecord`，使用 PHIS「门诊病历查询（全院）」的 `userType=0` 和病历状态 `fgCheck`（`all` 传空字符串、`draft` 传 `0`、`completed` 传 `2`）；`orgIdList` 由会话作用域派生。不按登录医生固定过滤，也不固定传入登录科室，实际可见范围仍由 PHIS `tk` 会话裁剪。上游医生标识通过当前机构 BBP 人员目录唯一映射为姓名；无法匹配或目录不可用时保留原值。
 
 请求参数：
 
@@ -3982,6 +3982,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 | idCard | string | 否 | 18 位居民身份证号，仅用于上游精确查询，不落库、不回显；格式非法返回 400 |
 | doctorUserId | string | 否 | 开立医生用户 ID，必须属于当前会话的 `/doctors` 候选集；校验后原样作为上游 `insertUser`，`userIdList` 留空，不属于本机构返回 400。未填写时不限制医生，不默认收窄到当前登录人 |
 | deptName | string | 否 | 已停用；页面不提供科室筛选，非空值返回 400，避免分页结果不完整 |
+| recordStatus | string | 否 | `all`（默认）/ `draft` / `completed`，由服务端映射 PHIS 状态；与 `qcStatus=analyzed` 同用时只允许 `all`，历史快照没有当前状态 |
 | qcStatus | string | 否 | `all`（默认）按 PHIS 分页；`analyzed` 按本机构质控快照分页，含可能过期的结果；本地快照无法核验 PHIS 更新时间，需从 `all` 重新查询并打开病历核验。旧结果没有完整快照时用就诊时间近似查询、姓名掩码展示且不可操作，患者姓名、医生等筛选可能无法命中；不再支持 `pending` / `stale` 筛选 |
 | current | long | 否 | 页码，默认 1 |
 | size | long | 否 | 每页条数，默认 10；直接传给 PHIS，前端统一使用 10 / 20 / 50 / 100 |
@@ -4023,6 +4024,10 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 2. `all` 列表的 `qcStatus` 按质控投影和 PHIS `updateTime` 比较，无投影为 `pending`；有投影且时间一致为 `analyzed`，否则为 `stale`。详情另外读取正文比较 SHA-256；本地快照无法证明 PHIS 未更新，详情返回 `snapshot_unverified`，须从全部列表重新核验。质控失败只体现在单份或批量接口的错误返回中。
 3. `stale=true` 时界面提示核验或重新质控。
 4. 当前页结果用于建立当前会话的文书 ID 允许集，仅完整快照可以加入；详情与质控接口只接受该集合内的 `idMedrecdoc`。批量任务使用创建时已校验的记录快照，不因翻页失效。
+
+`records[].recordStatus` 为 `draft` / `completed`；历史快照为 `null`，不能据此推断当前病历状态。上游状态缺失、非法或返回范围外状态（如签名中）返回 503 `EMR-PHIS-UNAVAILABLE`，不会丢弃该行后伪造分页。非法筛选返回 400 `EMR-QC-400`。
+
+管理端实时查询自动按当前页分批调用 `/tasks`（每批最多 50、`force=true`），无须再点质控。任务进度刷新不会触发新分析；已有任务返回 BUSY 时提示等待，失败项不展示旧结果。AI 分析后再核验正文 hash 和更新时间，变化返回 409 `EMR-QC-CONFLICT`，不保存本次结果。单份手动分析的既有 `force` 契约仍保留。此流程不新增定时扫描、写接口或报表接口。
 
 ### GET `/admin/api/emr-qc/records/{idMedrecdoc}`
 
@@ -4249,6 +4254,8 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
   ]
 }
 ```
+
+`items[]` 的成功项同时返回 `highSeverityCount`、`analysisId`、`analyzedAt`、`resultSource`，用于实时更新当前页而不重新创建分析任务；旧任务缺少这些字段时允许为 null。失败项不得显示旧投影得分。
 
 `status` 取 `queued / running / completed / partially_completed / failed`；`items[].status` 取 `pending / succeeded / failed`。`items` 最多 50 项，不分页，不包含病历正文或完整发现明细，详情按需再调用单份接口。批次内单份失败只累计 `failed`，不影响其他病历。
 

@@ -23,18 +23,24 @@ public class EmrQcAuditService {
                        String idTask,
                        String resultStatus) {
         try {
-            AiEmrQcReviewLog entity = new AiEmrQcReviewLog();
-            entity.setIdOrg(context.getIdOrg());
-            entity.setOperatorId(context.getOperatorId());
-            entity.setOperatorName(context.getOperatorName());
-            entity.setAction(action);
-            entity.setIdMedrecdoc(idMedrecdoc);
-            entity.setIdTask(idTask);
-            entity.setRequestId(context.getRequestId());
-            entity.setResultStatus(resultStatus);
-            reviewLogMapper.insert(entity);
+            recordRequired(context, action, idMedrecdoc, idTask, resultStatus);
         } catch (Exception ex) {
             log.warn("emr qc audit log insert failed. action={}, error={}", action, ex.getMessage());
         }
+    }
+
+    /** Mandatory audit for a successful result; let the enclosing write transaction roll back on failure. */
+    public void recordRequired(EmrQcContext context, String action, String idMedrecdoc,
+                               String idTask, String resultStatus) {
+        AiEmrQcReviewLog entity = new AiEmrQcReviewLog();
+        entity.setIdOrg(context.getIdOrg());
+        entity.setOperatorId(context.getOperatorId());
+        entity.setOperatorName(context.getOperatorName());
+        entity.setAction(action);
+        entity.setIdMedrecdoc(idMedrecdoc);
+        entity.setIdTask(idTask);
+        entity.setRequestId(context.getRequestId());
+        entity.setResultStatus(resultStatus);
+        reviewLogMapper.insert(entity);
     }
 }

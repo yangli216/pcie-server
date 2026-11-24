@@ -24,7 +24,7 @@ class AdminEmrQcControllerTest {
         AdminCurrentUser user = new AdminCurrentUser();
         user.setAuthProvider("BBP");
         user.setRoles(Collections.singletonList("ORG_ADMIN"));
-        when(service.list(user, null, null, null, null, "D-1", "all", 1, 10, "内科"))
+        when(service.list(user, null, null, null, null, "D-1", "all", 1, 10, "内科", null))
             .thenReturn(new PageResponse<>(1, 10, 0, Collections.emptyList()));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminEmrQcController(
             service, mock(EmrQcTaskService.class), new BbpStatisticsScope())).build();
@@ -33,10 +33,28 @@ class AdminEmrQcControllerTest {
             mvc.perform(get("/admin/api/emr-qc/records").param("deptName", "内科")
                 .param("doctorUserId", "D-1").param("qcStatus", "all"))
                 .andExpect(status().isOk());
-            verify(service).list(user, null, null, null, null, "D-1", "all", 1, 10, "内科");
+            verify(service).list(user, null, null, null, null, "D-1", "all", 1, 10, "内科", null);
         } finally {
             AdminContextHolder.clear();
         }
+    }
+
+
+    @Test
+    void forwardsDraftFilterForAnExplicitReviewer() throws Exception {
+        EmrQcService service = mock(EmrQcService.class);
+        AdminCurrentUser user = new AdminCurrentUser();
+        user.setAuthProvider("BBP"); user.setRoles(Collections.singletonList("EMR_QC_REVIEWER"));
+        when(service.list(user, null, null, null, null, null, null, 2, 100, null, "draft"))
+            .thenReturn(new PageResponse<>(2, 100, 101, Collections.emptyList()));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminEmrQcController(
+            service, mock(EmrQcTaskService.class), new BbpStatisticsScope())).build();
+        AdminContextHolder.set(user);
+        try {
+            mvc.perform(get("/admin/api/emr-qc/records").param("recordStatus", "draft").param("current", "2").param("size", "100"))
+                .andExpect(status().isOk());
+            verify(service).list(user, null, null, null, null, null, null, 2, 100, null, "draft");
+        } finally { AdminContextHolder.clear(); }
     }
 
     @Test

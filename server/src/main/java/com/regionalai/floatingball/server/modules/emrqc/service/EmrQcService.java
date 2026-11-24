@@ -29,6 +29,7 @@ import com.regionalai.floatingball.server.modules.emrqc.entity.AiEmrQcFinding;
 import com.regionalai.floatingball.server.modules.emrqc.entity.AiEmrQcRecord;
 import com.regionalai.floatingball.server.modules.emrqc.mapper.AiEmrQcRecordMapper;
 import com.regionalai.floatingball.server.modules.phisemr.model.PhisEmrRecord;
+import com.regionalai.floatingball.server.modules.phisemr.model.PhisRecordStatus;
 import com.regionalai.floatingball.server.modules.phisemr.model.PhisEmrSection;
 import com.regionalai.floatingball.server.modules.phisemr.service.PhisContentNormalizer;
 import com.regionalai.floatingball.server.modules.phisemr.service.PhisEmrClient;
@@ -196,6 +197,14 @@ public class EmrQcService {
                                             String dateFrom, String dateTo, String patientName, String idCard,
                                             String doctorUserId, String qcStatus, long current, long size,
                                             String deptName) {
+        return list(currentUser, dateFrom, dateTo, patientName, idCard, doctorUserId, qcStatus, current, size, deptName, "all");
+    }
+
+    public PageResponse<EmrQcRecordVO> list(AdminCurrentUser currentUser,
+                                            String dateFrom, String dateTo, String patientName, String idCard,
+                                            String doctorUserId, String qcStatus, long current, long size,
+                                            String deptName, String recordStatus) {
+        PhisRecordStatus status = PhisRecordStatus.filter(recordStatus);
         ensureEnabled();
         schemaService.requireReady();
         PhisSessionScope.Scope scope = sessionScope.require(currentUser);
@@ -214,11 +223,16 @@ public class EmrQcService {
             throw new BusinessException("EMR-QC-400", "页码超出支持范围");
         }
         if ("analyzed".equals(normalizedQcStatus)) {
+            if (status != null) throw new BusinessException("EMR-QC-400", "历史质控快照无法按当前病历状态筛选，请使用实时查询");
             return listAnalyzed(currentUser, range, normalizedName, normalizedIdCard, insertUser, pageRequest);
         }
-        PhisEmrClient.ListPage upstream = phisClient.list(scope.getSession().getCookies(), range.from, range.to,
-            normalizedName, normalizedIdCard, insertUser, scope.getHisOrgId(),
-            (int) pageRequest.getCurrent(), (int) pageRequest.getSize());
+        PhisEmrClient.ListPage upstream = status == null
+            ? phisClient.list(scope.getSession().getCookies(), range.from, range.to,
+                normalizedName, normalizedIdCard, insertUser, scope.getHisOrgId(),
+                (int) pageRequest.getCurrent(), (int) pageRequest.getSize())
+            : phisClient.list(scope.getSession().getCookies(), range.from, range.to,
+                normalizedName, normalizedIdCard, insertUser, scope.getHisOrgId(),
+                (int) pageRequest.getCurrent(), (int) pageRequest.getSize(), status.getValue());
         List<PhisEmrRecord> records = upstream.getRecords();
         if (records.isEmpty() && pageRequest.getOffset() < upstream.getTotal()) {
             throw new ServiceUnavailableException("EMR-PHIS-UNAVAILABLE", "PHIS 病历列表不完整，请稍后重试");
@@ -564,9 +578,16 @@ public class EmrQcService {
             draft.setRuleVersion(EmrQcRubric.RULE_VERSION);
             draft.setAnalyzedAt(analyzedAt);
 
-            AiEmrQcRecord saved = writer.save(draft);
+            LoadedDetail verified = loadDetail(context, record, false);
+            if (!loaded.contentHash.equals(verified.contentHash)
+                    || !sameUpdateTime(loaded.updateTime, verified.updateTime)) {
+                throw new ConflictException("EMR-QC-CONFLICT", "病历在分析期间已更新，请重新查询后质控");
+            }
+            draft.setPhisUpdateTime(verified.updateTime == null ? record.getUpdateTime() : verified.updateTime);
+            AiEmrQcRecord saved = writer.saveWithAudit(draft, () ->
+                auditService.recordRequired(context, action, idMedrecdoc, null, "success"));
+            if (verified.updateTime != null) record.setUpdateTime(verified.updateTime);
             List<AiEmrQcFinding> savedFindings = writer.findFindings(analysisId);
-            auditService.record(context, action, idMedrecdoc, null, "success");
             return toAnalysisVO(saved, savedFindings, false, null, Boolean.FALSE);
         } catch (RuntimeException ex) {
             auditService.record(context, action, idMedrecdoc, null, "failed");
@@ -722,6 +743,7 @@ public class EmrQcService {
     private EmrQcRecordVO toRecordVO(PhisEmrRecord record, AiEmrQcRecord projection) {
         EmrQcRecordVO vo = new EmrQcRecordVO();
         vo.setIdMedrecdoc(record.getIdMedrecdoc());
+        vo.setRecordStatus(record.getRecordStatus());
         vo.setTemplateName(record.getTemplateName());
         vo.setPatientName(record.getPatientName());
         vo.setGender(gender(record.getGenderCode()));

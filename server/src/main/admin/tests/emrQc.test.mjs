@@ -178,3 +178,85 @@ test('keeps PHIS original layout for finding linkage whenever a safe preview exi
   assert.equal(findingUsesStructuredPreview('  '), true)
   assert.equal(findingUsesStructuredPreview(null), true)
 })
+
+// Query orchestration uses deterministic fake services and never calls a real model.
+const { applyQueryItems, pendingQueryRows, runPageQuery } = await import('../src/utils/emrQcQuery.js')
+
+test('new queries hide historical scores and failed items never restore them', () => {
+  const rows = pendingQueryRows([{ idMedrecdoc: 'A', recordStatus: 'draft', score: 99, findingCount: 1, highSeverityCount: 1 }])
+  assert.equal(rows[0].score, null)
+  assert.equal(rows[0].recordStatus, 'draft')
+  const failed = applyQueryItems(rows, [{ idMedrecdoc: 'A', status: 'failed', score: 99, errorMessage: 'session expired' }])
+  assert.equal(failed[0].score, null)
+  assert.equal(failed[0].queryError, 'session expired')
+  assert.equal(failed[0].qcStatus, 'failed')
+})
+
+test('100-row query creates two sequential forced batches, continuing after a per-record failure', async () => {
+  const records = Array.from({ length: 100 }, (_, i) => ({ idMedrecdoc: String(i) }))
+  const batches = [], events = []
+  await runPageQuery({ records, isCurrent: () => true, wait: async () => {},
+    createTask: async (ids, force) => { assert.equal(force, true); batches.push(ids); events.push(`create${batches.length}`); return { taskId: String(batches.length) } },
+    fetchTask: async id => { events.push(`fetch${id}`); return { status: 'partially_completed', items: batches[Number(id)-1].map((x,i) => ({ idMedrecdoc: x, status: i === 0 ? 'failed' : 'succeeded', score: 95 })) } },
+    onTask: () => {}, onItems: () => {} })
+  assert.deepEqual(batches.map(x => x.length), [50, 50])
+  assert.deepEqual(events, ['create1', 'fetch1', 'create2', 'fetch2'])
+})
+
+test('polling active work reads progress without creating another analysis', async () => {
+  let creates = 0, polls = 0, waits = 0
+  await runPageQuery({ records: [{ idMedrecdoc: 'A' }], isCurrent: () => true,
+    createTask: async () => { creates++; return { taskId: 'T' } },
+    fetchTask: async () => ({ status: ++polls < 3 ? 'running' : 'completed', items: [{ idMedrecdoc: 'A', status: polls < 3 ? 'pending' : 'succeeded' }] }),
+    wait: async () => { waits++ }, onTask: () => {}, onItems: () => {} })
+  assert.equal(creates, 1)
+  assert.equal(polls, 3)
+  assert.equal(waits, 2)
+})
+
+test('newer queries suppress late progress and prevent the previous next batch', async () => {
+  let current = true, creates = 0, displayed = 0
+  await runPageQuery({ records: Array.from({length: 100},(_,i) => ({ idMedrecdoc: String(i) })), isCurrent: () => current,
+    createTask: async () => { creates++; return { taskId: 'T' } },
+    fetchTask: async () => { current = false; return { status: 'completed', items: [] } },
+    onTask: () => { displayed++ }, onItems: () => { displayed++ } })
+  assert.equal(creates, 1)
+  assert.equal(displayed, 0)
+})
+
+test('cancelling while task creation is in flight does not claim that server task was cancelled', async () => {
+  let current = true, creates = 0, reads = 0
+  await runPageQuery({ records: [{ idMedrecdoc: 'A' }], isCurrent: () => current,
+    createTask: async () => { creates++; current = false; return { taskId: 'ACCEPTED' } },
+    fetchTask: async () => { reads++; }, onTask: () => {}, onItems: () => {} })
+  assert.equal(creates, 1)
+  assert.equal(reads, 0)
+})
+
+test('BUSY and polling errors stop the query without automatically retrying AI', async () => {
+  let creates = 0
+  await assert.rejects(runPageQuery({ records: [{ idMedrecdoc: 'A' }], isCurrent: () => true,
+    createTask: async () => { creates++; throw new Error('BUSY') }, fetchTask: async () => {}, onTask: () => {}, onItems: () => {} }), /BUSY/)
+  assert.equal(creates, 1)
+  await assert.rejects(runPageQuery({ records: [{ idMedrecdoc: 'A' }], isCurrent: () => true,
+    createTask: async () => ({ taskId: 'T' }), fetchTask: async () => { throw new Error('session expired') }, onTask: () => {}, onItems: () => {} }), /session expired/)
+})
+
+test('terminal interrupted tasks mark remaining items failed and preserve successful current scores', async () => {
+  let rows = pendingQueryRows([{idMedrecdoc:'A'}, {idMedrecdoc:'B'}])
+  await runPageQuery({ records: rows, isCurrent: () => true,
+    createTask: async () => ({taskId:'T'}), fetchTask: async () => ({status:'failed',items:[{idMedrecdoc:'A',status:'succeeded',score:88,findingCount:2,highSeverityCount:1},{idMedrecdoc:'B',status:'pending'}]}),
+    onTask: () => {}, onItems: items => { rows = applyQueryItems(rows, items) } })
+  assert.equal(rows[0].score, 88)
+  assert.equal(rows[0].highSeverityCount, 1)
+  assert.equal(rows[1].qcStatus, 'failed')
+  assert.equal(rows[1].score, null)
+})
+
+test('malformed or cross-batch progress cannot mark current rows successful', async () => {
+  for (const items of [[], [{idMedrecdoc:'OTHER',status:'succeeded'}]]) {
+    await assert.rejects(runPageQuery({ records:[{idMedrecdoc:'A'}],isCurrent:()=>true,
+      createTask:async()=>({taskId:'T'}),fetchTask:async()=>({status:'completed',items}),
+      onTask:()=>{},onItems:()=>assert.fail('invalid progress was displayed') }), /进度不完整/)
+  }
+})

@@ -66,12 +66,13 @@ public class AdminEmrQcController {
         @RequestParam(required = false) String doctorUserId,
         @RequestParam(required = false) String deptName,
         @RequestParam(required = false) String qcStatus,
+        @RequestParam(required = false) String recordStatus,
         @RequestParam(defaultValue = "1") long current,
         @RequestParam(defaultValue = "10") long size,
         HttpServletRequest request
     ) {
         return ApiResponse.success(
-            emrQcService.list(requireUser(), dateFrom, dateTo, patientName, idCard, doctorUserId, qcStatus, current, size, deptName),
+            emrQcService.list(requireUser(), dateFrom, dateTo, patientName, idCard, doctorUserId, qcStatus, current, size, deptName, recordStatus),
             RequestIdUtils.resolve(request));
     }
 

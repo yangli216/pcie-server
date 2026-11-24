@@ -1,5 +1,15 @@
 # 全医慧助服务端（PCIE Server）架构说明
 
+## 门诊双状态实时质控（REQ-202611-QC0001A1-CORE01，2026-11-23）
+
+`/emr-qc` 的实时查询覆盖 PHIS 门诊（`idApp=42`）草稿与已完成病历。`recordStatus=all|draft|completed` 与质控状态 `qcStatus` 分离，上游分别传 `fgCheck=""|"0"|"2"`，保留上游统一分页与总数。返回状态只接受草稿 0 / 完成 2（字符串或整数）；缺失、非法及范围外状态明确失败，不静默过滤或冒充已完成。历史质控快照没有当前病历状态，不支持按病历状态过滤。
+
+管理端每次主动查询、筛选或翻页后自动质控当前页：复用既有批量接口，`force=true`，每批最多 50，100 条页顺序分为两批，共享工作池最多 5 并发。计算中/失败不显示旧投影得分；新查询使旧页面响应失效，已启动服务端任务继续完成，未开始的后续批次不再启动。任务完成、详情返回、人工调整后的元数据刷新不再次触发自动质控；页面恢复只恢复现有任务，用户主动查询才新建批次。仅查询当前页，不宣称对完整日期范围重算；无定时扫描、医生预检或报表。
+
+AI 返回后、写入前再次读取安全处理后的正文，比较内容 SHA-256 和可获得的更新时间；变化返回 `EMR-QC-CONFLICT`，不保存本次结果。最新正文作为本次分析快照，问题集合完整替换、同问题去重；v6 九维 100 分和既有管理员/EMR_QC_REVIEWER 权限不变。记录投影、发现与成功审计在同一写事务内提交；失败不落部分结果。核验后到上游下一次修改之间仍存在跨系统时间窗口，不承诺 PHIS 原子快照。
+
+不新增数据库字段，不向医生端展示评分，不写回 PHIS。真实协议核查、测试与验收步骤见 [实施验证说明](docs/emr-qc-realtime-query.md)。
+
 ## WeKnora 机构知识服务（2026-09-30）
 
 `modules/knowledge` 增加 KnowledgeCatalogService（批准清单/机构/有效期/版本）、KnowledgeRetrievalService（统一证据映射）及 WeKnoraKnowledgeProvider（v0.8.2独立hybrid-search）。只对服务端批准的文档/片段检索并校验原文UTF-8 SHA-256，禁止父块/邻块扩展；不依赖WeKnora生成回答或沙箱，不改变公卫生成与PMPHAI。KnowledgeRetrievalProperties托管连接配置，专用HTTP客户端固定超时、禁重定向/重试、复用出站限流熔断，响应有大小上限。配置与部署见 [知识服务设计](../development-harness/KNOWLEDGE_BASE_DESIGN.md) 和 [接入说明](deploy/weknora/README.md)，无新增业务表。
@@ -181,7 +191,7 @@ pcie-server/
 1. 范围仅为 PHIS 门诊病历（`idApp=42`）的只读查询与 AI 书写质控，管理端页面路径 `/emr-qc`。不包含住院病历、PHIS 回写、打印/PDF 导出、规则或提示词配置页、独立人工复核流转和质控统计看板；2026-10-26 起支持在当前结果上直接人工调整评分与问题明细，不引入独立复核工单流。
 2. 仅 `bbp` 认证模式可用。PHIS 业务网关与 BBP 登录共用同一环境基地址（`floating-ball.admin.auth.bbp.base-url`，现场由 `FB_ADMIN_BBP_BASE_URL` 注入），服务端直接复用管理员登录时 `myRoles + myApps` 建立的进程内 `tk` Cookie 会话，不保存管理员密码，也不建立第二套 PHIS 专用账号会话。会话与 12 小时管理端令牌同生命周期且仅存于内存；进程重启或 `tk` 过期后病历接口返回稳定错误码，提示管理员重新登录后台刷新会话，不回退专用服务账号、匿名访问或本地密码。
 3. 只使用管理员 BBP 登录时已选定的角色及其 PHIS 机构/科室作用域，不在质控请求中切换角色或重新登录。不限制角色类型，是否可见病历由登录管理员的 PHIS `tk` 会话决定；角色缺少机构时以登录机构回退展示，`orgIdList` 留空交由上游按会话裁剪，不借用其他账号或扩大机构范围。
-4. 服务端固定使用 `POST {baseUrl}/api/{service}/{method}`，仅允许 `otms.emr.rpcHistoryRecordService/queryHistoryRecord`（列表）、`otms.emr.rpcHistoryRecordService/getInitDataUser`（医生候选）与 `otms.mb.rpcElectronicMedicalRecordWritingService/getMedContentPreview`（详情）。不接受前端传入 ServiceId、Method、上游路径、租户、`idApp` 或机构 ID 列表；`idApp` 固定 `42`，列表使用 PHIS 全院查询参数 `userType=0`、已完成状态 `fgCheck=2`；`orgIdList` 由会话角色派生，角色未携带机构时留空并交由 PHIS 按 `tk` 会话裁剪。医生候选使用当前会话请求 `getInitDataUser` 的 `userType=0`、空关键字，并限制为当前 BBP 机构；选择的 `userId` 必须存在于该候选集，作为上游 `insertUser` 传入。详情与质控只接受当前会话最近一次列表查询返回过的 `idMedrecdoc`，未命中的构造 ID 一律按不存在处理，避免绕过机构数据权限。
+4. 服务端固定使用 `POST {baseUrl}/api/{service}/{method}`，仅允许 `otms.emr.rpcHistoryRecordService/queryHistoryRecord`（列表）、`otms.emr.rpcHistoryRecordService/getInitDataUser`（医生候选）与 `otms.mb.rpcElectronicMedicalRecordWritingService/getMedContentPreview`（详情）。不接受前端传入 ServiceId、Method、上游路径、租户、`idApp` 或机构 ID 列表；`idApp` 固定 `42`，列表使用 PHIS 全院查询参数 `userType=0`、状态 `fgCheck`（全部空字符串、草稿 `0`、已完成 `2`）；`orgIdList` 由会话角色派生，角色未携带机构时留空并交由 PHIS 按 `tk` 会话裁剪。医生候选使用当前会话请求 `getInitDataUser` 的 `userType=0`、空关键字，并限制为当前 BBP 机构；选择的 `userId` 必须存在于该候选集，作为上游 `insertUser` 传入。详情与质控只接受当前会话最近一次列表查询返回过的 `idMedrecdoc`，未命中的构造 ID 一律按不存在处理，避免绕过机构数据权限。
 5. 只读约束：不调用 `saveMedLog`、`queryPDF`、`exportHistoryRecordPdf` 或任何签名/回写接口，不修改 PHIS 数据，不把病历 HTML 原文落盘。上游失败、超时或结构异常时明确失败，不伪造空病历或空质控结果。
 6. 所有 PHIS 出站请求经过统一出站安全门，禁止重定向并受独立超时限制；不记录 `tk`、Cookie、请求头凭据、患者姓名/身份证/病案号和上游 HTML/XML 正文。
 7. 2026-10-26 用户授权 HTML 只读预览；管理端仅以隔离 iframe 展示服务端白名单清理、脱敏后的 `htmlPreview`，原始 `htmlContent` 不返回、不执行；缺失时回退 `xmlContent` 归一化纯文章节，安全边界见 5.9.1。
