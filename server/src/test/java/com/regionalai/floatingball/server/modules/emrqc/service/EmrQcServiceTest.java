@@ -456,7 +456,7 @@ class EmrQcServiceTest {
 
         Boolean current = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
             service, "canReuse", projection, record, "hash");
-        projection.setRuleVersion("emr-qc-rules-v6");
+        projection.setRuleVersion("emr-qc-rules-v7");
         Boolean old = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
             service, "canReuse", projection, record, "hash");
 
@@ -820,7 +820,7 @@ class EmrQcServiceTest {
         verify(writer).saveWithAudit(draft.capture(), any());
         assertEquals(97, draft.getValue().getScore());
         assertEquals(9, objectMapper.valueToTree(fullDimensions()).size());
-        assertEquals("emr-qc-rules-v7", draft.getValue().getRuleVersion());
+        assertEquals("emr-qc-rules-v8", draft.getValue().getRuleVersion());
         verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
     }
 
@@ -940,6 +940,68 @@ class EmrQcServiceTest {
             .map(batch -> org.junit.jupiter.params.provider.Arguments.of(c[0], batch, c[1], c[2], c[3])));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest(name = "allergy={0}, batch={1}")
+    @org.junit.jupiter.params.provider.MethodSource("allergyAcceptanceCases")
+    void allergyEvidenceAndScoringUseSingleAndBatchChain(String text, boolean batch, String section,
+                                                        String fieldName, String code, int deduction, int expected) {
+        AdminCurrentUser user = user(); PhisEmrRecord record = record("A");
+        if (!batch) {
+            when(sessionScope.require(user)).thenReturn(scope());
+            recordCache.putAll("s1", Collections.singletonList(record));
+        }
+        com.fasterxml.jackson.databind.node.ArrayNode pages = objectMapper.createArrayNode();
+        pages.addObject().put("ARTICLE", "主诉").putArray("eles").addObject().put("NAME", "主诉").put("TEXT", "咳嗽3天");
+        pages.addObject().put("ARTICLE", section).putArray("eles").addObject().put("NAME", fieldName).put("TEXT", text);
+        when(phisClient.detail(any(), eq("A"))).thenReturn(objectMapper.createObjectNode().put("xmlContent", pages.toString()));
+        com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config = new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
+        config.setModel("fake"); config.setBaseUrl("https://model.invalid");
+        when(configService.resolveByScope(eq("ORG001"), isNull())).thenReturn(config);
+        EmrQcAiClient.Result ai = new EmrQcAiClient.Result(); ai.setDimensions(fullDimensions());
+        if (code == null) ai.setFindings(Collections.emptyList());
+        else {
+            EmrQcAnalysisVO.Finding finding = finding("low", "患者基础信息", deduction, false);
+            finding.setRuleCode(code); finding.setSectionName("既往史"); finding.setSuggestion("补充所缺类别的过敏情况，保留已有阳性过敏记录");
+            ai.setFindings(Collections.singletonList(finding));
+        }
+        when(aiClient.analyze(eq(config), any())).thenReturn(ai);
+        AiEmrQcRecord saved = new AiEmrQcRecord(); saved.setDimensionsJson("[]"); when(writer.saveWithAudit(any(), any())).thenReturn(saved);
+        if (batch) service.analyzeForTask(new EmrQcContext(user, scope(), "ORG001", "req"), record, true);
+        else service.analyze(user, "A", true, "req");
+        org.mockito.ArgumentCaptor<EmrQcDraft> draft = org.mockito.ArgumentCaptor.forClass(EmrQcDraft.class);
+        verify(writer).saveWithAudit(draft.capture(), any());
+        assertEquals(100 - expected, draft.getValue().getScore());
+        assertEquals(expected == 0 ? 0 : 1, draft.getValue().getFindings().size());
+        org.mockito.ArgumentCaptor<String> input = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(aiClient).analyze(eq(config), input.capture());
+        org.assertj.core.api.Assertions.assertThat(input.getValue()).contains("【过敏史固定字段证据】")
+            .doesNotContain("张三", "13800138000", "<");
+        if ("过敏史".equals(fieldName) && "既往史".equals(section)) {
+            org.assertj.core.api.Assertions.assertThat(input.getValue()).contains(org.springframework.util.StringUtils.hasText(text) ? "字段状态：已填写" : "字段状态：明确为空");
+        } else org.assertj.core.api.Assertions.assertThat(input.getValue()).contains("字段状态：未识别");
+    }
+
+    private static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> allergyAcceptanceCases() {
+        Object[][] cases = {
+            {"", "既往史", "过敏史", EmrQcAllergyRules.MISSING, 5, 5},
+            {"否认过敏史", "既往史", "过敏史", EmrQcAllergyRules.INCOMPLETE, 1, 1},
+            {"否认药物及食物过敏史", "既往史", "过敏史", null, 0, 0},
+            {"否认食品、药物过敏史", "既往史", "过敏史", null, 0, 0},
+            {"青霉素过敏", "既往史", "过敏史", EmrQcAllergyRules.INCOMPLETE, 1, 1},
+            {"否认药物过敏史", "既往史", "过敏史", EmrQcAllergyRules.INCOMPLETE, 1, 1},
+            {"否认家族史", "家族史", "内容", EmrQcAllergyRules.INCOMPLETE, 1, 0},
+            {"海鲜过敏", "既往史", "过敏史", EmrQcAllergyRules.INCOMPLETE, 1, 1},
+            {"青霉素及海鲜过敏", "既往史", "过敏史", null, 0, 0},
+            {"青霉素过敏，否认食物过敏史", "既往史", "过敏史", null, 0, 0},
+            {" \n ", "既往史", "过敏史", EmrQcAllergyRules.MISSING, 5, 5},
+            {"否认过敏史", "家族史", "过敏史", EmrQcAllergyRules.INCOMPLETE, 1, 0},
+            {"健康", "个人史", "内容", EmrQcAllergyRules.MISSING, 5, 0},
+            {"张三青霉素过敏，电话13800138000", "既往史", "过敏史", EmrQcAllergyRules.INCOMPLETE, 1, 1}
+        };
+        // Clinical decisions are explicit Fake inputs; these cases verify evidence routing and scoring only.
+        return java.util.Arrays.stream(cases).flatMap(c -> java.util.stream.Stream.of(false, true)
+            .map(batch -> org.junit.jupiter.params.provider.Arguments.of(c[0], batch, c[1], c[2], c[3], c[4], c[5])));
+    }
+
     private void stubAnalysis(EmrQcAnalysisVO.Finding finding) {
         com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config = new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
         config.setModel("fake"); config.setBaseUrl("https://model.invalid"); when(configService.resolveByScope(eq("ORG001"), isNull())).thenReturn(config);
@@ -1016,7 +1078,8 @@ class EmrQcServiceTest {
         PhisContentNormalizer normalizer = new PhisContentNormalizer(objectMapper);
         String content = "[{\"ARTICLE\":\"主诉\",\"eles\":[{\"NAME\":\"主诉\",\"TEXT\":\"咳嗽\"}]}]";
         projection.setContentHash(normalizer.sha256(normalizer.canonicalText(normalizer.toSections(content))
-            + "\n【主诉规则输入摘要】\n" + normalizer.sha256("咳嗽")));
+            + "\n【主诉规则输入摘要】\n" + normalizer.sha256("咳嗽")
+            + "\n【过敏史字段证据摘要】\n" + normalizer.sha256("unknown")));
         ObjectNode data = objectMapper.createObjectNode();
         data.put("xmlContent", content);
         org.mockito.Mockito.lenient().when(phisClient.detail(any(), eq("A"))).thenReturn(data);

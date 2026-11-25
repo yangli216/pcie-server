@@ -537,7 +537,8 @@ public class EmrQcService {
             EmrQcAiClient.Result aiResult = aiClient.analyze(aiConfig, aiInput(record, loaded));
 
             List<EmrQcAnalysisVO.Finding> findings = EmrQcChiefComplaintRules.merge(
-                aiResult.getFindings(), loaded.chiefComplaintFindings, loaded.hasPresentIllness);
+                EmrQcAllergyRules.withEvidence(aiResult.getFindings(), loaded.allergyFieldFilled),
+                loaded.chiefComplaintFindings, loaded.hasPresentIllness);
             EmrQcRubric.scoreFromFindings(aiResult.getDimensions(), findings);
             int calculatedScore = 0;
             for (EmrQcAnalysisVO.Dimension dimension : aiResult.getDimensions()) {
@@ -605,7 +606,7 @@ public class EmrQcService {
         if (loaded.visitTime != null) input.append("就诊时间：").append(loaded.visitTime).append('\n');
         if (StringUtils.hasText(record.getDeptName())) input.append("科室：").append(masker.maskText(record.getDeptName(), record.getPatientName(), record.getIdCard(), record.getIdArchives())).append('\n');
         if (StringUtils.hasText(loaded.templateName)) input.append("病历模板：").append(masker.maskText(loaded.templateName, record.getPatientName(), record.getIdCard(), record.getIdArchives())).append('\n');
-        return input.append("【病历章节】\n").append(loaded.maskedText).toString();
+        return input.append(loaded.allergyInput).append("【病历章节】\n").append(loaded.maskedText).toString();
     }
 
     private boolean canReuse(AiEmrQcRecord projection, PhisEmrRecord record, String contentHash) {
@@ -652,6 +653,10 @@ public class EmrQcService {
         if (presentIllness == null) presentIllness = EmrQcChiefComplaintRules.structuredField(objectMapper, xmlContent, "现病史");
         loaded.chiefComplaintFindings = EmrQcChiefComplaintRules.evaluate(complaint, record, masker);
         loaded.hasPresentIllness = StringUtils.hasText(presentIllness);
+        String allergy = previewProjection.allergyHistory;
+        if (allergy == null) allergy = EmrQcChiefComplaintRules.structuredField(objectMapper, xmlContent, "过敏史");
+        loaded.allergyFieldFilled = EmrQcAllergyRules.filled(allergy);
+        loaded.allergyInput = EmrQcAllergyRules.aiEvidence(allergy, record, masker);
         if (includePreview) loaded.htmlPreview = preview;
         String previewText = EmrQcHtmlPreview.plainTextForAi(preview, record, masker);
         loaded.maskedText = normalizer.canonicalText(maskedSections);
@@ -662,6 +667,7 @@ public class EmrQcService {
         }
         // Include the pre-redaction rule input, since canonical text collapses some user whitespace.
         hashText += "\n【主诉规则输入摘要】\n" + normalizer.sha256(complaint == null ? "" : complaint);
+        hashText += "\n【过敏史字段证据摘要】\n" + normalizer.sha256(allergy == null ? "unknown" : "field:" + allergy);
         loaded.contentHash = normalizer.sha256(hashText);
         loaded.templateName = firstText(data.path("tepName").asText(null), record.getTemplateName());
         loaded.visitTime = normalizer.parseDateTime(data.path("titleTime").asText(null));
@@ -999,6 +1005,8 @@ public class EmrQcService {
         private String maskedText;
         private List<EmrQcAnalysisVO.Finding> chiefComplaintFindings;
         private boolean hasPresentIllness;
+        private Boolean allergyFieldFilled;
+        private String allergyInput;
         private String contentHash;
         private String templateName;
         private LocalDateTime visitTime;
