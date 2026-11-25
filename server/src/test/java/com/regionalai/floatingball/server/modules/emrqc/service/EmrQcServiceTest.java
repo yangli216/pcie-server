@@ -456,7 +456,7 @@ class EmrQcServiceTest {
 
         Boolean current = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
             service, "canReuse", projection, record, "hash");
-        projection.setRuleVersion("emr-qc-rules-v6");
+        projection.setRuleVersion("emr-qc-rules-v7");
         Boolean old = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
             service, "canReuse", projection, record, "hash");
 
@@ -820,7 +820,7 @@ class EmrQcServiceTest {
         verify(writer).saveWithAudit(draft.capture(), any());
         assertEquals(97, draft.getValue().getScore());
         assertEquals(9, objectMapper.valueToTree(fullDimensions()).size());
-        assertEquals("emr-qc-rules-v7", draft.getValue().getRuleVersion());
+        assertEquals("emr-qc-rules-v9", draft.getValue().getRuleVersion());
         verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
     }
 
@@ -938,6 +938,66 @@ class EmrQcServiceTest {
         };
         return java.util.Arrays.stream(cases).flatMap(c -> java.util.stream.Stream.of(false, true)
             .map(batch -> org.junit.jupiter.params.provider.Arguments.of(c[0], batch, c[1], c[2], c[3])));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "aux={0}, batch={1}")
+    @org.junit.jupiter.params.provider.MethodSource("auxiliaryAcceptanceCases")
+    void auxiliaryRuleUsesSharedSingleAndBatchChain(String projects, boolean batch, String results, boolean fakeMissing) {
+        AdminCurrentUser user = user(); PhisEmrRecord record = record("A");
+        if (!batch) {
+            when(sessionScope.require(user)).thenReturn(scope());
+            recordCache.putAll("s1", Collections.singletonList(record));
+        }
+        com.fasterxml.jackson.databind.node.ArrayNode pages = objectMapper.createArrayNode();
+        pages.addObject().put("ARTICLE", "主诉").putArray("eles").addObject().put("NAME", "主诉").put("TEXT", "咳嗽3天");
+        pages.addObject().put("ARTICLE", "诊疗措施").putArray("eles").addObject().put("NAME", "项目与计划").put("TEXT", projects);
+        pages.addObject().put("ARTICLE", "辅助检查").putArray("eles").addObject().put("NAME", "检查结果").put("TEXT", results);
+        when(phisClient.detail(any(), eq("A"))).thenReturn(objectMapper.createObjectNode().put("xmlContent", pages.toString()));
+        com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config = new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
+        config.setModel("fake"); config.setBaseUrl("https://model.invalid"); when(configService.resolveByScope(eq("ORG001"), isNull())).thenReturn(config);
+        EmrQcAiClient.Result ai = new EmrQcAiClient.Result(); ai.setDimensions(fullDimensions());
+        if (fakeMissing) {
+            EmrQcAnalysisVO.Finding finding = finding("low", "查体与辅助检查", 5, false);
+            finding.setRuleCode(EmrQcRubric.AUX_RESULT_MISSING); finding.setIssue("辅助检查有项目但无实际结果"); finding.setSuggestion("补充病历中的检验检查结果");
+            EmrQcAnalysisVO.Finding duplicate = finding("low", "查体与辅助检查", 5, false);
+            duplicate.setRuleCode(EmrQcRubric.AUX_RESULT_MISSING); duplicate.setIssue("同一缺结果问题的另一种描述");
+            ai.setFindings(Arrays.asList(finding, duplicate));
+        } else ai.setFindings(Collections.emptyList());
+        when(aiClient.analyze(eq(config), any())).thenReturn(ai);
+        AiEmrQcRecord saved = new AiEmrQcRecord(); saved.setDimensionsJson("[]"); when(writer.saveWithAudit(any(), any())).thenReturn(saved);
+        if (batch) service.analyzeForTask(new EmrQcContext(user, scope(), "ORG001", "req"), record, true);
+        else service.analyze(user, "A", true, "req");
+        org.mockito.ArgumentCaptor<EmrQcDraft> draft = org.mockito.ArgumentCaptor.forClass(EmrQcDraft.class);
+        verify(writer).saveWithAudit(draft.capture(), any());
+        assertEquals(fakeMissing ? 95 : 100, draft.getValue().getScore());
+        assertEquals(fakeMissing ? 1 : 0, draft.getValue().getFindings().size());
+        org.mockito.ArgumentCaptor<String> input = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(aiClient).analyze(eq(config), input.capture());
+        if (!projects.isEmpty()) org.assertj.core.api.Assertions.assertThat(input.getValue()).contains(projects);
+        if (!results.isEmpty()) org.assertj.core.api.Assertions.assertThat(input.getValue()).contains(results);
+        verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
+        org.mockito.Mockito.verifyNoMoreInteractions(phisClient);
+    }
+
+    private static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> auxiliaryAcceptanceCases() {
+        Object[][] cases = {
+            {"建卡已开血常规、尿常规、肝功能、肾功能、血型、HIV、梅毒、乙肝、丙肝、血糖、心电图、B超、凝血功能共13项", "", true},
+            {"已开血常规", "导入：WBC 6.2×10^9/L", false},
+            {"已开血常规", "医生手填：WBC 6.2×10^9/L", false},
+            {"已开血常规", "血常规", true},
+            {"外送HIV、梅毒、血型", "", true},
+            {"", "", false},
+            {"已开血常规、肝功能", "血常规正常、肝功能未见异常", false},
+            {"已开血常规、肝肾功能", "血常规、肝肾功能未见异常", false},
+            {"已开血常规", "血常规待回报", true},
+            {"已开血常规", "未回报", true},
+            {"若症状持续，建议进一步复查血常规", "", false},
+            {"门诊换药", "", false},
+            {"当日已开甲状腺功能，预计次日出结果", "待回报", true}
+        };
+        // Explicit Fake decisions verify the supplied clinical context and the common scoring path.
+        return java.util.Arrays.stream(cases).flatMap(c -> java.util.stream.Stream.of(false, true)
+            .map(batch -> org.junit.jupiter.params.provider.Arguments.of(c[0], batch, c[1], c[2])));
     }
 
     private void stubAnalysis(EmrQcAnalysisVO.Finding finding) {

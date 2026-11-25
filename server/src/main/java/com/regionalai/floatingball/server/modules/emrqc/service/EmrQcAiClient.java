@@ -128,6 +128,15 @@ public class EmrQcAiClient {
             + "3.present_illness 现病史，满分20：记录本次起病的主要症状、体征（10分）；记录发病以来主要诊治经过及结果（10分）。"
             + "4.past_history 既往史，满分10：初诊应记录重要既往病史、传染病史、手术史、月经史、生育史、家族史、长期用药史等；育龄期妇女无月经史扣5分。"
             + "5.physical_exam 查体与辅助检查，满分15：记录重要辅助检查结果、阳性体征和必要阴性体征，能支持疾病诊断。"
+            + "辅助检查新增R13规则：只看电子病历本身记载的检验检查项目及辅助检查结果，不查报告系统状态。"
+            + "病历存在已开检验检查项目，而辅助检查没有实际结果时，使用ruleCode=R-AUX-RESULT-MISSING、category=查体与辅助检查、deduction=5，提示补充病历中的检查结果。"
+            + "只有项目名、‘待回报’‘未回报’都不是实际结果，不能因报告未回而豁免；辅助检查写‘血常规待回报’或‘未回报’应判为未填写结果。"
+            + "取消‘报告已回’前置条件，不区分接口导入或医生手填，不设外送、当日不出结果项目或建卡批量开单豁免。"
+            + "建卡开13项检验没有结果只列本规则一次、共扣5分，不按13项累计，不重复到其他维度。"
+            + "数值或定性结果都算实际结果，如血常规WBC 6.2×10^9/L、‘血常规正常、肝功能未见异常’；"
+            + "多项合并写‘血常规、肝肾功能未见异常’且通顺无歧义时不扣本项，不强制逐项项目匹配。"
+            + "未开任何检验检查且辅助检查栏为空时不触发本规则；未来条件性建议和普通门诊处置不能冒充已开检验检查。"
+            + "不得凭模板字段空或缺少报告状态就推断已开项目，不编造项目或结果；其余查体与辅助检查评分保持不变。"
             + "6.diagnosis 诊断，满分10：规范书写疾病诊断。"
             + "7.treatment 诊疗措施，满分20：检查治疗项目明确、规范（10分）；药品使用规范，超说明书用药应说明（5分）；有复诊建议（5分）。"
             + "8.writing 病历书写基本要求，满分5：字迹清晰可辨，病历修改有医师签名及修改时间；字迹无法辨认扣2分，医师未签名扣3分，无修改时间扣2分。"
@@ -135,7 +144,7 @@ public class EmrQcAiClient {
             + "字段格式：{\"dimensions\":[{\"code\":\"上述9个维度code之一\",\"score\":该维度得分整数,\"summary\":\"简要说明扣分原因\"}],"
             + "\"findings\":[{\"severity\":\"high|medium|low|info\",\"category\":\"对应维度名称\","
             + "\"sectionName\":\"章节名\",\"excerpt\":\"原文摘录\",\"issue\":\"问题\",\"suggestion\":\"修改建议\","
-            + "\"deduction\":该问题扣分整数,\"ruleCode\":null}]}。诊断代替症状项将ruleCode设为字符串R-CHIEF-DIAGNOSIS，其余使用JSON null。"
+            + "\"deduction\":该问题扣分整数,\"ruleCode\":null}]}。诊断代替症状项使用R-CHIEF-DIAGNOSIS；辅助检查项目无结果项使用R-AUX-RESULT-MISSING，其余使用JSON null。"
             + "dimensions 必须完整包含 9 个维度且不得重复，不需要输出总分，总分由服务端求和。"
             + "findings 的 category 必须是上述维度名称，deduction 为0至对应维度满分的整数；同一问题只列一次，服务端按有效问题扣分计算维度分。"
             + "请综合所有章节和就诊上下文判断，不要仅因信息出现在不同章节而判缺失。脱敏占位符和已提供（已脱敏）表示信息已提供，不代表缺失；上下文未提供表示未知，不可认定病历缺失。"
@@ -223,6 +232,7 @@ public class EmrQcAiClient {
             throw invalid();
         }
         List<EmrQcAnalysisVO.Finding> findings = new ArrayList<EmrQcAnalysisVO.Finding>();
+        boolean auxiliaryResultSeen = false;
         for (JsonNode node : findingNodes) {
             String issue = text(node, "issue");
             String severity = text(node, "severity");
@@ -236,9 +246,14 @@ public class EmrQcAiClient {
                 throw invalid();
             }
             String ruleCode = text(node, "ruleCode");
-            if (ruleCode != null && (!EmrQcChiefComplaintRules.isRule(ruleCode)
-                    || !EmrQcRubric.CHIEF_COMPLAINT.equals(categorySpec.getCode()) || deduction != 1)) {
-                throw invalid();
+            if (ruleCode != null) {
+                boolean chief = EmrQcChiefComplaintRules.isRule(ruleCode)
+                    && EmrQcRubric.CHIEF_COMPLAINT.equals(categorySpec.getCode()) && deduction == 1;
+                boolean auxiliary = EmrQcRubric.AUX_RESULT_MISSING.equals(ruleCode)
+                    && EmrQcRubric.PHYSICAL_EXAM.equals(categorySpec.getCode()) && deduction == 5;
+                if (!chief && !auxiliary) throw invalid();
+                if (auxiliary && auxiliaryResultSeen) continue;
+                if (auxiliary) auxiliaryResultSeen = true;
             }
             EmrQcAnalysisVO.Finding finding = new EmrQcAnalysisVO.Finding();
             finding.setSeverity(severity);

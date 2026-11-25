@@ -181,7 +181,8 @@ final class EmrQcChiefComplaintRules {
             // The model never owns the two mechanical checks, even if it returns an unexpected copy.
             if (PLUS.equals(code) || LENGTH.equals(code)) continue;
             if (DIAGNOSIS.equals(code) && !hasPresentIllness) continue;
-            String key = DIAGNOSIS.equals(code) ? code : finding.getCategory() + "\u0000" + finding.getIssue().trim();
+            String key = DIAGNOSIS.equals(code) || EmrQcRubric.AUX_RESULT_MISSING.equals(code)
+                ? code : finding.getCategory() + "\u0000" + finding.getIssue().trim();
             findings.putIfAbsent(key, finding);
         }
         for (EmrQcAnalysisVO.Finding finding : fixed) findings.put(finding.getRuleCode(), finding);

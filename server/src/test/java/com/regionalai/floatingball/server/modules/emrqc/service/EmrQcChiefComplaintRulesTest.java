@@ -155,6 +155,23 @@ class EmrQcChiefComplaintRulesTest {
         return EmrQcChiefComplaintRules.evaluate(text, new PhisEmrRecord(), masker);
     }
 
+    @Test
+    void auxiliaryRuleUsesOneFivePointFindingAndPreservesOtherPhysicalFindings() {
+        EmrQcAnalysisVO.Finding missing = diagnosis("辅助检查无结果");
+        missing.setRuleCode(EmrQcRubric.AUX_RESULT_MISSING); missing.setCategory("查体与辅助检查"); missing.setDeduction(5);
+        EmrQcAnalysisVO.Finding duplicate = diagnosis("13个检验项目未补结果");
+        duplicate.setRuleCode(EmrQcRubric.AUX_RESULT_MISSING); duplicate.setCategory("查体与辅助检查"); duplicate.setDeduction(5);
+        EmrQcAnalysisVO.Finding other = diagnosis("其他查体问题");
+        other.setRuleCode(null); other.setCategory("查体与辅助检查"); other.setDeduction(12);
+        List<EmrQcAnalysisVO.Finding> merged = EmrQcChiefComplaintRules.merge(Arrays.asList(missing, duplicate, other), Collections.emptyList(), true);
+        assertThat(merged).containsExactly(missing, other);
+        List<EmrQcAnalysisVO.Dimension> dimensions = Collections.singletonList(EmrQcRubric.dimension(EmrQcRubric.PHYSICAL_EXAM, 15, null));
+        EmrQcRubric.scoreFromFindings(dimensions, merged); assertEquals(0, dimensions.get(0).getScore());
+        other.setIgnored(true); EmrQcRubric.scoreFromFindings(dimensions, merged); assertEquals(10, dimensions.get(0).getScore());
+        missing.setIgnored(true); EmrQcRubric.scoreFromFindings(dimensions, merged); assertEquals(15, dimensions.get(0).getScore());
+        missing.setIgnored(false); EmrQcRubric.scoreFromFindings(dimensions, merged); assertEquals(10, dimensions.get(0).getScore());
+    }
+
     private EmrQcAnalysisVO.Finding diagnosis(String issue) {
         EmrQcAnalysisVO.Finding finding = new EmrQcAnalysisVO.Finding();
         finding.setRuleCode(EmrQcChiefComplaintRules.DIAGNOSIS); finding.setCategory("主诉");

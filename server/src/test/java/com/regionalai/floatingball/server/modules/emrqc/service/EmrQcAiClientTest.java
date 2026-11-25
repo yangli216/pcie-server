@@ -157,6 +157,54 @@ class EmrQcAiClientTest {
         assertEquals("改为外阴不适1周", result.getFindings().get(0).getSuggestion());
     }
 
+    @Test
+    void auxiliaryRuleRejectsWrongDeductionCategoryAndUnknownCode() {
+        ObjectNode payload = validPayload();
+        ObjectNode finding = (ObjectNode) payload.get("findings").get(0);
+        finding.put("ruleCode", EmrQcRubric.AUX_RESULT_MISSING).put("category", "查体与辅助检查").put("deduction", 5);
+        assertEquals(5, parse(payload).getFindings().get(0).getDeduction());
+        finding.put("deduction", 10); assertInvalid(payload);
+        finding.put("deduction", 1); assertInvalid(payload);
+        finding.put("deduction", 5).put("category", "诊疗措施"); assertInvalid(payload);
+        finding.put("category", "查体与辅助检查").put("ruleCode", "R-AUX-UNKNOWN"); assertInvalid(payload);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void fakeSupplierExercisesAuxiliaryRequestAndResponseContract(boolean missing) throws Exception {
+        com.regionalai.floatingball.server.common.outbound.OutboundSecurityProperties properties = new com.regionalai.floatingball.server.common.outbound.OutboundSecurityProperties();
+        properties.setAllowAllHosts(true); properties.setAllowPrivateNetwork(true); properties.setAllowInsecureHttp(true);
+        EmrQcAiClient realClient = new EmrQcAiClient(objectMapper, new OutboundSecurityService(properties), new EmrQcProperties());
+        org.springframework.test.web.client.MockRestServiceServer server = org.springframework.test.web.client.MockRestServiceServer.createServer(
+            (org.springframework.web.client.RestTemplate) ReflectionTestUtils.getField(realClient, "restTemplate"));
+        ObjectNode payload = validPayload(); ArrayNode findings = payload.putArray("findings");
+        if (missing) {
+            ObjectNode finding = findings.addObject().put("severity", "low").put("category", "查体与辅助检查")
+                .put("ruleCode", EmrQcRubric.AUX_RESULT_MISSING).put("deduction", 5).put("issue", "辅助检查有项目但无结果")
+                .put("excerpt", "血常规待回报").put("suggestion", "补充血常规检查结果");
+            findings.add(finding.deepCopy().put("issue", "同一缺结果问题的另一种描述"));
+        }
+        ObjectNode response = objectMapper.createObjectNode();
+        response.putArray("choices").addObject().putObject("message").put("content", payload.toString());
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo("http://127.0.0.1:9998/chat/completions"))
+            .andExpect(request -> {
+                JsonNode body = objectMapper.readTree(((org.springframework.mock.http.client.MockClientHttpRequest) request).getBodyAsString());
+                org.assertj.core.api.Assertions.assertThat(body.path("messages").get(0).path("content").asText())
+                    .contains("取消‘报告已回’前置条件", "不区分接口导入或医生手填", "未开任何检验检查", "不强制逐项项目匹配", "待回报", "未回报", "不按13项累计", "deduction=5", "不设外送");
+                org.assertj.core.api.Assertions.assertThat(body.path("messages").get(1).path("content").asText()).contains("血常规").doesNotContain("<p>");
+            }).andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(response.toString(), org.springframework.http.MediaType.APPLICATION_JSON));
+        com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config = new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
+        config.setBaseUrl("http://127.0.0.1:9998"); config.setApiKey("synthetic-test-key"); config.setModel("fake");
+        EmrQcAiClient.Result result = realClient.analyze(config, "诊疗措施：已开血常规\n辅助检查：" + (missing ? "血常规待回报" : "血常规正常"));
+        server.verify();
+        assertEquals(missing ? 1 : 0, result.getFindings().size());
+        if (missing) {
+            assertEquals(EmrQcRubric.AUX_RESULT_MISSING, result.getFindings().get(0).getRuleCode());
+            assertEquals(5, result.getFindings().get(0).getDeduction());
+            assertEquals("补充血常规检查结果", result.getFindings().get(0).getSuggestion());
+        }
+    }
+
     private ObjectNode validPayload() {
         ObjectNode root = objectMapper.createObjectNode();
         ArrayNode dimensions = root.putArray("dimensions");
