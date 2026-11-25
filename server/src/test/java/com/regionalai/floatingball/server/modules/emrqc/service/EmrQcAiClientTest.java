@@ -116,6 +116,47 @@ class EmrQcAiClientTest {
             () -> ReflectionTestUtils.invokeMethod(client, "messages", new String(chars)));
     }
 
+    @Test
+    void diagnosisRuleKeepsItsStableCodeAndRejectsWrongDeductionCategoryOrUnknownCode() {
+        ObjectNode payload = validPayload();
+        ObjectNode finding = (ObjectNode) payload.get("findings").get(0);
+        finding.put("ruleCode", EmrQcChiefComplaintRules.DIAGNOSIS).put("category", "主诉").put("deduction", 1);
+        assertEquals(EmrQcChiefComplaintRules.DIAGNOSIS, parse(payload).getFindings().get(0).getRuleCode());
+        finding.put("deduction", 2); assertInvalid(payload);
+        finding.put("deduction", 1).put("category", "现病史"); assertInvalid(payload);
+        finding.put("category", "主诉").put("ruleCode", "R-CHIEF-UNKNOWN"); assertInvalid(payload);
+    }
+
+    @Test
+    void fakeSupplierResponseExercisesRealRequestPromptAndDiagnosisParser() throws Exception {
+        com.regionalai.floatingball.server.common.outbound.OutboundSecurityProperties properties =
+            new com.regionalai.floatingball.server.common.outbound.OutboundSecurityProperties();
+        properties.setAllowAllHosts(true); properties.setAllowPrivateNetwork(true); properties.setAllowInsecureHttp(true);
+        EmrQcAiClient realClient = new EmrQcAiClient(objectMapper, new OutboundSecurityService(properties), new EmrQcProperties());
+        org.springframework.test.web.client.MockRestServiceServer server = org.springframework.test.web.client.MockRestServiceServer.createServer(
+            (org.springframework.web.client.RestTemplate) ReflectionTestUtils.getField(realClient, "restTemplate"));
+        ObjectNode payload = validPayload();
+        ((ObjectNode) payload.get("findings").get(0)).put("ruleCode", EmrQcChiefComplaintRules.DIAGNOSIS)
+            .put("category", "主诉").put("deduction", 1).put("excerpt", "阴道炎1周，要求配药")
+            .put("suggestion", "改为外阴不适1周");
+        ObjectNode response = objectMapper.createObjectNode();
+        response.putArray("choices").addObject().putObject("message").put("content", payload.toString());
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo("http://127.0.0.1:9999/chat/completions"))
+            .andExpect(request -> {
+                JsonNode body = objectMapper.readTree(((org.springframework.mock.http.client.MockClientHttpRequest) request).getBodyAsString());
+                String system = body.path("messages").get(0).path("content").asText();
+                org.assertj.core.api.Assertions.assertThat(system).contains("不要求完全匹配PHIS", "现病史为空", "不是豁免条件", "无不适/无症状", "不得在findings再次报告", "deduction=1");
+                org.assertj.core.api.Assertions.assertThat(body.path("messages").get(1).path("content").asText()).contains("外阴不适1周").doesNotContain("<p>");
+            }).andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(response.toString(), org.springframework.http.MediaType.APPLICATION_JSON));
+        com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config = new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
+        config.setBaseUrl("http://127.0.0.1:9999"); config.setApiKey("synthetic-test-key"); config.setModel("fake");
+        EmrQcAiClient.Result result = realClient.analyze(config, "主诉：阴道炎1周，要求配药\n现病史：外阴不适1周");
+        server.verify();
+        assertEquals(EmrQcChiefComplaintRules.DIAGNOSIS, result.getFindings().get(0).getRuleCode());
+        assertEquals(1, result.getFindings().get(0).getDeduction());
+        assertEquals("改为外阴不适1周", result.getFindings().get(0).getSuggestion());
+    }
+
     private ObjectNode validPayload() {
         ObjectNode root = objectMapper.createObjectNode();
         ArrayNode dimensions = root.putArray("dimensions");

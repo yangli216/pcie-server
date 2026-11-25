@@ -456,7 +456,7 @@ class EmrQcServiceTest {
 
         Boolean current = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
             service, "canReuse", projection, record, "hash");
-        projection.setRuleVersion("emr-qc-rules-v1");
+        projection.setRuleVersion("emr-qc-rules-v6");
         Boolean old = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
             service, "canReuse", projection, record, "hash");
 
@@ -807,7 +807,7 @@ class EmrQcServiceTest {
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"draft", "completed"})
-    void sameCurrentContentAndModelResponseKeepsExistingV6ScoreForBothStates(String status) {
+    void sameCurrentContentAndModelResponseKeepsNineDimensionScoreForBothStates(String status) {
         AdminCurrentUser user = user();
         when(sessionScope.require(user)).thenReturn(scope());
         PhisEmrRecord record = record("A"); record.setRecordStatus(status);
@@ -820,7 +820,7 @@ class EmrQcServiceTest {
         verify(writer).saveWithAudit(draft.capture(), any());
         assertEquals(97, draft.getValue().getScore());
         assertEquals(9, objectMapper.valueToTree(fullDimensions()).size());
-        assertEquals("emr-qc-rules-v6", draft.getValue().getRuleVersion());
+        assertEquals("emr-qc-rules-v7", draft.getValue().getRuleVersion());
         verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
     }
 
@@ -874,6 +874,70 @@ class EmrQcServiceTest {
             () -> service.analyze(user, "A", true, "req")).getCode());
         verify(writer, never()).saveWithAudit(any(), any());
         verify(auditService).record(any(), eq("analyze"), eq("A"), isNull(), eq("failed"));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "{0}, batch={1}")
+    @org.junit.jupiter.params.provider.MethodSource("chiefComplaintAcceptanceCases")
+    void chiefComplaintRulesUseSharedSingleAndBatchChain(String complaint, boolean batch, String history,
+                                                         boolean fakeDiagnosis, int expectedNewFindings) {
+        AdminCurrentUser user = user();
+        PhisEmrRecord record = record("A");
+        if (!batch) {
+            when(sessionScope.require(user)).thenReturn(scope());
+            recordCache.putAll("s1", Collections.singletonList(record));
+        }
+        com.fasterxml.jackson.databind.node.ArrayNode pages = objectMapper.createArrayNode();
+        pages.addObject().put("ARTICLE", "主诉").putArray("eles").addObject().put("NAME", "内容").put("TEXT", complaint);
+        pages.addObject().put("ARTICLE", "现病史").putArray("eles").addObject().put("NAME", "内容").put("TEXT", history);
+        when(phisClient.detail(any(), eq("A"))).thenReturn(objectMapper.createObjectNode().put("xmlContent", pages.toString()));
+        com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config = new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
+        config.setModel("fake"); config.setBaseUrl("https://model.invalid");
+        when(configService.resolveByScope(eq("ORG001"), isNull())).thenReturn(config);
+        // Fixed clinical decisions exercise the pipeline, not real-model diagnostic accuracy.
+        List<EmrQcAnalysisVO.Finding> aiFindings = new java.util.ArrayList<>();
+        if (fakeDiagnosis) {
+            EmrQcAnalysisVO.Finding diagnosis = finding("low", "主诉", 1, false);
+            diagnosis.setRuleCode(EmrQcChiefComplaintRules.DIAGNOSIS);
+            diagnosis.setIssue("主诉以诊断名代替症状"); diagnosis.setSuggestion("改为症状描述，如外阴不适1周");
+            aiFindings.add(diagnosis);
+        }
+        if (history.isEmpty()) aiFindings.add(finding("medium", "现病史", 1, false));
+        EmrQcAiClient.Result ai = new EmrQcAiClient.Result(); ai.setDimensions(fullDimensions()); ai.setFindings(aiFindings);
+        when(aiClient.analyze(eq(config), any())).thenReturn(ai);
+        AiEmrQcRecord saved = new AiEmrQcRecord(); saved.setDimensionsJson("[]");
+        when(writer.saveWithAudit(any(), any())).thenReturn(saved);
+        if (batch) service.analyzeForTask(new EmrQcContext(user, scope(), "ORG001", "req"), record, true);
+        else service.analyze(user, "A", true, "req");
+        org.mockito.ArgumentCaptor<EmrQcDraft> draft = org.mockito.ArgumentCaptor.forClass(EmrQcDraft.class);
+        verify(writer).saveWithAudit(draft.capture(), any());
+        List<EmrQcAnalysisVO.Finding> findings = draft.getValue().getFindings();
+        assertEquals(expectedNewFindings, findings.stream().filter(f -> EmrQcChiefComplaintRules.isRule(f.getRuleCode())).count());
+        assertEquals(100 - expectedNewFindings - (history.isEmpty() ? 1 : 0), draft.getValue().getScore());
+        assertEquals(EmrQcRubric.RULE_VERSION, draft.getValue().getRuleVersion());
+        verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
+    }
+
+    private static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> chiefComplaintAcceptanceCases() {
+        String twenty = String.join("", Collections.nCopies(15, "咳")) + "，20Ab";
+        Object[][] cases = {
+            {"反复咳嗽20+天", "反复咳嗽20天", false, 1},
+            {twenty + "。！？", "反复咳嗽", false, 1},
+            {"阴道炎1周，要求配药", "外阴不适1周", true, 1},
+            {"高血压复诊", "无不适，继续配药", false, 0},
+            {twenty, "反复咳嗽", false, 0},
+            {twenty + "+", "咳嗽伴气促", false, 2},
+            {"阴道炎1周", "", true, 0},
+            {"外阴不适1周", "外阴不适1周", false, 0},
+            {"咳嗽+发热3天", "咳嗽发热3天", false, 1},
+            // Requirement example 10 is exactly 20 characters despite its stated >20 expectation.
+            {"咳嗽咳痰伴气促反复发作20余天，门诊治疗", "咳嗽伴气促", false, 0},
+            {"咳嗽咳痰伴气促反复发作20余天，门诊治疗后", "咳嗽伴气促", false, 1},
+            {"阴道炎反复发作伴不适要求配药治疗20+天，随访", "外阴不适20天", true, 3},
+            {"阴道炎伴外阴不适1周", "外阴不适1周", false, 0},
+            {"上呼吸道感染3天", "咳嗽咽痛3天", true, 1}
+        };
+        return java.util.Arrays.stream(cases).flatMap(c -> java.util.stream.Stream.of(false, true)
+            .map(batch -> org.junit.jupiter.params.provider.Arguments.of(c[0], batch, c[1], c[2], c[3])));
     }
 
     private void stubAnalysis(EmrQcAnalysisVO.Finding finding) {
@@ -951,7 +1015,8 @@ class EmrQcServiceTest {
         projection.setPhisUpdateTime(LocalDateTime.of(2026, 10, 24, 9, 30));
         PhisContentNormalizer normalizer = new PhisContentNormalizer(objectMapper);
         String content = "[{\"ARTICLE\":\"主诉\",\"eles\":[{\"NAME\":\"主诉\",\"TEXT\":\"咳嗽\"}]}]";
-        projection.setContentHash(normalizer.sha256(normalizer.canonicalText(normalizer.toSections(content))));
+        projection.setContentHash(normalizer.sha256(normalizer.canonicalText(normalizer.toSections(content))
+            + "\n【主诉规则输入摘要】\n" + normalizer.sha256("咳嗽")));
         ObjectNode data = objectMapper.createObjectNode();
         data.put("xmlContent", content);
         org.mockito.Mockito.lenient().when(phisClient.detail(any(), eq("A"))).thenReturn(data);

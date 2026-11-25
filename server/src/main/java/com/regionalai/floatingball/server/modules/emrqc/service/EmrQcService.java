@@ -536,12 +536,8 @@ public class EmrQcService {
             ResolvedAiConfig aiConfig = resolveAiConfig(context.getIdOrg());
             EmrQcAiClient.Result aiResult = aiClient.analyze(aiConfig, aiInput(record, loaded));
 
-            List<EmrQcAnalysisVO.Finding> findings = new ArrayList<EmrQcAnalysisVO.Finding>();
-            java.util.Set<String> seen = new java.util.HashSet<String>();
-            for (EmrQcAnalysisVO.Finding finding : aiResult.getFindings()) {
-                String key = finding.getCategory() + "\u0000" + finding.getIssue().trim();
-                if (seen.add(key)) findings.add(finding);
-            }
+            List<EmrQcAnalysisVO.Finding> findings = EmrQcChiefComplaintRules.merge(
+                aiResult.getFindings(), loaded.chiefComplaintFindings, loaded.hasPresentIllness);
             EmrQcRubric.scoreFromFindings(aiResult.getDimensions(), findings);
             int calculatedScore = 0;
             for (EmrQcAnalysisVO.Dimension dimension : aiResult.getDimensions()) {
@@ -647,7 +643,15 @@ public class EmrQcService {
         LoadedDetail loaded = new LoadedDetail();
         loaded.updateTime = normalizer.parseDateTime(data.path("updateTime").asText(null));
         loaded.sections = sections;
-        String preview = EmrQcHtmlPreview.render(data.path("htmlContent").asText(""), record, sections, xmlContent);
+        EmrQcHtmlPreview.Projection previewProjection = EmrQcHtmlPreview.project(
+            data.path("htmlContent").asText(""), record, sections, xmlContent);
+        String preview = previewProjection.html;
+        String complaint = previewProjection.chiefComplaint;
+        if (complaint == null) complaint = EmrQcChiefComplaintRules.structuredField(objectMapper, xmlContent, "主诉");
+        String presentIllness = previewProjection.presentIllness;
+        if (presentIllness == null) presentIllness = EmrQcChiefComplaintRules.structuredField(objectMapper, xmlContent, "现病史");
+        loaded.chiefComplaintFindings = EmrQcChiefComplaintRules.evaluate(complaint, record, masker);
+        loaded.hasPresentIllness = StringUtils.hasText(presentIllness);
         if (includePreview) loaded.htmlPreview = preview;
         String previewText = EmrQcHtmlPreview.plainTextForAi(preview, record, masker);
         loaded.maskedText = normalizer.canonicalText(maskedSections);
@@ -656,6 +660,8 @@ public class EmrQcService {
             loaded.maskedText += "\n【PHIS 病历预览纯文字】\n" + previewText;
             hashText += "\n【PHIS 病历预览纯文字】\n" + previewText;
         }
+        // Include the pre-redaction rule input, since canonical text collapses some user whitespace.
+        hashText += "\n【主诉规则输入摘要】\n" + normalizer.sha256(complaint == null ? "" : complaint);
         loaded.contentHash = normalizer.sha256(hashText);
         loaded.templateName = firstText(data.path("tepName").asText(null), record.getTemplateName());
         loaded.visitTime = normalizer.parseDateTime(data.path("titleTime").asText(null));
@@ -991,6 +997,8 @@ public class EmrQcService {
         private List<PhisEmrSection> sections;
         private String htmlPreview = "";
         private String maskedText;
+        private List<EmrQcAnalysisVO.Finding> chiefComplaintFindings;
+        private boolean hasPresentIllness;
         private String contentHash;
         private String templateName;
         private LocalDateTime visitTime;

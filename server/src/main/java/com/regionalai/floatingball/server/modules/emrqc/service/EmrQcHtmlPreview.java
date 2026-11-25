@@ -60,7 +60,13 @@ public final class EmrQcHtmlPreview {
     }
 
     public static String render(String source, PhisEmrRecord record, List<PhisEmrSection> sections, String structuredContent) {
-        if (!StringUtils.hasText(source) || source.length() > 1024 * 1024) return "";
+        return project(source, record, sections, structuredContent).html;
+    }
+
+    /** Raw rule inputs stay in process; only the redacted HTML may leave this projection. */
+    static Projection project(String source, PhisEmrRecord record, List<PhisEmrSection> sections, String structuredContent) {
+        Projection projection = new Projection();
+        if (!StringUtils.hasText(source) || source.length() > 1024 * 1024) return projection;
         Document input = Jsoup.parse(source);
         preprocessPhisPreview(input, structuredContent);
         input.select("script,style,iframe,frame,frameset,object,embed,svg,math,form,input,button,select,textarea,"
@@ -87,13 +93,22 @@ public final class EmrQcHtmlPreview {
                 if (element.text().matches("\\s*月经史\\s*[：:]?\\s*[。.;；]*\\s*")) element.remove();
             }
         }
+        projection.chiefComplaint = EmrQcChiefComplaintRules.previewField(safe.body(), "主诉");
+        projection.presentIllness = EmrQcChiefComplaintRules.previewField(safe.body(), "现病史");
         redactText(safe.body(), record, sections);
-        if (!StringUtils.hasText(safe.body().text())) return "";
+        if (!StringUtils.hasText(safe.body().text())) return projection;
         safe.outputSettings().prettyPrint(false);
-        return "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"UTF-8\">"
+        projection.html = "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"UTF-8\">"
             + "<meta http-equiv=\"Content-Security-Policy\" content=\"" + CSP + "\">"
             + "<meta name=\"referrer\" content=\"no-referrer\"><style>" + CSS
             + "</style></head><body>" + safe.body().html() + "</body></html>";
+        return projection;
+    }
+
+    static final class Projection {
+        String html = "";
+        String chiefComplaint;
+        String presentIllness;
     }
 
     /** Extract only visible text from the already sanitized preview and redact again before AI use. */
