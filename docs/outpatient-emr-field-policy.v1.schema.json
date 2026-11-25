@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:pcie:outpatient-emr-field-policy.v1",
   "title": "门诊模板生效字段规则",
-  "description": "设备快照 v2 命中或登记成功的 fieldPolicy。外层响应负责绑定认证机构、模板 ID 和模板对 hash。启用时字段 ID 唯一，与同一一致性视图返回的可恢复解析字段逐项对应。部署前不属于现行设备 v1 协议。",
+  "description": "设备快照 v2 命中或登记成功的 fieldPolicy。外层响应负责绑定认证机构、模板 ID 和模板对 hash。启用时字段 ID 唯一，与同一一致性视图返回的可恢复解析字段逐项对应。每次语音启动实时查询，物理删除后返回未命中并重新登记；本地草稿同时绑定外层记录 ID。deleted 仅兼容既有响应，新查询会清理历史逻辑删除记录。",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "templateState", "revision", "ruleSetVersion", "fields"],
@@ -11,6 +11,7 @@
     "templateState": { "enum": ["enabled", "disabled", "deleted"] },
     "revision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
     "ruleSetVersion": { "type": "string", "pattern": "^outpatient-emr-field-prompt[.]v[1-9][0-9]*$" },
+    "fieldVisibility": { "type": "object", "description": "PCIE 展示开关；缺省键为 true，不影响生成或回写。", "additionalProperties": { "type": "boolean" } },
     "fields": {
       "type": "array",
       "uniqueItems": true,

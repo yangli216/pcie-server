@@ -6,6 +6,8 @@ import com.baomidou.mybatisplus.core.toolkit.GlobalConfigUtils;
 import com.regionalai.floatingball.server.modules.device.mapper.AiDeviceMapper;
 import com.regionalai.floatingball.server.modules.user.mapper.AiUserRoleMapper;
 import org.junit.jupiter.api.Test;
+import com.regionalai.floatingball.server.modules.emrtemplate.mapper.AiOutpatientEmrTemplateMappingMapper;
+import com.regionalai.floatingball.server.modules.emrtemplate.mapper.AiOutpatientEmrTemplateSnapshotMapper;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -42,6 +44,21 @@ class LogicalDeleteSqlContractTest {
         String reset = sql(configuration, AiDeviceMapper.class, "deleteForResetById", parameters);
         assertTrue(reset.startsWith("DELETE FROM c_ai_device WHERE id_device = ?"), reset);
         assertFalse(reset.contains("fg_active"), reset);
+    }
+
+    @Test
+    void outpatientTemplateDeletionPhysicallyRemovesTheSnapshotAndAllMappingRows() {
+        MybatisConfiguration configuration = configuration();
+        configuration.addMapper(AiOutpatientEmrTemplateSnapshotMapper.class);
+        configuration.addMapper(AiOutpatientEmrTemplateMappingMapper.class);
+        Map<String, Object> parameters = new HashMap<>();
+        parameters.put("id", "SYN-SNAPSHOT");
+        String snapshot = sql(configuration, AiOutpatientEmrTemplateSnapshotMapper.class, "physicalDeleteById", parameters);
+        String mappings = sql(configuration, AiOutpatientEmrTemplateMappingMapper.class, "physicalDeleteBySnapshotId", parameters);
+        assertTrue(snapshot.equals("DELETE FROM c_ai_outpatient_emr_tpl_snapshot WHERE id_snapshot = ?"), snapshot);
+        assertTrue(mappings.equals("DELETE FROM c_ai_outpatient_emr_tpl_mapping WHERE id_snapshot = ?"), mappings);
+        assertFalse(snapshot.contains("fg_active"), snapshot);
+        assertFalse(mappings.contains("fg_active"), mappings);
     }
 
     private MybatisConfiguration configuration() {

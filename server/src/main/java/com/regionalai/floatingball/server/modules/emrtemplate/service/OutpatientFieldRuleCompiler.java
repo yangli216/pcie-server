@@ -193,9 +193,13 @@ final class OutpatientFieldRuleCompiler {
     }
 
     static Settings settings(JsonNode body) {
-        if (body == null || !body.isObject() || body.size() != 6 || !body.has("fieldId") || !body.has("expectedRevision"))
+        if (body == null || !body.isObject() || body.size() != (body.has("visible") ? 7 : 6) || !body.has("fieldId") || !body.has("expectedRevision"))
             throw new BusinessException("请提交字段 ID、修订号和完整书写配置");
         Settings settings = new Settings();
+        if (body.has("visible")) {
+            if (!body.get("visible").isBoolean()) throw new BusinessException("visible 必须为 Boolean");
+            settings.setVisible(body.get("visible").booleanValue());
+        }
         String mode = nullableText(body, "generationMode", 20);
         if (!Arrays.asList("inherit","ai","manual_or_his").contains(mode)) throw new BusinessException("生成类型不支持");
         settings.setGenerationMode(mode);

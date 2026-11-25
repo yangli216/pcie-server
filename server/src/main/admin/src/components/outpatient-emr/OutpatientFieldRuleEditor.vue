@@ -1,5 +1,9 @@
 <template>
   <el-form class="rule-editor" label-position="top" :disabled="readonly || busy">
+    <el-form-item class="inline-item" label="是否展示">
+      <segmented-switch v-model="form.visible" :options="[{ label: '是', value: true }, { label: '否', value: false }]" />
+      <small>控制 PCIE 病历界面上的字段展示</small>
+    </el-form-item>
     <el-form-item class="inline-item" label="生成类型">
       <el-radio-group v-model="form.generationMode" size="small">
         <el-radio-button label="inherit">使用默认</el-radio-button>
@@ -34,11 +38,13 @@
 
 <script>
 import http from '../../api/http'
+import { SegmentedSwitch } from '../ui'
 
 export default {
   name: 'OutpatientFieldRuleEditor',
+  components: { SegmentedSwitch },
   props: { detail: { type: Object, required: true }, snapshotId: String, revision: Number, readonly: Boolean },
-  data() { return { form: { ...this.detail.settings }, saving: false, drafting: false } },
+  data() { return { form: { ...this.detail.settings, visible: this.detail.settings.visible !== false }, saving: false, drafting: false } },
   computed: {
     ai() { return !this.detail.restriction && (this.form.generationMode === 'inherit' ? this.detail.defaultAiSuitable : this.form.generationMode === 'ai') },
     busy() { return this.saving || this.drafting },
@@ -51,7 +57,7 @@ export default {
   },
   methods: {
     payload() {
-      return { fieldId: this.detail.effective.fieldId, expectedRevision: this.revision, generationMode: this.form.generationMode,
+      return { fieldId: this.detail.effective.fieldId, expectedRevision: this.revision, generationMode: this.form.generationMode, visible: this.form.visible,
         meaningOverride: this.form.meaningOverride?.trim() || null, customBody: this.form.customBody?.trim() || null,
         additionalConstraint: this.form.additionalConstraint?.trim() || null }
     },

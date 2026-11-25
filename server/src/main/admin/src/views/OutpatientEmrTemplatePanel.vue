@@ -11,7 +11,7 @@
           @clear="search"
         />
         <el-select v-model="templateState" clearable placeholder="全部状态" aria-label="模板状态" @change="search">
-          <el-option label="启用" value="enabled" /><el-option label="停用" value="disabled" /><el-option label="已删除" value="deleted" />
+          <el-option label="启用" value="enabled" /><el-option label="停用" value="disabled" /><el-option label="历史删除记录" value="deleted" />
         </el-select>
         <el-button type="primary" icon="el-icon-search" @click="search">查询</el-button>
         <el-button @click="reset">重置</el-button>
@@ -24,7 +24,7 @@
         <template slot="empty">
           <div class="outpatient-template-empty">
             <span class="outpatient-template-empty__title">暂无门诊病例模板</span>
-            <span>桌面端首次动态解析门诊模板后会自动登记；你也可以先检查病例预渲染效果。</span>
+            <span>带模板启动语音问诊或发起模板分析时会自动登记；你也可以先检查病例预渲染效果。</span>
             <el-button type="text" icon="el-icon-view" @click="openPreviewExample">查看病例预渲染示例</el-button>
           </div>
         </template>
@@ -48,8 +48,8 @@
               <table-action label="字段维护" @click="openMapping(row)" />
               <template v-if="row.templateState !== 'deleted'">
                 <table-action :label="row.templateState === 'enabled' ? '停用' : '启用'" @click="changeState(row, row.templateState === 'enabled' ? 'disabled' : 'enabled')" />
-                <table-action label="删除" danger @click="changeState(row, 'deleted')" />
               </template>
+              <table-action label="删除" danger @click="changeState(row, 'deleted')" />
             </div>
           </template>
         </el-table-column>
@@ -288,7 +288,7 @@ export default {
     previewFields() {
       const detail = this.previewDetail
       if (!detail) return []
-      return detail.fields ? detail.fields.map(f => ({ ...f.originalField, aiSuitable: f.effective.aiSuitable && detail.templateState === 'enabled' })) : detail.parseResult.fields
+      return detail.fields ? detail.fields.map(f => ({ ...f.originalField, visible: f.settings.visible !== false, aiSuitable: f.effective.aiSuitable && detail.templateState === 'enabled' })) : detail.parseResult.fields
     },
     sourceContent() {
       if (!this.previewDetail) return ''
@@ -466,7 +466,10 @@ export default {
     async changeState(row, state) {
       const verb = state === 'deleted' ? '删除' : state === 'disabled' ? '停用' : '启用'
       try {
-        await this.$confirm(verb + '当前版本「' + row.templateName + '」？', verb + '门诊模板', { type: 'warning' })
+        const message = state === 'deleted'
+          ? '永久删除当前版本「' + row.templateName + '」及其字段规则、映射？再次启动使用该模板的语音问诊时将重新登记。'
+          : verb + '当前版本「' + row.templateName + '」？'
+        await this.$confirm(message, verb + '门诊模板', { type: 'warning' })
         const path = '/admin/api/outpatient-emr/templates/' + row.id
         if (state === 'deleted') await http.delete(path, { params: { expectedRevision: row.revision } })
         else await http.put(path + '/state', { expectedRevision: row.revision, templateState: state })

@@ -186,4 +186,20 @@ class OutpatientEmrTemplateControllerTest {
         verify(snapshotService).updateMapping(eq("snapshot-1"), any());
         verify(snapshotService).clearMapping("snapshot-1", "婚育状况");
     }
+    @Test
+    void adminDeleteUsesPhysicalDeletionAndReturnsTheAcknowledgement() throws Exception {
+        OutpatientEmrTemplateSnapshotVO receipt = new OutpatientEmrTemplateSnapshotVO();
+        receipt.setId("snapshot-1");
+        receipt.setTemplateState("deleted");
+        receipt.setRevision(3L);
+        when(snapshotService.delete("snapshot-1", 2)).thenReturn(receipt);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new AdminOutpatientEmrTemplateController(snapshotService)).build();
+        mockMvc.perform(delete("/admin/api/outpatient-emr/templates/snapshot-1").param("expectedRevision", "2"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.id").value("snapshot-1"))
+            .andExpect(jsonPath("$.data.templateState").value("deleted"))
+            .andExpect(jsonPath("$.data.revision").value(3));
+        verify(snapshotService).delete("snapshot-1", 2);
+    }
+
 }

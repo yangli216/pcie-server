@@ -43,6 +43,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -107,17 +109,20 @@ public class OutpatientEmrTemplateSnapshotService {
     private final ObjectMapper objectMapper;
     private final OutpatientEmrTemplateDecodeService decodeService;
     private final AuditService auditService;
+    private final TransactionTemplate transactions;
 
     public OutpatientEmrTemplateSnapshotService(AiOutpatientEmrTemplateSnapshotMapper snapshotMapper,
                                                  AiOutpatientEmrTemplateMappingMapper mappingMapper,
                                                  ObjectMapper objectMapper,
                                                  OutpatientEmrTemplateDecodeService decodeService,
-                                                 AuditService auditService) {
+                                                 AuditService auditService,
+                                                 PlatformTransactionManager transactionManager) {
         this.snapshotMapper = snapshotMapper;
         this.mappingMapper = mappingMapper;
         this.objectMapper = objectMapper;
         this.decodeService = decodeService;
         this.auditService = auditService;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
     @Transactional
@@ -132,29 +137,12 @@ public class OutpatientEmrTemplateSnapshotService {
             validated.templateHash
         );
         boolean v2 = "outpatient-emr-template-pair-resolve.v2".equals(request.getSchemaVersion());
-        if (entity == null) {
-            log.info(
-                "outpatient emr template snapshot resolved. templateId={}, templateHash={}, hit=false",
-                validated.templateId,
-                validated.templateHash
-            );
-            OutpatientEmrTemplateSnapshotResolution miss = new OutpatientEmrTemplateSnapshotResolution(
-                RESOLUTION_SCHEMA,
-                Boolean.FALSE,
-                null,
-                validated.templateId,
-                validated.templateHash,
-                null,
-                null
-            );
-            return v2 ? new OutpatientPolicyResolution(miss, null) : miss;
-        }
+        if (entity == null) return missingResolution(validated, v2);
 
         snapshotMapper.lockVersion(entity.getIdSnapshot());
-        // A locking read must precede the policy read: a writer may have committed since the identity lookup.
-        AiOutpatientEmrTemplateSnapshot locked = snapshotMapper.selectById(entity.getIdSnapshot());
-        if (locked != null) entity = locked;
-        if (!v2) requireLegacyCompatible(entity);
+        // Read again under the lock so a completed deletion cannot become a stale hit.
+        entity = snapshotMapper.selectById(entity.getIdSnapshot());
+        if (entity == null) return missingResolution(validated, v2);
         String id = requireText(entity.getIdSnapshot(), "历史解析.id", 32);
         String storedTemplateId = requireText(entity.getTemplateId(), "历史解析.templateId", 128);
         String storedTemplateHash = requireSha256(entity.getTemplateHash(), "历史解析.templateHash");
@@ -162,6 +150,12 @@ public class OutpatientEmrTemplateSnapshotService {
             || !validated.templateHash.equals(storedTemplateHash)) {
             throw new BusinessException("历史模板解析身份与查询不一致");
         }
+        if ("deleted".equals(state(entity))) {
+            deleteSnapshotRows(id);
+            return missingResolution(validated, v2);
+        }
+        if (!v2) requireLegacyCompatible(entity);
+        requireVisibilityCompatible(entity, request.getSupportsFieldVisibility());
         OutpatientEmrTemplateParseSnapshot parseResult = readHistoricalFields(entity);
         Long receivedAt = toEpochMillis(entity.getLastReceivedAt());
         if (receivedAt == null) {
@@ -185,6 +179,14 @@ public class OutpatientEmrTemplateSnapshotService {
         return v2 ? new OutpatientPolicyResolution(result, fieldPolicy(entity, parseResult)) : result;
     }
 
+    private OutpatientEmrTemplateSnapshotResolution missingResolution(ValidatedResolve validated, boolean v2) {
+        log.info("outpatient emr template snapshot resolved. templateId={}, templateHash={}, hit=false",
+            validated.templateId, validated.templateHash);
+        OutpatientEmrTemplateSnapshotResolution miss = new OutpatientEmrTemplateSnapshotResolution(
+            RESOLUTION_SCHEMA, Boolean.FALSE, null, validated.templateId, validated.templateHash, null, null);
+        return v2 ? new OutpatientPolicyResolution(miss, null) : miss;
+    }
+
     public OutpatientEmrTemplateSnapshotReceipt save(AiDevice device,
                                                       OutpatientEmrTemplateSnapshotRequest request) {
         request = decodeSnapshotSources(request);
@@ -195,6 +197,7 @@ public class OutpatientEmrTemplateSnapshotService {
             validated.templateId,
             validated.templateHash
         );
+        existing = removeLegacyDeletedVersion(existing);
         if (existing != null) {
             return versionReceipt(device, request, existing, existingReceipt(existing, validated));
         }
@@ -216,6 +219,7 @@ public class OutpatientEmrTemplateSnapshotService {
                 validated.templateId,
                 validated.templateHash
             );
+            concurrent = removeLegacyDeletedVersion(concurrent);
             if (concurrent == null) {
                 throw duplicateKeyException;
             }
@@ -236,6 +240,27 @@ public class OutpatientEmrTemplateSnapshotService {
         ));
     }
 
+    private AiOutpatientEmrTemplateSnapshot removeLegacyDeletedVersion(AiOutpatientEmrTemplateSnapshot existing) {
+        if (existing == null || !"deleted".equals(state(existing))) return existing;
+        return transactions.execute(status -> {
+            snapshotMapper.lockVersion(existing.getIdSnapshot());
+            AiOutpatientEmrTemplateSnapshot current = snapshotMapper.selectById(existing.getIdSnapshot());
+            if (current == null) return null;
+            if (!existing.getIdOrg().equals(current.getIdOrg()) || !existing.getTemplateId().equals(current.getTemplateId())
+                || !existing.getTemplateHash().equals(current.getTemplateHash())) {
+                throw new BusinessException("历史模板解析身份与登记请求不一致");
+            }
+            if (!"deleted".equals(state(current))) return current;
+            deleteSnapshotRows(current.getIdSnapshot());
+            return null;
+        });
+    }
+
+    private void deleteSnapshotRows(String id) {
+        mappingMapper.physicalDeleteBySnapshotId(id);
+        if (snapshotMapper.physicalDeleteById(id) != 1) throw revisionConflict();
+    }
+
     private OutpatientEmrTemplateSnapshotRequest decodeSnapshotSources(OutpatientEmrTemplateSnapshotRequest request) {
         if (request == null || (!OutpatientEmrTemplateDecodeService.hasDataUriSource(request.getTemplateHtml())
             && !OutpatientEmrTemplateDecodeService.hasDataUriSource(request.getTemplateDefinition()))) {
@@ -246,6 +271,7 @@ public class OutpatientEmrTemplateSnapshotService {
         );
         OutpatientEmrTemplateSnapshotRequest normalized = new OutpatientEmrTemplateSnapshotRequest();
         normalized.setSchemaVersion(request.getSchemaVersion());
+        normalized.setSupportsFieldVisibility(request.getSupportsFieldVisibility());
         normalized.setTemplateId(request.getTemplateId());
         normalized.setTemplateName(request.getTemplateName());
         normalized.setTemplateHash(request.getTemplateHash());
@@ -456,6 +482,7 @@ public class OutpatientEmrTemplateSnapshotService {
         for (int attempt = 0; attempt < 3; attempt++) {
             if (!device.getIdOrg().equals(snapshot.getIdOrg()) || !request.getTemplateId().equals(snapshot.getTemplateId())
                 || !request.getTemplateHash().equals(snapshot.getTemplateHash())) throw new BusinessException("登记模板身份不一致");
+            requireVisibilityCompatible(snapshot, request.getSupportsFieldVisibility());
             OutpatientEmrTemplateParseSnapshot parsed = readHistoricalFields(snapshot);
             OutpatientFieldPolicy policy = fieldPolicy(snapshot, parsed);
             Long observed = snapshotMapper.readRevision(snapshot.getIdSnapshot());
@@ -465,6 +492,11 @@ public class OutpatientEmrTemplateSnapshotService {
             if (snapshot == null) throw new BusinessException("登记快照不存在");
         }
         throw revisionConflict();
+    }
+
+    private void requireVisibilityCompatible(AiOutpatientEmrTemplateSnapshot snapshot, Boolean supported) {
+        if (!Boolean.TRUE.equals(supported) && settings(snapshot).values().stream().anyMatch(config -> !config.isVisible()))
+            throw new ConflictException("OUTPATIENT_TEMPLATE_RULES_CLIENT_UPGRADE_REQUIRED", "此版本配置了字段展示，请升级客户端后重试");
     }
 
     private void requireLegacyCompatible(AiOutpatientEmrTemplateSnapshot snapshot) {
@@ -510,6 +542,9 @@ public class OutpatientEmrTemplateSnapshotService {
         OutpatientFieldPolicy result = new OutpatientFieldPolicy();
         result.setTemplateState(state(snapshot));
         result.setRevision(revision(snapshot));
+        Map<String, Boolean> visibility = new LinkedHashMap<>();
+        settings(snapshot).forEach((id, config) -> { if (!config.isVisible()) visibility.put(id, false); });
+        result.setFieldVisibility(visibility);
         if ("enabled".equals(result.getTemplateState())) result.setFields(describeFields(snapshot, parsed).stream()
             .map(OutpatientFieldPolicy.Detail::getEffective).collect(Collectors.toList()));
         return result;
@@ -540,6 +575,10 @@ public class OutpatientEmrTemplateSnapshotService {
             .set("policy_revision", snapshot.getPolicyRevision()).set("template_state", state(snapshot))
             .set("field_rules_json", snapshot.getFieldRulesJson()).set("ai_field_count", snapshot.getAiFieldCount())
             .set("custom_prompt_count", snapshot.getCustomPromptCount()).set("update_time", snapshot.getUpdateTime()));
+        auditVersion(snapshot, field, action);
+    }
+
+    private void auditVersion(AiOutpatientEmrTemplateSnapshot snapshot, String field, String action) {
         AdminCurrentUser actor = AdminContextHolder.get();
         Map<String, Object> audit = new LinkedHashMap<>();
         audit.put("title", "门诊模板字段维护");
@@ -562,6 +601,7 @@ public class OutpatientEmrTemplateSnapshotService {
                                                    Map<String,OutpatientFieldPolicy.Settings> values) {
         String id = requireText(OutpatientFieldRuleCompiler.nullableText(input, "fieldId", 512), "fieldId", 512);
         OutpatientFieldPolicy.Settings config = OutpatientFieldRuleCompiler.settings(input);
+        if (!input.has("visible")) config.setVisible(values.getOrDefault(id, new OutpatientFieldPolicy.Settings()).isVisible());
         OutpatientEmrTemplateParseSnapshot parsed = readParseResult(snapshot.getParseResultJson());
         OutpatientEmrTemplateFieldSnapshot field = requireField(parsed, id);
         if (config.equals(new OutpatientFieldPolicy.Settings())) values.remove(id);
@@ -600,7 +640,7 @@ public class OutpatientEmrTemplateSnapshotService {
 
     @Transactional
     public OutpatientEmrTemplateSnapshotVO changeState(String id, long expected, String target) {
-        if (!Arrays.asList("enabled","disabled","deleted").contains(target)) throw new BusinessException("模板状态不支持");
+        if (!Arrays.asList("enabled","disabled").contains(target)) throw new BusinessException("模板状态不支持");
         snapshotMapper.lockVersion(id);
         AiOutpatientEmrTemplateSnapshot snapshot = requireSnapshot(id);
         if (!target.equals(state(snapshot))) {
@@ -610,6 +650,28 @@ public class OutpatientEmrTemplateSnapshotService {
             saveVersion(snapshot, null, target);
         }
         return toView(snapshot, true);
+    }
+
+    @Transactional
+    public OutpatientEmrTemplateSnapshotVO delete(String id, long expected) {
+        String normalizedId = requireText(id, "idSnapshot", 32);
+        if (expected < 0) throw new BusinessException("expectedRevision 必须为非负整数");
+        String org = adminOrgScope();
+        snapshotMapper.lockVersion(normalizedId);
+        AiOutpatientEmrTemplateSnapshot snapshot = snapshotMapper.selectById(normalizedId);
+        OutpatientEmrTemplateSnapshotVO receipt = new OutpatientEmrTemplateSnapshotVO();
+        receipt.setId(normalizedId);
+        receipt.setTemplateState("deleted");
+        receipt.setRevision(expected);
+        if (snapshot == null) return receipt;
+        if (org != null && !org.equals(snapshot.getIdOrg()))
+            throw new ForbiddenException("OUTPATIENT_TEMPLATE_ORG_FORBIDDEN", "无权访问其他机构的模板");
+        if (expected != revision(snapshot)) throw revisionConflict();
+        deleteSnapshotRows(normalizedId);
+        snapshot.setPolicyRevision(revision(snapshot) + 1);
+        auditVersion(snapshot, null, "deleted");
+        receipt.setRevision(snapshot.getPolicyRevision());
+        return receipt;
     }
 
     private ValidatedSnapshot validate(AiDevice device,

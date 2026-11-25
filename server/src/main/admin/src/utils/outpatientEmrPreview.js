@@ -212,6 +212,7 @@ export function buildOutpatientPreviewDocument(templateHtml, fields = []) {
   const fieldMap = new Map((Array.isArray(fields) ? fields : []).map(field => [field.id, field]))
   Array.from(doc.querySelectorAll('[data-id][data-type]')).forEach((node) => {
     const id = node.getAttribute('data-id') || ''
+    if (fieldMap.get(id)?.visible === false) { node.remove(); return }
     const field = fieldMap.get(id) || {
       id,
       name: node.getAttribute('data-name') || node.getAttribute('title') || id,

@@ -34,6 +34,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -48,6 +53,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -64,6 +72,9 @@ class OutpatientEmrTemplateSnapshotServiceTest {
     @Mock
     private AuditService auditService;
 
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
     private ObjectMapper objectMapper;
     private OutpatientEmrTemplateSnapshotService service;
 
@@ -75,7 +86,8 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         AdminContextHolder.set(admin);
         objectMapper = new ObjectMapper()
             .setSerializationInclusion(JsonInclude.Include.NON_NULL);
-        service = new OutpatientEmrTemplateSnapshotService(snapshotMapper, mappingMapper, objectMapper, new OutpatientEmrTemplateDecodeService(objectMapper), auditService);
+        service = new OutpatientEmrTemplateSnapshotService(snapshotMapper, mappingMapper, objectMapper, new OutpatientEmrTemplateDecodeService(objectMapper), auditService, transactionManager);
+        lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     }
 
     @AfterEach
@@ -95,6 +107,7 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         existing.setLastReceivedAt(LocalDateTime.of(2026, 8, 27, 12, 0));
         existing.setFgActive("1");
         when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(existing));
+        lenient().when(snapshotMapper.selectById(existing.getIdSnapshot())).thenReturn(existing);
 
         OutpatientEmrTemplateSnapshotResolution resolution = service.resolve(
             device(),
@@ -141,6 +154,7 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         existing.setLastReceivedAt(LocalDateTime.of(2026, 8, 27, 12, 0));
         existing.setFgActive("1");
         when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(existing));
+        lenient().when(snapshotMapper.selectById(existing.getIdSnapshot())).thenReturn(existing);
 
         BusinessException error = assertThrows(
             BusinessException.class,
@@ -191,6 +205,7 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         String original = objectMapper.writeValueAsString(stored);
         existing.setParseResultJson(original);
         when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(existing));
+        lenient().when(snapshotMapper.selectById(existing.getIdSnapshot())).thenReturn(existing);
         when(mappingMapper.selectList(any())).thenReturn(Arrays.asList(
             mapping(existing.getIdSnapshot(), "chiefComplaint", null, null),
             mapping(existing.getIdSnapshot(), "婚育状况", "personalHistory", "direct"),
@@ -226,6 +241,7 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         rows.add(rows.get(0).deepCopy());
         existing.setParseResultJson(stored.toString());
         when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(existing));
+        lenient().when(snapshotMapper.selectById(existing.getIdSnapshot())).thenReturn(existing);
         assertThrows(BusinessException.class, () -> service.resolve(device(), validResolveRequest(source)));
         existing.setParseResultJson(stored.put("schemaVersion", "unsupported").toString());
         assertThrows(BusinessException.class, () -> service.resolve(device(), validResolveRequest(source)));
@@ -246,6 +262,7 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         rows.add("synthetic damaged row");
         existing.setParseResultJson(stored.toString());
         when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(existing));
+        lenient().when(snapshotMapper.selectById(existing.getIdSnapshot())).thenReturn(existing);
         OutpatientEmrTemplateParseSnapshot result = service.resolve(device(), validResolveRequest(source)).getParseResult();
         assertEquals(2, result.getFields().size());
         for (OutpatientEmrTemplateFieldSnapshot field : result.getFields()) {
@@ -273,6 +290,7 @@ class OutpatientEmrTemplateSnapshotServiceTest {
             "direct"
         );
         when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(existing));
+        lenient().when(snapshotMapper.selectById(existing.getIdSnapshot())).thenReturn(existing);
         when(mappingMapper.selectList(any())).thenReturn(Collections.singletonList(mapping));
 
         OutpatientEmrTemplateSnapshotResolution resolution = service.resolve(
@@ -440,6 +458,7 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         existing.setLastReceivedAt(LocalDateTime.of(2026, 8, 27, 12, 0));
         existing.setFgActive("1");
         when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(existing));
+        lenient().when(snapshotMapper.selectById(existing.getIdSnapshot())).thenReturn(existing);
 
         OutpatientEmrTemplateSnapshotReceipt receipt = service.save(device(), request);
 
@@ -484,6 +503,7 @@ class OutpatientEmrTemplateSnapshotServiceTest {
             "section-compose"
         );
         when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(existing));
+        lenient().when(snapshotMapper.selectById(existing.getIdSnapshot())).thenReturn(existing);
         when(mappingMapper.selectList(any())).thenReturn(Collections.singletonList(mapping));
 
         OutpatientEmrTemplateSnapshotResolution resolution = service.resolve(
@@ -654,6 +674,79 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         verify(snapshotMapper, never()).insert(any(AiOutpatientEmrTemplateSnapshot.class));
     }
 
+    @Test
+    void visibilitySurvivesRoundTripsWithoutChangingGenerationAndRejectsUnsupportedClients() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest source = validRequest();
+        source.setSchemaVersion("outpatient-emr-template-pair-snapshot.v2");
+        String html = "<section data-id='article-chief' data-article='chiefComplaint' data-name='主诉'>"
+            + "<span data-id='chiefComplaint' data-name='主诉' data-type='text' data-readonly='false'>咳嗽</span></section>";
+        String definition = "[{\"ID\":\"article-chief\",\"NAME\":\"主诉\",\"ARTICLE\":\"chiefComplaint\","
+            + "\"eles\":[{\"ID\":\"chiefComplaint\",\"NAME\":\"主诉\",\"TYPE\":\"text\",\"READONLY\":false,\"TEXT\":\"咳嗽\",\"VALUE\":\"\"}]}]";
+        source.setTemplateHtml(html);
+        source.setTemplateDefinition(definition);
+        source.setTemplateHash(sha256("outpatient-emr-template-pair.v1:" + sha256(html) + ":" + sha256(definition)));
+        source.getParseResult().setFields(Collections.singletonList(textField()));
+        AiOutpatientEmrTemplateSnapshot row = snapshotEntity(source);
+        row.setIdDevice(device().getIdDevice());
+        row.setCdDevice(device().getCdDevice());
+        row.setIdRegion(device().getIdRegion());
+        row.setInsertTime(LocalDateTime.of(2026, 11, 25, 9, 0));
+        row.setUpdateTime(row.getInsertTime());
+        row.setFieldCount(1);
+        row.setWritableFieldCount(1);
+        row.setDictionaryFieldCount(0);
+        row.setMappedFieldCount(1);
+        String original = row.getParseResultJson();
+        String id = row.getIdSnapshot();
+        when(snapshotMapper.selectById(id)).thenReturn(row);
+        when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(row));
+        when(snapshotMapper.readRevision(id)).thenAnswer(inv -> row.getPolicyRevision());
+        OutpatientEmrTemplateSnapshotResolveRequest query = validResolveRequest(source);
+        query.setSchemaVersion("outpatient-emr-template-pair-resolve.v2");
+        JsonNode initial = objectMapper.valueToTree(service.resolve(device(), query));
+        assertFalse(initial.path("fieldPolicy").has("fieldVisibility"));
+        assertTrue(service.get(id).getFields().get(0).getSettings().isVisible());
+        ObjectNode edit = rule("chiefComplaint", 0, "ai", "保留本次主诉与持续时间", null).put("visible", false);
+        service.draftRule(id, edit);
+        assertTrue(service.get(id).getFields().get(0).getSettings().isVisible());
+        OutpatientEmrTemplateSnapshotVO hidden = service.saveRule(id, edit);
+        assertFalse(hidden.getFields().get(0).getSettings().isVisible());
+        assertTrue(hidden.getFields().get(0).getEffective().isAiSuitable());
+        assertEquals(1L, hidden.getRevision().longValue());
+        assertFalse(objectMapper.readTree(row.getFieldRulesJson()).at("/chiefComplaint/visible").asBoolean());
+        assertThrows(ConflictException.class, () -> service.resolve(device(), query));
+        assertThrows(ConflictException.class, () -> service.save(device(), source));
+        source.setSupportsFieldVisibility(true);
+        query.setSupportsFieldVisibility(true);
+        JsonNode resolved = objectMapper.valueToTree(service.resolve(device(), query));
+        JsonNode receipt = objectMapper.valueToTree(service.save(device(), source));
+        assertEquals(resolved.path("fieldPolicy"), receipt.path("fieldPolicy"));
+        assertEquals(false, resolved.at("/fieldPolicy/fieldVisibility/chiefComplaint").booleanValue());
+        assertTrue(resolved.at("/fieldPolicy/fields/0/aiSuitable").asBoolean());
+        assertEquals(original, row.getParseResultJson());
+        // An older admin request and a prompt reset must not re-enable display.
+        service.saveRule(id, rule("chiefComplaint", 1, "ai", null, null));
+        assertFalse(service.get(id).getFields().get(0).getSettings().isVisible());
+        service.changeState(id, 2, "disabled");
+        JsonNode disabled = objectMapper.valueToTree(service.resolve(device(), query));
+        assertEquals(0, disabled.at("/fieldPolicy/fields").size());
+        assertEquals(false, disabled.at("/fieldPolicy/fieldVisibility/chiefComplaint").booleanValue());
+        ObjectNode evidence = objectMapper.createObjectNode();
+        evidence.set("request", objectMapper.valueToTree(source));
+        evidence.set("adminRequest", edit);
+        evidence.set("adminResponse", objectMapper.valueToTree(hidden));
+        evidence.set("resolved", resolved);
+        evidence.set("registered", receipt);
+        evidence.set("disabled", disabled);
+        java.nio.file.Path output = java.nio.file.Paths.get("target", "emr-field-visibility-evidence.json");
+        java.nio.file.Files.createDirectories(output.getParent());
+        objectMapper.writerWithDefaultPrettyPrinter().writeValue(output.toFile(), evidence);
+        service.saveRule(id, rule("chiefComplaint", 3, "ai", null, null).put("visible", true));
+        assertTrue(service.get(id).getFields().get(0).getSettings().isVisible());
+        assertThrows(BusinessException.class, () -> service.saveRule(id,
+            rule("chiefComplaint", 4, "ai", null, null).put("visible", "false")));
+    }
+
     private ObjectNode rule(String id, long revision, String mode, String body, String extra) {
         return objectMapper.createObjectNode().put("fieldId", id).put("expectedRevision", revision)
             .put("generationMode", mode).putNull("meaningOverride").put("customBody", body).put("additionalConstraint", extra);
@@ -751,18 +844,11 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         assertEquals(0, objectMapper.valueToTree(service.resolve(device(), query)).at("/fieldPolicy/fields").size());
         service.changeState(id, 4, "enabled");
         assertFalse(service.get(id).getFields().get(0).getEffective().isAiSuitable());
-        service.changeState(id, 5, "deleted");
-        source.setSchemaVersion("outpatient-emr-template-pair-snapshot.v2");
-        when(snapshotMapper.readRevision(id)).thenReturn(6L);
-        JsonNode receipt = objectMapper.valueToTree(service.save(device(), source));
-        assertEquals("deleted", receipt.at("/fieldPolicy/templateState").asText());
-        assertTrue(receipt.path("deduplicated").asBoolean());
-        assertThrows(BusinessException.class, () -> service.changeState(id, 6, "enabled"));
+        when(snapshotMapper.physicalDeleteById(id)).thenReturn(1);
+        assertEquals("deleted", service.delete(id, 5).getTemplateState());
+        verify(mappingMapper).physicalDeleteBySnapshotId(id);
+        verify(snapshotMapper).physicalDeleteById(id);
         assertEquals(original, row.getParseResultJson());
-        verify(auditService).saveAdminOperation(org.mockito.ArgumentMatchers.eq("ORG001"),
-            org.mockito.ArgumentMatchers.eq("outpatient-emr-template"), org.mockito.ArgumentMatchers.eq("deleted"),
-            org.mockito.ArgumentMatchers.argThat(log -> "SYN-ADMIN".equals(log.get("operatorId"))
-                && Long.valueOf(6).equals(log.get("revision")) && !log.containsKey("customBody")));
     }
 
     @Test
@@ -835,19 +921,22 @@ class OutpatientEmrTemplateSnapshotServiceTest {
 
         String id = "SYN-POLICY-SNAPSHOT";
         java.util.concurrent.atomic.AtomicReference<AiOutpatientEmrTemplateSnapshot> store = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicInteger registrations = new java.util.concurrent.atomic.AtomicInteger();
         when(snapshotMapper.selectList(any())).thenAnswer(inv -> store.get() == null
             ? Collections.emptyList() : Collections.singletonList(store.get()));
         when(snapshotMapper.insert(any(AiOutpatientEmrTemplateSnapshot.class))).thenAnswer(inv -> {
             AiOutpatientEmrTemplateSnapshot inserted = inv.getArgument(0);
-            inserted.setIdSnapshot(id);
+            inserted.setIdSnapshot(registrations.getAndIncrement() == 0 ? id : id + "-NEW");
             inserted.setInsertTime(LocalDateTime.of(2026, 11, 19, 9, 0));
             inserted.setUpdateTime(inserted.getInsertTime());
             inserted.setLastReceivedAt(inserted.getInsertTime());
             store.set(inserted);
             return 1;
         });
-        when(snapshotMapper.readRevision(id)).thenAnswer(inv -> store.get().getPolicyRevision());
-        when(snapshotMapper.selectById(id)).thenAnswer(inv -> store.get());
+        when(snapshotMapper.readRevision(anyString())).thenAnswer(inv -> store.get().getPolicyRevision());
+        when(snapshotMapper.selectById(anyString())).thenAnswer(inv -> store.get() != null
+            && store.get().getIdSnapshot().equals(inv.getArgument(0)) ? store.get() : null);
+        when(snapshotMapper.physicalDeleteById(id)).thenAnswer(inv -> { store.set(null); return 1; });
         OutpatientEmrTemplateSnapshotResolveRequest query = validResolveRequest(source);
         query.setSchemaVersion("outpatient-emr-template-pair-resolve.v2");
         ObjectNode capture = objectMapper.createObjectNode();
@@ -869,10 +958,103 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         service.changeState(id, 2, "disabled");
         capture.set("disabled", objectMapper.valueToTree(service.resolve(device(), query)));
         assertEquals(0, capture.at("/disabled/fieldPolicy/fields").size());
+        capture.set("deleted", objectMapper.valueToTree(service.delete(id, 3)));
+        capture.set("afterDelete", objectMapper.valueToTree(service.resolve(device(), query)));
+        assertFalse(capture.at("/afterDelete/cacheHit").asBoolean());
+        capture.set("recreated", objectMapper.valueToTree(service.save(device(), source)));
+        capture.set("recreatedResolution", objectMapper.valueToTree(service.resolve(device(), query)));
+        assertFalse(capture.at("/recreated/deduplicated").asBoolean());
+        assertEquals(id + "-NEW", capture.at("/recreated/id").asText());
+        assertEquals(0, capture.at("/recreated/fieldPolicy/revision").asInt());
+        assertEquals("enabled", capture.at("/recreated/fieldPolicy/templateState").asText());
+        verify(mappingMapper).physicalDeleteBySnapshotId(id);
         // The cross-repository fixture reader and the synthetic browser scenario use the exact serialized responses.
         java.nio.file.Path evidence = java.nio.file.Paths.get("target", "outpatient-field-policy-evidence.json");
         java.nio.file.Files.createDirectories(evidence.getParent());
         objectMapper.writerWithDefaultPrettyPrinter().writeValue(evidence.toFile(), capture);
+    }
+
+    @Test
+    void physicalDeleteChecksOrganizationAndRevisionAndRepeatedDeleteIsIdempotent() throws Exception {
+        AiOutpatientEmrTemplateSnapshot row = snapshotEntity(validRequest());
+        String id = row.getIdSnapshot();
+        row.setPolicyRevision(2L);
+        row.setIdOrg("OTHER-ORG");
+        assertThrows(ForbiddenException.class, () -> service.delete(id, 2));
+        row.setIdOrg("ORG001");
+        assertThrows(ConflictException.class, () -> service.delete(id, 1));
+        verify(mappingMapper, never()).physicalDeleteBySnapshotId(anyString());
+        when(snapshotMapper.physicalDeleteById(id)).thenReturn(1);
+        service.delete(id, 2);
+        org.mockito.InOrder order = inOrder(mappingMapper, snapshotMapper, auditService);
+        order.verify(mappingMapper).physicalDeleteBySnapshotId(id);
+        order.verify(snapshotMapper).physicalDeleteById(id);
+        order.verify(auditService).saveAdminOperation(org.mockito.ArgumentMatchers.eq("ORG001"),
+            org.mockito.ArgumentMatchers.eq("outpatient-emr-template"), org.mockito.ArgumentMatchers.eq("deleted"), any());
+        when(snapshotMapper.selectById(id)).thenReturn(null);
+        assertEquals("deleted", service.delete(id, 2).getTemplateState());
+        verify(snapshotMapper).physicalDeleteById(id);
+    }
+
+    @Test
+    void physicalDeleteRollsBackWhenAuditFails() throws Exception {
+        AiOutpatientEmrTemplateSnapshot row = snapshotEntity(validRequest());
+        when(snapshotMapper.physicalDeleteById(row.getIdSnapshot())).thenReturn(1);
+        doThrow(new IllegalStateException("synthetic audit failure")).when(auditService).saveAdminOperation(any(), any(), any(), any());
+        ProxyFactory factory = new ProxyFactory(service);
+        factory.setProxyTargetClass(true);
+        factory.addAdvice(new TransactionInterceptor(transactionManager, new AnnotationTransactionAttributeSource()));
+        OutpatientEmrTemplateSnapshotService transactional = (OutpatientEmrTemplateSnapshotService) factory.getProxy();
+        assertThrows(IllegalStateException.class, () -> transactional.delete(row.getIdSnapshot(), 0));
+        verify(transactionManager).rollback(any());
+        verify(transactionManager, never()).commit(any());
+    }
+
+    @Test
+    void legacyDeletedSnapshotResolvesAsAMissAfterPhysicalCleanup() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest source = validRequest();
+        AiOutpatientEmrTemplateSnapshot row = snapshotEntity(source);
+        row.setTemplateState("deleted");
+        when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(row));
+        when(snapshotMapper.physicalDeleteById(row.getIdSnapshot())).thenReturn(1);
+        assertFalse(service.resolve(device(), validResolveRequest(source)).getCacheHit());
+        verify(mappingMapper).physicalDeleteBySnapshotId(row.getIdSnapshot());
+        verify(snapshotMapper).physicalDeleteById(row.getIdSnapshot());
+    }
+
+    @Test
+    void legacyDeletedSnapshotCanBeRegisteredAgainWithDefaultRules() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest source = validRequest();
+        AiOutpatientEmrTemplateSnapshot row = snapshotEntity(source);
+        row.setTemplateState("deleted");
+        when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(row));
+        when(snapshotMapper.physicalDeleteById(row.getIdSnapshot())).thenReturn(1);
+        OutpatientEmrTemplateSnapshotReceipt receipt = service.save(device(), source);
+        assertFalse(receipt.getDeduplicated());
+        assertFalse(row.getIdSnapshot().equals(receipt.getId()));
+        verify(mappingMapper).physicalDeleteBySnapshotId(row.getIdSnapshot());
+        verify(transactionManager).commit(any());
+    }
+
+    @Test
+    void failedLegacyCleanupRollsBackAndDoesNotRegisterAPartialReplacement() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest source = validRequest();
+        AiOutpatientEmrTemplateSnapshot row = snapshotEntity(source);
+        row.setTemplateState("deleted");
+        when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(row));
+        doThrow(new IllegalStateException("synthetic delete failure")).when(snapshotMapper).physicalDeleteById(row.getIdSnapshot());
+        assertThrows(IllegalStateException.class, () -> service.save(device(), source));
+        verify(transactionManager).rollback(any());
+        verify(snapshotMapper, never()).insert(any(AiOutpatientEmrTemplateSnapshot.class));
+    }
+
+    @Test
+    void deletionDuringLookupCannotReturnThePreviousSnapshot() throws Exception {
+        OutpatientEmrTemplateSnapshotRequest source = validRequest();
+        AiOutpatientEmrTemplateSnapshot row = snapshotEntity(source);
+        when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(row));
+        when(snapshotMapper.selectById(row.getIdSnapshot())).thenReturn(null);
+        assertFalse(service.resolve(device(), validResolveRequest(source)).getCacheHit());
     }
 
     private OutpatientEmrTemplateFieldSnapshot splitField(String id, String name, String type) {
@@ -916,6 +1098,7 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         entity.setMappedFieldCount(Integer.valueOf(1));
         entity.setLastReceivedAt(LocalDateTime.of(2026, 8, 27, 12, 0));
         entity.setFgActive("1");
+        lenient().when(snapshotMapper.selectById(entity.getIdSnapshot())).thenReturn(entity);
         return entity;
     }
 
@@ -1007,6 +1190,7 @@ class OutpatientEmrTemplateSnapshotServiceTest {
         verify(snapshotMapper).insert(captor.capture());
         assertEquals(definition, captor.getValue().getTemplateDefinition());
         when(snapshotMapper.selectList(any())).thenReturn(Collections.singletonList(captor.getValue()));
+        when(snapshotMapper.selectById(captor.getValue().getIdSnapshot())).thenReturn(captor.getValue());
         OutpatientEmrTemplateSnapshotResolution resolved = service.resolve(device(), validResolveRequest(request));
         assertEquals(Boolean.TRUE, resolved.getCacheHit());
         assertEquals("主诉 ", resolved.getParseResult().getFields().get(0).getArticleDefinitionName());

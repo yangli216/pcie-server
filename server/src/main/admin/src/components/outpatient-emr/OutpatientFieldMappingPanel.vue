@@ -4,30 +4,29 @@
       <el-input
         v-model.trim="keyword"
         clearable
-        placeholder="搜索字段、含义或提示词…"
+        placeholder="搜索字段 ID、字段含义或提示词…"
         class="mapping-filter-bar__search"
-        prefix-icon="el-icon-search"
+        aria-label="搜索字段"
       />
-      <el-select v-model="mappingFilter" class="mapping-filter-bar__select" aria-label="映射状态">
-        <el-option label="全部状态" value="all" />
-        <el-option label="自动映射" value="automatic" />
-        <el-option label="人工维护" value="overridden" />
-        <el-option label="待映射" value="pending" />
-        <el-option label="人工排除" value="excluded" />
-      </el-select>
-      <el-select v-model="propertyFilter" class="mapping-filter-bar__select" aria-label="字段属性">
-        <el-option label="全部字段" value="all" />
-        <el-option label="可写字段" value="writable" />
-        <el-option label="AI 字段" value="ai" />
-        <el-option label="字典字段" value="dictionary" />
-      </el-select>
       <el-select v-model="generation" aria-label="生成类型" class="mapping-filter-bar__select">
-        <el-option label="全部生成类型" value="all" /><el-option label="AI 生成" value="ai" /><el-option label="人工/HIS" value="manual" />
+        <el-option label="全部类型" value="all" />
+        <el-option label="AI生成" value="ai" />
+        <el-option label="人工/HIS" value="manual" />
       </el-select>
-      <el-select v-model="prompt" aria-label="提示词来源" class="mapping-filter-bar__select">
-        <el-option label="全部提示词" value="all" /><el-option label="已维护" value="custom" /><el-option label="默认待维护" value="default" /><el-option label="非 AI" value="not_ai" />
+      <el-select v-model="prompt" aria-label="提示词状态" class="mapping-filter-bar__select">
+        <el-option label="全部提示词" value="all" />
+        <el-option label="已维护" value="custom" />
+        <el-option label="默认" value="default" />
+        <el-option label="非AI" value="not_ai" />
       </el-select>
-      <span class="mapping-filter-bar__count">显示 {{ filteredFields.length }} / {{ fields.length }} 个字段</span>
+      <div class="mapping-filter-bar__quick">
+        <span>常用过滤</span>
+        <el-button size="mini" @click="applyQuickFilter('all')">全部</el-button>
+        <el-button size="mini" @click="applyQuickFilter('ai')">AI生成</el-button>
+        <el-button size="mini" @click="applyQuickFilter('manual')">人工/HIS</el-button>
+        <el-button size="mini" @click="applyQuickFilter('custom')">已维护</el-button>
+        <el-button size="mini" @click="applyQuickFilter('pending')">待维护</el-button>
+      </div>
     </div>
 
     <el-table
@@ -59,6 +58,9 @@
             <span>{{ projectionLabel(row.projectionMode) }}</span>
           </div>
         </template>
+      </el-table-column>
+      <el-table-column label="是否展示" width="88">
+        <template slot-scope="{ row }"><status-pill :tone="row.policy.settings.visible === false ? 'muted' : 'success'" :label="row.policy.settings.visible === false ? '否' : '是'" /></template>
       </el-table-column>
       <el-table-column label="生成类型" width="92">
         <template slot-scope="{ row }"><status-pill :tone="row.policy.effective.aiSuitable ? 'success' : 'muted'" :label="row.policy.effective.aiSuitable ? 'AI' : '人工/HIS'" /></template>
@@ -106,9 +108,9 @@ export default {
   },
   data() {
     return {
-      keyword: '', generation: 'all', prompt: 'all',
-      mappingFilter: 'all',
-      propertyFilter: 'all'
+      keyword: '',
+      generation: 'all',
+      prompt: 'all'
     }
   },
   computed: {
@@ -124,14 +126,6 @@ export default {
         const rule = field.policy.effective
         if (this.generation !== 'all' && rule.aiSuitable !== (this.generation === 'ai')) return false
         if (this.prompt !== 'all' && this.prompt !== rule.promptSource) return false
-        const override = this.overrideFor(field)
-        if (this.mappingFilter === 'automatic' && (override || !field.recordField)) return false
-        if (this.mappingFilter === 'overridden' && !override) return false
-        if (this.mappingFilter === 'pending' && (override || field.recordField)) return false
-        if (this.mappingFilter === 'excluded' && (!override || override.mappingStatus !== 'unmapped')) return false
-        if (this.propertyFilter === 'writable' && field.readonly) return false
-        if (this.propertyFilter === 'ai' && !field.aiSuitable) return false
-        if (this.propertyFilter === 'dictionary' && field.dictionaryItems.length === 0) return false
         if (!keyword) return true
         return [
           rule.meaning, rule.resolvedPrompt, field.id,
@@ -152,13 +146,17 @@ export default {
   methods: {
     resetFilters() {
       this.keyword = ''
-      this.mappingFilter = 'all'
-      this.propertyFilter = 'all'
+      this.generation = 'all'
+      this.prompt = 'all'
     },
     applyQuickFilter(value) {
-      this.keyword = ''
-      this.mappingFilter = value
-      this.propertyFilter = 'all'
+      this.resetFilters()
+      if (value === 'ai' || value === 'manual') {
+        this.generation = value
+      } else if (value === 'custom' || value === 'pending') {
+        this.generation = 'ai'
+        this.prompt = value === 'custom' ? 'custom' : 'default'
+      }
     },
     overrideFor(field) {
       return field ? this.overrideMap[field.id] || null : null
@@ -206,13 +204,13 @@ export default {
 }
 
 .mapping-filter-bar__search {
-  width: 300px;
-  flex: 0 0 300px;
+  width: 280px;
+  flex: 0 0 280px;
 }
 
 .mapping-filter-bar__select {
-  width: 126px;
-  flex: 0 0 126px;
+  width: 128px;
+  flex: 0 0 128px;
 }
 
 .mapping-filter-bar__quick {
@@ -220,14 +218,7 @@ export default {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-}
-
-.mapping-filter-bar__count {
-  margin-left: auto;
-  color: var(--color-text-secondary);
-  font-size: 12px;
+  color: #6b7280;
   white-space: nowrap;
 }
 
@@ -278,13 +269,12 @@ export default {
   color: #5d6b68;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1180px) {
   .mapping-filter-bar {
     flex-wrap: wrap;
   }
 
   .mapping-filter-bar__quick {
-    order: 2;
     flex-basis: 100%;
   }
 }

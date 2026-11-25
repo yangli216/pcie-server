@@ -245,6 +245,7 @@ public class InpatientEmrTemplateCacheService {
                 continue;
             }
             applyFieldGeneration(field, Boolean.TRUE.equals(request.getAiSuitable()));
+            if (request.getVisible() != null) field.put("visible", request.getVisible());
             updated = true;
             break;
         }
@@ -420,6 +421,7 @@ public class InpatientEmrTemplateCacheService {
         Map<String, Object> cachedRule = readRule(cachedField);
         boolean cachedAiSuitable = isAiGenerationField(cachedField);
         targetField.put("aiSuitable", Boolean.valueOf(cachedAiSuitable));
+        targetField.put("visible", !Boolean.FALSE.equals(cachedField.get("visible")));
         copyRuleValue(cachedRule, targetRule, "source");
         copyRuleValue(cachedRule, targetRule, "prompt");
         copyRuleValue(cachedRule, targetRule, "promptGeneratorInstruction");
@@ -734,6 +736,7 @@ public class InpatientEmrTemplateCacheService {
             return copy;
         }
         copy.putAll(field);
+        copy.put("visible", !Boolean.FALSE.equals(field.get("visible")));
         Object ruleValue = copy.get("rule");
         if (ruleValue instanceof Map) {
             Map<String, Object> rule = new LinkedHashMap<String, Object>(readRule(field));

@@ -99,7 +99,7 @@ public class AdminOutpatientEmrTemplateController {
 
     @DeleteMapping("/{idSnapshot}")
     public ApiResponse<Map<String,Object>> delete(@PathVariable String idSnapshot, @RequestParam long expectedRevision, HttpServletRequest request) {
-        OutpatientEmrTemplateSnapshotVO item = snapshotService.changeState(idSnapshot, expectedRevision, "deleted");
+        OutpatientEmrTemplateSnapshotVO item = snapshotService.delete(idSnapshot, expectedRevision);
         Map<String,Object> result = new LinkedHashMap<>();
         result.put("id", item.getId());
         result.put("templateState", item.getTemplateState());

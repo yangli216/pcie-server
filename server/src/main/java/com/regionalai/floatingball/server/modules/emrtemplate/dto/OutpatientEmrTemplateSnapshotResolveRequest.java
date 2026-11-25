@@ -9,6 +9,8 @@ public class OutpatientEmrTemplateSnapshotResolveRequest extends StrictOutpatien
 
     private String schemaVersion;
 
+    private Boolean supportsFieldVisibility;
+
     private String templateId;
 
     private String templateHash;

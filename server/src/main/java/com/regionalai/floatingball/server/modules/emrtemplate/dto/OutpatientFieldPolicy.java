@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 @Data
 @JsonInclude(JsonInclude.Include.ALWAYS)
@@ -14,6 +15,8 @@ public class OutpatientFieldPolicy {
     private String templateState;
     private long revision;
     private List<Field> fields = Collections.emptyList();
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    private Map<String, Boolean> fieldVisibility = Collections.emptyMap();
 
     @Data
     @JsonInclude(JsonInclude.Include.ALWAYS)
@@ -31,6 +34,7 @@ public class OutpatientFieldPolicy {
     @JsonInclude(JsonInclude.Include.ALWAYS)
     public static class Settings {
         private String generationMode = "inherit";
+        private boolean visible = true;
         private String meaningOverride;
         private String additionalConstraint;
         private String customBody;

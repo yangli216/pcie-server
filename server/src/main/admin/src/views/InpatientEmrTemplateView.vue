@@ -116,6 +116,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="meaning" label="字段含义" min-width="220" show-overflow-tooltip />
+        <el-table-column label="是否展示" width="88">
+          <template slot-scope="{ row }"><status-pill :tone="row.visible === false ? 'muted' : 'success'" :label="row.visible === false ? '否' : '是'" /></template>
+        </el-table-column>
         <el-table-column label="AI生成" width="82">
           <template slot-scope="{ row }">
             <status-pill :tone="row.aiSuitable ? 'success' : 'muted'" :label="row.aiSuitable ? 'AI' : '人工'" />
@@ -139,13 +142,17 @@
 
     <el-dialog
       v-if="promptDialogVisible"
-      title="维护字段提示词"
+      title="字段维护"
       :visible.sync="promptDialogVisible"
       width="680px"
     >
       <el-form label-position="top">
         <el-form-item label="字段">
           <el-input :value="activeField && activeField.id" disabled />
+        </el-form-item>
+        <el-form-item label="是否展示">
+          <segmented-switch v-model="activeFieldVisible" :options="[{ label: '是', value: true }, { label: '否', value: false }]" />
+          <p class="field-helper">控制 PCIE 病历界面上的字段展示。</p>
         </el-form-item>
         <el-form-item label="生成类型">
           <segmented-switch v-model="activeFieldAiSuitable" :options="generationOptions" />
@@ -233,6 +240,7 @@ export default {
       promptDialogVisible: false,
       activeField: null,
       activeFieldAiSuitable: false,
+      activeFieldVisible: true,
       promptText: '',
       promptGeneratorInstruction: '',
       fieldKeyword: '',
@@ -366,6 +374,7 @@ export default {
       if (!field) return
       this.activeField = field
       this.activeFieldAiSuitable = Boolean(field.aiSuitable)
+      this.activeFieldVisible = field.visible !== false
       this.promptText = this.customPrompt(field)
       this.promptGeneratorInstruction = this.generatorInstruction(field)
       this.promptDialogVisible = true
@@ -414,13 +423,14 @@ export default {
     findDetailField(fieldId) {
       return this.allDetailFields.find(field => field.id === fieldId) || null
     },
-    async saveActiveFieldGeneration() {
+    async saveActiveFieldGeneration(saveVisibility = false) {
       if (!this.selectedRecord || !this.activeField) return
       const nextValue = Boolean(this.activeFieldAiSuitable)
-      if (nextValue === Boolean(this.activeField.aiSuitable)) return
+      if (nextValue === Boolean(this.activeField.aiSuitable)
+        && (!saveVisibility || this.activeFieldVisible === (this.activeField.visible !== false))) return
       this.selectedRecord = await http.put(
         `/admin/api/inpatient-emr/templates/${this.selectedRecord.id}/fields/${encodeURIComponent(this.activeField.id)}/generation`,
-        { aiSuitable: nextValue }
+        { aiSuitable: nextValue, ...(saveVisibility ? { visible: this.activeFieldVisible } : {}) }
       )
       this.activeField = this.findDetailField(this.activeField.id)
     },
@@ -450,7 +460,7 @@ export default {
       if (!this.selectedRecord || !this.activeField) return
       this.savingPrompt = true
       try {
-        await this.saveActiveFieldGeneration()
+        await this.saveActiveFieldGeneration(true)
         if (this.activeFieldAiSuitable) {
           this.selectedRecord = await http.put(
             `/admin/api/inpatient-emr/templates/${this.selectedRecord.id}/fields/${encodeURIComponent(this.activeField.id)}/prompt`,

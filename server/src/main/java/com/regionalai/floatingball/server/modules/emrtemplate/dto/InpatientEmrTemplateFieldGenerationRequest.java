@@ -6,4 +6,6 @@ import lombok.Data;
 public class InpatientEmrTemplateFieldGenerationRequest {
 
     private Boolean aiSuitable;
+
+    private Boolean visible;
 }

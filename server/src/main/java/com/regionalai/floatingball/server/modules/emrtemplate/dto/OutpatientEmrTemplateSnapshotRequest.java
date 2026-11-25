@@ -11,6 +11,8 @@ public class OutpatientEmrTemplateSnapshotRequest extends StrictOutpatientEmrSna
 
     private String schemaVersion;
 
+    private Boolean supportsFieldVisibility;
+
     private String templateId;
 
     private String templateName;

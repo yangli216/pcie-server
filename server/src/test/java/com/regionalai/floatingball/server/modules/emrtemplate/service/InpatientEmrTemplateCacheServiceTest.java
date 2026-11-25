@@ -703,6 +703,38 @@ class InpatientEmrTemplateCacheServiceTest {
         assertThrows(BusinessException.class, () -> service.invalidate("cache-delete-failed"));
     }
 
+    @Test
+    void visibilityIsIndependentAndSavedValueSurvivesReparseAndLegacyEdits() throws Exception {
+        AiInpatientEmrTemplateCache cache = cacheWithFields(sampleFields());
+        when(cacheMapper.selectById(cache.getIdCache())).thenReturn(cache);
+        when(cacheMapper.selectList(any())).thenReturn(Collections.singletonList(cache));
+        String original = cache.getFieldsJson();
+        assertEquals(true, service.get(cache.getIdCache()).getFields().get(0).get("visible"));
+        assertEquals(original, cache.getFieldsJson());
+        InpatientEmrTemplateFieldGenerationRequest edit = new InpatientEmrTemplateFieldGenerationRequest();
+        edit.setAiSuitable(true);
+        edit.setVisible(false);
+        Map<String, Object> hidden = service.updateFieldGeneration(cache.getIdCache(), "病程记录文本", edit).getFields().get(0);
+        assertEquals(false, hidden.get("visible"));
+        assertEquals(true, hidden.get("aiSuitable"));
+        assertTrue(cache.getFieldsJson().contains("\"visible\":false"));
+        InpatientEmrTemplateResolveRequest request = new InpatientEmrTemplateResolveRequest();
+        request.setTemplateId(cache.getTemplateId());
+        request.setTemplateHash(cache.getTemplateHash());
+        List<Map<String, Object>> reparsed = sampleFields();
+        reparsed.get(0).put("visible", true);
+        request.setFields(reparsed);
+        InpatientEmrTemplateCacheVO resolved = service.resolve(request);
+        assertEquals(2, resolved.getFields().size());
+        assertEquals(false, resolved.getFields().get(0).get("visible"));
+        assertEquals(true, resolved.getFields().get(1).get("visible"));
+        assertEquals(true, reparsed.get(0).get("visible"));
+        edit.setVisible(null);
+        assertEquals(false, service.updateFieldGeneration(cache.getIdCache(), "病程记录文本", edit).getFields().get(0).get("visible"));
+        edit.setVisible(true);
+        assertEquals(true, service.updateFieldGeneration(cache.getIdCache(), "病程记录文本", edit).getFields().get(0).get("visible"));
+    }
+
     private AiInpatientEmrTemplateCache cacheWithFields(List<Map<String, Object>> fields) throws Exception {
         AiInpatientEmrTemplateCache cache = new AiInpatientEmrTemplateCache();
         cache.setIdCache("cache-config-regression");
