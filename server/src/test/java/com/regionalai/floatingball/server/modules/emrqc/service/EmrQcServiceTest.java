@@ -458,8 +458,9 @@ class EmrQcServiceTest {
         assertEquals("EMR-QC-DISABLED", exception.getCode());
     }
 
-    @Test
-    void reuseRequiresCurrentRuleVersion() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"emr-qc-rules-v6", "emr-qc-rules-v7", "emr-qc-rules-v10", "emr-qc-rules-v11"})
+    void reuseRequiresCurrentRuleVersion(String oldVersion) {
         PhisEmrRecord record = record("A");
         AiEmrQcRecord projection = new AiEmrQcRecord();
         projection.setContentHash("hash");
@@ -468,7 +469,7 @@ class EmrQcServiceTest {
 
         Boolean current = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
             service, "canReuse", projection, record, "hash");
-        projection.setRuleVersion("emr-qc-rules-v7");
+        projection.setRuleVersion(oldVersion);
         Boolean old = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
             service, "canReuse", projection, record, "hash");
 
@@ -832,7 +833,7 @@ class EmrQcServiceTest {
         verify(writer).saveWithAudit(draft.capture(), any());
         assertEquals(97, draft.getValue().getScore());
         assertEquals(9, objectMapper.valueToTree(fullDimensions()).size());
-        assertEquals("emr-qc-rules-v11", draft.getValue().getRuleVersion());
+        assertEquals("emr-qc-rules-v12", draft.getValue().getRuleVersion());
         verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
     }
 
@@ -926,6 +927,62 @@ class EmrQcServiceTest {
         assertEquals(expectedNewFindings, findings.stream().filter(f -> EmrQcChiefComplaintRules.isRule(f.getRuleCode())).count());
         assertEquals(100 - expectedNewFindings - (history.isEmpty() ? 1 : 0), draft.getValue().getScore());
         assertEquals(EmrQcRubric.RULE_VERSION, draft.getValue().getRuleVersion());
+        verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false,missing", "true,missing", "false,null", "true,null", "false,coded", "true,coded"})
+    void rejectedAcceptancePlusFindingWithoutRuleCodeIsChargedOnce(boolean batch, String ruleShape) {
+        AdminCurrentUser user = user();
+        PhisEmrRecord record = record("A");
+        if (!batch) {
+            when(sessionScope.require(user)).thenReturn(scope());
+            recordCache.putAll("s1", Collections.singletonList(record));
+        }
+        // Synthetic record; only the complaint and reported issue wording mirror review 160.
+        com.fasterxml.jackson.databind.node.ArrayNode pages = objectMapper.createArrayNode();
+        pages.addObject().put("ARTICLE", "主诉").putArray("eles").addObject().put("NAME", "内容").put("TEXT", "反复咳嗽20+天");
+        pages.addObject().put("ARTICLE", "现病史").putArray("eles").addObject().put("NAME", "内容").put("TEXT", "反复咳嗽20天");
+        when(phisClient.detail(any(), eq("A"))).thenReturn(objectMapper.createObjectNode()
+            .put("xmlContent", pages.toString()).put("htmlContent", "<p>主诉：反复咳嗽20+天</p><p>现病史：反复咳嗽20天</p>"));
+        com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config =
+            new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
+        config.setModel("fake"); config.setBaseUrl("https://model.invalid");
+        when(configService.resolveByScope(eq("ORG001"), isNull())).thenReturn(config);
+        ObjectNode payload = objectMapper.createObjectNode();
+        com.fasterxml.jackson.databind.node.ArrayNode dimensions = payload.putArray("dimensions");
+        for (EmrQcRubric.Spec spec : EmrQcRubric.dimensions()) {
+            dimensions.addObject().put("code", spec.getCode()).put("score", spec.getWeight());
+        }
+        com.fasterxml.jackson.databind.node.ArrayNode responses = payload.putArray("findings");
+        responses.addObject().put("severity", "medium").put("category", "主诉").put("sectionName", "主诉")
+            .putNull("ruleCode").put("issue", "主诉中包含加号").put("excerpt", "反复咳嗽20+天")
+            .put("suggestion", "请去除主诉中的加号，使用标准汉字或数字表述").put("deduction", 1);
+        if ("missing".equals(ruleShape)) ((ObjectNode) responses.get(0)).remove("ruleCode");
+        if ("coded".equals(ruleShape)) ((ObjectNode) responses.get(0)).put("ruleCode", EmrQcChiefComplaintRules.PLUS);
+        responses.addObject().put("severity", "high").put("category", "现病史")
+            .put("issue", "现病史缺少发病以来的主要诊治经过及结果").put("deduction", 10);
+        responses.addObject().put("severity", "high").put("category", "诊疗措施")
+            .put("issue", "诊疗措施中未记录具体的检查治疗项目及药品使用情况").put("deduction", 5);
+        EmrQcAiClient parser = new EmrQcAiClient(objectMapper,
+            org.mockito.Mockito.mock(com.regionalai.floatingball.server.common.outbound.OutboundSecurityService.class), properties);
+        EmrQcAiClient.Result ai = org.springframework.test.util.ReflectionTestUtils.invokeMethod(parser, "parseResult", payload.toString());
+        when(aiClient.analyze(eq(config), any())).thenReturn(ai);
+        AiEmrQcRecord saved = new AiEmrQcRecord(); saved.setDimensionsJson("[]");
+        when(writer.saveWithAudit(any(), any())).thenReturn(saved);
+        if (batch) service.analyzeForTask(new EmrQcContext(user, scope(), "ORG001", "req"), record, true);
+        else service.analyze(user, "A", true, "req");
+        org.mockito.ArgumentCaptor<EmrQcDraft> draft = org.mockito.ArgumentCaptor.forClass(EmrQcDraft.class);
+        verify(writer).saveWithAudit(draft.capture(), any());
+        org.assertj.core.api.Assertions.assertThat(draft.getValue().getFindings())
+            .filteredOn(f -> "主诉".equals(f.getCategory()))
+            .singleElement().satisfies(f -> {
+                assertEquals(EmrQcChiefComplaintRules.PLUS, f.getRuleCode());
+                assertEquals(1, f.getDeduction());
+                org.assertj.core.api.Assertions.assertThat(f.getSuggestion()).contains("20天");
+            });
+        assertEquals(3, draft.getValue().getFindings().size());
+        assertEquals(84, draft.getValue().getScore());
         verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
     }
 
@@ -1105,15 +1162,21 @@ class EmrQcServiceTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.CsvSource({"false,false", "false,true", "true,false", "true,true"})
-    void proxyRefillSkipsAllRulesAndAiForSingleBatchAndBothContentSources(boolean batch, boolean preview) throws Exception {
+    @org.junit.jupiter.params.provider.CsvSource({
+        "false,false,家长代配药", "false,true,家长代配药", "true,false,家长代配药", "true,true,家长代配药",
+        "false,false,家长代配药＋咳嗽伴发热流涕咳痰已经三天且要求续配药物",
+        "false,true,家长代配药＋咳嗽伴发热流涕咳痰已经三天且要求续配药物",
+        "true,false,家长代配药＋咳嗽伴发热流涕咳痰已经三天且要求续配药物",
+        "true,true,家长代配药＋咳嗽伴发热流涕咳痰已经三天且要求续配药物"
+    })
+    void proxyRefillSkipsAllRulesAndAiForSingleBatchAndBothContentSources(boolean batch, boolean preview, String complaint) throws Exception {
         AdminCurrentUser user = user();
         PhisEmrRecord record = record("A");
         if (!batch) {
             when(sessionScope.require(user)).thenReturn(scope());
             recordCache.putAll("s1", Collections.singletonList(record));
         }
-        ObjectNode data = proxyContent("家长代配药＋咳嗽伴发热流涕咳痰已经三天且要求续配药物");
+        ObjectNode data = proxyContent(complaint);
         if (!preview) data.remove("htmlContent");
         when(phisClient.detail(any(), eq("A"))).thenReturn(data);
         persistDrafts();
@@ -1131,7 +1194,7 @@ class EmrQcServiceTest {
         org.junit.jupiter.api.Assertions.assertTrue(result.isProxyRefill());
         org.junit.jupiter.api.Assertions.assertNull(result.getModel());
         org.junit.jupiter.api.Assertions.assertNull(result.getAiScore());
-        assertEquals("emr-qc-rules-v11", result.getRuleVersion());
+        assertEquals("emr-qc-rules-v12", result.getRuleVersion());
         org.mockito.Mockito.verifyNoInteractions(configService, aiClient);
         verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
         verify(auditService).recordRequired(any(), eq(batch ? "batch_analyze" : "analyze"), eq("A"), isNull(), eq("proxy_refill"));
