@@ -114,6 +114,16 @@ public class EmrQcAiClient {
         system.put("content", "你是门诊病历书写质控专家。请严格按以下门诊病历评分标准评审，只输出一个 JSON 对象，不要输出 Markdown 或解释性文字。"
             + "评分标准（各维度得分为 0 至该维度满分的整数，按扣分项扣分，最低 0 分）："
             + "1.patient_info 患者基础信息，满分10：根据可用信息评估姓名、就诊号/病案号、性别、身份证号、就诊时间、科别和食物/药物过敏史；出生年月、联系电话、工作单位和地址由患者档案维护，明确不检查、不提示缺失、不扣分。其他项仅在有充分依据确定缺失时按标准扣分。"
+            + "过敏史新增完整度规则仅检查【过敏史固定字段证据】中的填写内容（证据通常来自既往史），不扩展家族史、个人史等其他病史。"
+            + "字段状态明确为空时，保留R06空字段扣5分，使用ruleCode=R-ALLERGY-MISSING、category=患者基础信息、deduction=5，提示补充药物与食物过敏史。"
+            + "未识别字段表示未知，不能当作空字段或仅凭其他病史的笼统表述触发本规则。"
+            + "字段已填写时，必须同时覆盖药物与食物两类；‘否认过敏史’等笼统写法或只写一类均为表述不完整，"
+            + "使用ruleCode=R-ALLERGY-INCOMPLETE、category=患者基础信息、deduction=1。两类均未体现仍只扣1分，不能再叠加空字段5分。"
+            + "笼统阴性表述建议‘否认药物及食物过敏史’；‘青霉素过敏’或‘否认药物过敏史’须提示补充食物过敏情况，"
+            + "仅写食物时提示补充药物过敏情况。不得把已记录的阳性过敏建议改为否认。"
+            + "药物、药品、抗菌药物和具体药名属于药物类，食物、食品和具体食物属于食物类；需要理解语义，不只按字面类别词匹配。"
+            + "‘否认药物及食物过敏史’‘否认食品、药物过敏史’‘青霉素过敏，否认食物过敏史’‘青霉素及海鲜过敏’均覆盖两类，不扣本项。"
+            + "字段标题本身不能代替填写内容覆盖类别；两个过敏史规则互斥，整份病历最多列一条，不同时扣5+1，不重复列入既往史维度或其他问题。"
             + "2.chief_complaint 主诉，满分5：记录主要症状、体征及持续时间。"
             + "新增诊断名代替症状规则（R-CHIEF-DIAGNOSIS）：必须联合主诉、现病史和当前就诊上下文判断。"
             + "现病史已描述具体症状，主诉仍使用诊断名称替代症状时扣1分，不要求完全匹配PHIS可开具诊断字典。"
@@ -144,7 +154,8 @@ public class EmrQcAiClient {
             + "字段格式：{\"dimensions\":[{\"code\":\"上述9个维度code之一\",\"score\":该维度得分整数,\"summary\":\"简要说明扣分原因\"}],"
             + "\"findings\":[{\"severity\":\"high|medium|low|info\",\"category\":\"对应维度名称\","
             + "\"sectionName\":\"章节名\",\"excerpt\":\"原文摘录\",\"issue\":\"问题\",\"suggestion\":\"修改建议\","
-            + "\"deduction\":该问题扣分整数,\"ruleCode\":null}]}。诊断代替症状项使用R-CHIEF-DIAGNOSIS；辅助检查项目无结果项使用R-AUX-RESULT-MISSING，其余使用JSON null。"
+            + "\"deduction\":该问题扣分整数,\"ruleCode\":null}]}。诊断代替症状项将ruleCode设为字符串R-CHIEF-DIAGNOSIS；"
+            + "过敏史空字段/完整度项分别使用R-ALLERGY-MISSING/R-ALLERGY-INCOMPLETE；辅助检查项目无结果项使用R-AUX-RESULT-MISSING，其余使用JSON null。"
             + "dimensions 必须完整包含 9 个维度且不得重复，不需要输出总分，总分由服务端求和。"
             + "findings 的 category 必须是上述维度名称，deduction 为0至对应维度满分的整数；同一问题只列一次，服务端按有效问题扣分计算维度分。"
             + "请综合所有章节和就诊上下文判断，不要仅因信息出现在不同章节而判缺失。脱敏占位符和已提供（已脱敏）表示信息已提供，不代表缺失；上下文未提供表示未知，不可认定病历缺失。"
@@ -232,6 +243,7 @@ public class EmrQcAiClient {
             throw invalid();
         }
         List<EmrQcAnalysisVO.Finding> findings = new ArrayList<EmrQcAnalysisVO.Finding>();
+        String allergyRule = null;
         boolean auxiliaryResultSeen = false;
         for (JsonNode node : findingNodes) {
             String issue = text(node, "issue");
@@ -251,7 +263,12 @@ public class EmrQcAiClient {
                     && EmrQcRubric.CHIEF_COMPLAINT.equals(categorySpec.getCode()) && deduction == 1;
                 boolean auxiliary = EmrQcRubric.AUX_RESULT_MISSING.equals(ruleCode)
                     && EmrQcRubric.PHYSICAL_EXAM.equals(categorySpec.getCode()) && deduction == 5;
-                if (!chief && !auxiliary) throw invalid();
+                if (!chief && !auxiliary && !EmrQcAllergyRules.validFinding(ruleCode, categorySpec.getCode(), deduction)) throw invalid();
+                if (EmrQcAllergyRules.isRule(ruleCode)) {
+                    if (allergyRule != null && !allergyRule.equals(ruleCode)) throw invalid();
+                    if (allergyRule != null) continue;
+                    allergyRule = ruleCode;
+                }
                 if (auxiliary && auxiliaryResultSeen) continue;
                 if (auxiliary) auxiliaryResultSeen = true;
             }

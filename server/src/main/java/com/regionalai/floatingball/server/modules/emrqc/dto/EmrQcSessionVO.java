@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 public class EmrQcSessionVO {
 
     private boolean available;
+    private String ruleVersion;
     private String hisOrgId;
     private String hisOrgName;
     private String deptId;

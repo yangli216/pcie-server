@@ -95,6 +95,7 @@ public final class EmrQcHtmlPreview {
         }
         projection.chiefComplaint = EmrQcChiefComplaintRules.previewField(safe.body(), "主诉");
         projection.presentIllness = EmrQcChiefComplaintRules.previewField(safe.body(), "现病史");
+        projection.allergyHistory = EmrQcChiefComplaintRules.previewField(safe.body(), "过敏史");
         redactText(safe.body(), record, sections);
         if (!StringUtils.hasText(safe.body().text())) return projection;
         safe.outputSettings().prettyPrint(false);
@@ -109,6 +110,7 @@ public final class EmrQcHtmlPreview {
         String html = "";
         String chiefComplaint;
         String presentIllness;
+        String allergyHistory;
     }
 
     /** Extract only visible text from the already sanitized preview and redact again before AI use. */

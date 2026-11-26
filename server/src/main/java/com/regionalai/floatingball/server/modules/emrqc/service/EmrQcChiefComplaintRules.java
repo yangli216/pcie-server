@@ -29,7 +29,8 @@ final class EmrQcChiefComplaintRules {
     static final String DIAGNOSIS = "R-CHIEF-DIAGNOSIS";
     // NUL denotes layout boundaries, distinct from a user-entered line break.
     private static final Pattern LABEL = Pattern.compile(
-        "(?:^|[\\u0000；;])\\s*(主诉|现病史|既往史|个人史|家族史|婚育史|月经史|体格检查|查体|辅助检查|诊断|处理|治疗|诊疗措施|注意事项)\\s*[：:]");
+        "(?:^|[\\u0000；;])\\s*(主诉|现病史|既往史|个人史|家族史|婚育史|月经史|体格检查|查体|辅助检查|诊断|处理|治疗|诊疗措施|注意事项|"
+            + EmrQcAllergyRules.FIELD_LABEL + ")\\s*[：:]");
 
     private EmrQcChiefComplaintRules() { }
 
@@ -38,9 +39,16 @@ final class EmrQcChiefComplaintRules {
     }
 
     static String previewField(Element body, String name) {
+        if ("过敏史".equals(name)) {
+            body = body.clone();
+            for (Element section : body.select("[data-emr-section]")) {
+                if (EmrQcAllergyRules.excludedSection(section.attr("data-emr-section"))) section.remove();
+            }
+        }
         Set<String> values = new LinkedHashSet<String>();
         for (Element article : body.select("[data-emr-section]")) {
-            if (!name.equals(article.attr("data-emr-section"))) continue;
+            if (!matchesLabel(article.attr("data-emr-section"), name)) continue;
+            if ("过敏史".equals(name) && EmrQcAllergyRules.excludedPreview(article)) continue;
             Element content = article.clone();
             content.select(".tag-article-title").remove();
             values.add(visibleText(content).replace("\u0000", ""));
@@ -52,9 +60,10 @@ final class EmrQcChiefComplaintRules {
         List<Element> blocks = new ArrayList<Element>(body.select("p,td,th,li,div,section,article"));
         blocks.add(body);
         for (Element block : blocks) {
+            if ("过敏史".equals(name) && EmrQcAllergyRules.excludedPreview(block)) continue;
             Matcher labels = LABEL.matcher(visibleText(block));
             while (labels.find()) {
-                if (name.equals(labels.group(1))) { labelledBlocks.add(block); break; }
+                if (matchesLabel(labels.group(1), name)) { labelledBlocks.add(block); break; }
             }
         }
         Set<Element> ancestors = new LinkedHashSet<Element>();
@@ -73,7 +82,7 @@ final class EmrQcChiefComplaintRules {
                 values.add(text.substring(start, labels.start()).replace("\u0000", ""));
                 start = -1;
             }
-            if (name.equals(labels.group(1))) start = labels.end();
+            if (matchesLabel(labels.group(1), name)) start = labels.end();
         }
         if (start >= 0) values.add(text.substring(start).replace("\u0000", ""));
     }
@@ -88,7 +97,8 @@ final class EmrQcChiefComplaintRules {
             for (JsonNode page : pages) {
                 if ("header".equalsIgnoreCase(page.path("ID").asText()) || "页眉".equals(page.path("ARTICLE").asText())) continue;
                 String article = page.path("ARTICLE").asText(page.path("NAME").asText());
-                boolean namedSection = name.equals(label(article));
+                if ("过敏史".equals(name) && EmrQcAllergyRules.excludedSection(label(article))) continue;
+                boolean namedSection = matchesLabel(article, name);
                 StringBuilder section = new StringBuilder();
                 for (JsonNode field : page.path("eles")) {
                     JsonNode hidden = field.path("HIDDEN");
@@ -101,7 +111,8 @@ final class EmrQcChiefComplaintRules {
                     }
                     value = visibleText(body).replace("\u0000", "");
                     if (namedSection) section.append(value);
-                    else if (name.equals(label(field.path("DEFAULTVALUE").asText(field.path("NAME").asText())))) fields.add(value);
+                    else if (matchesLabel(field.path("DEFAULTVALUE").asText(), name)
+                        || matchesLabel(field.path("NAME").asText(), name)) fields.add(value);
                 }
                 if (namedSection) sections.add(section.toString());
             }
@@ -115,6 +126,11 @@ final class EmrQcChiefComplaintRules {
 
     private static String label(String value) {
         return value == null ? "" : value.replaceAll("[\\s：:*]", "");
+    }
+
+    private static boolean matchesLabel(String value, String name) {
+        String normalized = label(value);
+        return "过敏史".equals(name) ? EmrQcAllergyRules.isLabel(normalized) : name.equals(normalized);
     }
 
     private static String select(Set<String> values, String name) {

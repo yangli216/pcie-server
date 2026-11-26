@@ -1,5 +1,9 @@
 export const QUERY_BATCH_SIZE = 50
 
+export function isCurrentQcRuleVersion(qc, ruleVersion) {
+  return Boolean(qc && typeof ruleVersion === 'string' && ruleVersion && qc.ruleVersion === ruleVersion)
+}
+
 export function pendingQueryRows(rows) {
   return rows.map(row => ({ ...row, score: null, findingCount: null, highSeverityCount: null,
     resultSource: null, analyzedAt: null, qcStatus: 'queued', queryState: 'pending', queryError: '' }))

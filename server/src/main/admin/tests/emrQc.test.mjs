@@ -180,7 +180,17 @@ test('keeps PHIS original layout for finding linkage whenever a safe preview exi
 })
 
 // Query orchestration uses deterministic fake services and never calls a real model.
-const { applyQueryItems, pendingQueryRows, runPageQuery } = await import('../src/utils/emrQcQuery.js')
+const { applyQueryItems, isCurrentQcRuleVersion, pendingQueryRows, runPageQuery } = await import('../src/utils/emrQcQuery.js')
+
+test('manual review compares the result to the server rule version without a hard-coded version', () => {
+  for (const version of ['emr-qc-rules-v6', 'emr-qc-rules-v8', 'emr-qc-rules-v9', 'emr-qc-rules-v10', 'future-server-rule']) {
+    assert.equal(isCurrentQcRuleVersion({ ruleVersion: version }, version), true)
+  }
+  assert.equal(isCurrentQcRuleVersion({ ruleVersion: 'emr-qc-rules-v9' }, 'emr-qc-rules-v10'), false)
+  assert.equal(isCurrentQcRuleVersion({ ruleVersion: 'emr-qc-rules-v10' }, undefined), false)
+  assert.equal(isCurrentQcRuleVersion({ ruleVersion: '' }, ''), false)
+  assert.equal(isCurrentQcRuleVersion(null, 'emr-qc-rules-v10'), false)
+})
 
 test('new queries hide historical scores and failed items never restore them', () => {
   const rows = pendingQueryRows([{ idMedrecdoc: 'A', recordStatus: 'draft', score: 99, findingCount: 1, highSeverityCount: 1 }])

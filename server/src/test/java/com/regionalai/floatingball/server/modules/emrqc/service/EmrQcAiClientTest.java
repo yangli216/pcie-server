@@ -128,6 +128,33 @@ class EmrQcAiClientTest {
     }
 
     @Test
+    void allergyFindingsRequireExactDeductionAndCategoryAndAreMutuallyExclusive() {
+        ObjectNode payload = validPayload();
+        ObjectNode finding = (ObjectNode) payload.get("findings").get(0);
+        finding.put("ruleCode", EmrQcAllergyRules.MISSING).put("category", "患者基础信息").put("deduction", 5);
+        assertEquals(5, parse(payload).getFindings().get(0).getDeduction());
+        finding.put("deduction", 1); assertInvalid(payload);
+        finding.put("ruleCode", EmrQcAllergyRules.INCOMPLETE);
+        assertEquals(1, parse(payload).getFindings().get(0).getDeduction());
+        finding.put("category", "既往史"); assertInvalid(payload);
+        finding.put("category", "患者基础信息");
+        ObjectNode duplicate = finding.deepCopy().put("issue", "同一表述完整度问题，另一种描述");
+        ((ArrayNode) payload.get("findings")).add(duplicate);
+        assertEquals(1, parse(payload).getFindings().size());
+        duplicate.put("ruleCode", EmrQcAllergyRules.MISSING).put("deduction", 5);
+        ((ArrayNode) payload.get("findings")).set(1, duplicate);
+        assertInvalid(payload);
+    }
+
+    @Test
+    void allergyPromptCoversCategoriesScopePositiveHistoryAndMissingEvidence() {
+        List<java.util.Map<String, Object>> messages = ReflectionTestUtils.invokeMethod(client, "messages", "【过敏史固定字段证据】\n字段状态：已填写\n填写内容：青霉素过敏");
+        org.assertj.core.api.Assertions.assertThat((String) messages.get(0).get("content"))
+            .contains("明确为空", "扣5分", "deduction=1", "否认药物及食物过敏史", "补充食物过敏情况", "补充药物过敏情况",
+                "不得把已记录的阳性过敏建议改为否认", "具体药名", "具体食物", "两个过敏史规则互斥", "不扩展家族史", "未知", "字段标题本身不能代替填写内容");
+    }
+
+    @Test
     void fakeSupplierResponseExercisesRealRequestPromptAndDiagnosisParser() throws Exception {
         com.regionalai.floatingball.server.common.outbound.OutboundSecurityProperties properties =
             new com.regionalai.floatingball.server.common.outbound.OutboundSecurityProperties();
@@ -203,6 +230,23 @@ class EmrQcAiClientTest {
             assertEquals(5, result.getFindings().get(0).getDeduction());
             assertEquals("补充血常规检查结果", result.getFindings().get(0).getSuggestion());
         }
+    }
+
+    @Test
+    void integratedRulesAcceptAllergyAuxiliaryAndChiefFindingsTogetherWithoutDoubleCounting() {
+        ObjectNode payload = validPayload();
+        ArrayNode findings = payload.putArray("findings");
+        findings.addObject().put("severity", "low").put("category", "患者基础信息")
+            .put("ruleCode", EmrQcAllergyRules.INCOMPLETE).put("deduction", 1).put("issue", "过敏史未区分类别");
+        ObjectNode auxiliary = findings.addObject().put("severity", "low").put("category", "查体与辅助检查")
+            .put("ruleCode", EmrQcRubric.AUX_RESULT_MISSING).put("deduction", 5).put("issue", "项目无结果");
+        findings.add(auxiliary.deepCopy().put("issue", "同一项目问题的另一种文案"));
+        findings.addObject().put("severity", "low").put("category", "主诉")
+            .put("ruleCode", EmrQcChiefComplaintRules.DIAGNOSIS).put("deduction", 1).put("issue", "诊断名代替症状");
+        EmrQcAiClient.Result result = parse(payload);
+        assertEquals(3, result.getFindings().size());
+        EmrQcRubric.scoreFromFindings(result.getDimensions(), result.getFindings());
+        assertEquals(93, result.getDimensions().stream().mapToInt(EmrQcAnalysisVO.Dimension::getScore).sum());
     }
 
     private ObjectNode validPayload() {
