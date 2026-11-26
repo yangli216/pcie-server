@@ -13,7 +13,7 @@ import java.util.Map;
  */
 public final class EmrQcRubric {
 
-    public static final String RULE_VERSION = "emr-qc-rules-v10";
+    public static final String RULE_VERSION = "emr-qc-rules-v11";
     public static final String AUX_RESULT_MISSING = "R-AUX-RESULT-MISSING";
 
     public static final String PATIENT_INFO = "patient_info";

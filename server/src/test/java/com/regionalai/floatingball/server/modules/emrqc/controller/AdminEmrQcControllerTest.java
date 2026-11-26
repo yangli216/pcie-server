@@ -19,6 +19,35 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class AdminEmrQcControllerTest {
     @Test
+    void proxySourceIsExposedAsAnExplicitListAndAnalysisMarkerForExistingRoles() throws Exception {
+        EmrQcService service = mock(EmrQcService.class);
+        AdminCurrentUser user = new AdminCurrentUser();
+        user.setAuthProvider("BBP"); user.setRoles(Collections.singletonList("EMR_QC_REVIEWER"));
+        com.regionalai.floatingball.server.modules.emrqc.dto.EmrQcRecordVO row =
+            new com.regionalai.floatingball.server.modules.emrqc.dto.EmrQcRecordVO();
+        row.setResultSource("proxy_refill"); row.setScore(100); row.setFindingCount(0);
+        when(service.list(user, null, null, null, null, null, null, 1, 10, null, null))
+            .thenReturn(new PageResponse<>(1, 10, 1, Collections.singletonList(row)));
+        com.regionalai.floatingball.server.modules.emrqc.dto.EmrQcAnalysisVO analysis =
+            new com.regionalai.floatingball.server.modules.emrqc.dto.EmrQcAnalysisVO();
+        analysis.setResultSource("proxy_refill"); analysis.setScore(100); analysis.setFindingCount(0);
+        when(service.analyze(eq(user), eq("A"), eq(false), any())).thenReturn(analysis);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AdminEmrQcController(
+            service, mock(EmrQcTaskService.class), new BbpStatisticsScope())).build();
+        AdminContextHolder.set(user);
+        try {
+            mvc.perform(get("/admin/api/emr-qc/records"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.records[0].proxyRefill").value(true))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.records[0].score").value(100));
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/admin/api/emr-qc/records/A/analyze"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.proxyRefill").value(true))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.findings").isEmpty());
+        } finally { AdminContextHolder.clear(); }
+    }
+
+    @Test
     void forwardsIndependentDepartmentAndDoctorFilters() throws Exception {
         EmrQcService service = mock(EmrQcService.class);
         AdminCurrentUser user = new AdminCurrentUser();

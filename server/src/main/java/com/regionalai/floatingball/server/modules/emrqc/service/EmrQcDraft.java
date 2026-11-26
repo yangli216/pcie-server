@@ -33,6 +33,7 @@ public class EmrQcDraft {
     private Integer score;
     private String dimensionsJson;
     private List<EmrQcAnalysisVO.Finding> findings = new ArrayList<EmrQcAnalysisVO.Finding>();
+    private String resultSource = "ai";
     private String model;
     private String ruleVersion;
     private LocalDateTime analyzedAt;

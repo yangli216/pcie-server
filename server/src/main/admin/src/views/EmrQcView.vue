@@ -169,9 +169,10 @@
             <el-table-column label="更新时间" width="128" class-name="emr-qc-page__time-cell">
               <template slot-scope="{ row }"><span :title="formatDateTime(row.updateTime)">{{ formatTimeShort(row.updateTime) }}</span></template>
             </el-table-column>
-            <el-table-column label="质控状态" width="104">
+            <el-table-column label="质控状态" min-width="140">
               <template slot-scope="{ row }">
-                <status-pill :tone="qcTone(row.qcStatus)" :label="row.snapshot ? '待核验' : qcLabel(row.qcStatus)" :title="row.queryError" />
+                <status-pill v-if="proxyRefillLabel(row)" :tone="row.stale || row.snapshot ? 'warning' : 'muted'" :label="proxyRefillLabel(row)" />
+                <status-pill v-else :tone="qcTone(row.qcStatus)" :label="row.snapshot ? '待核验' : qcLabel(row.qcStatus)" :title="row.queryError" />
               </template>
             </el-table-column>
             <el-table-column label="总分" width="56" align="center">
@@ -213,7 +214,7 @@
           <el-button
             size="small"
             icon="el-icon-edit-outline"
-            :disabled="!detail || !detail.qc || detail.qc.stale || detail.record.stale || !isCurrentQcRuleVersion(detail.qc) || sessionBlocked || queryAnalyzing || Boolean(task && ['queued', 'running'].includes(task.status)) || analyzing || reviewEditing || reviewing"
+            :disabled="!detail || !detail.qc || detail.qc.stale || detail.record.stale || !canReviewQc(detail.qc, session && session.ruleVersion) || sessionBlocked || queryAnalyzing || Boolean(task && ['queued', 'running'].includes(task.status)) || analyzing || reviewEditing || reviewing"
             @click="reviewEditing = true"
           >{{ reviewEditing ? '调整中' : '人工调整' }}</el-button>
           <el-button
@@ -278,7 +279,7 @@
             </div>
           </chart-panel>
 
-          <chart-panel title="AI 书写质控参考" class="emr-qc-page__panel" aria-label="质控参考面板">
+          <chart-panel :title="detail.qc && detail.qc.proxyRefill ? '病历质控参考' : 'AI 书写质控参考'" class="emr-qc-page__panel" aria-label="质控参考面板">
             <emr-qc-result-panel
               :qc="detail.qc"
               :editing.sync="reviewEditing"
@@ -311,7 +312,7 @@ import { assistantLogDateRange } from '../utils/assistantLogDates'
 import { formatDateTime } from '../utils/admin'
 import { clearAdminAuth } from '../utils/auth'
 import { isWithinOneCalendarYear } from '../utils/emrQcDateRange'
-import { applyQueryItems, isCurrentQcRuleVersion, pendingQueryRows, queryTaskItems, runPageQuery } from '../utils/emrQcQuery'
+import { applyQueryItems, canReviewQc, isCurrentQcRuleVersion, pendingQueryRows, proxyRefillLabel, queryTaskItems, runPageQuery } from '../utils/emrQcQuery'
 import { decorateEmrHtmlPreview, findingUsesStructuredPreview, normalizeEmrText, resolveFindingTarget } from '../utils/emrQcResults'
 import EmrQcResultPanel from '../components/emr-qc/EmrQcResultPanel.vue'
 
@@ -440,6 +441,8 @@ export default {
     }
   },
   methods: {
+    canReviewQc,
+    proxyRefillLabel,
     relogin() {
       clearAdminAuth()
       this.$router.replace({ path: '/login', query: { redirect: '/emr-qc' } })
@@ -696,14 +699,17 @@ export default {
     },
     async analyzeDetail(force) {
       if (force && this.detail && this.detail.qc && this.detail.qc.resultSource === 'manual') {
-        try { await this.$confirm('重新质控后，新 AI 结果将成为当前结果。原人工调整记录仍会保留。', '重新质控', { type: 'warning' }) } catch (_) { return }
+        try { await this.$confirm('重新质控后，本次质控结果将成为当前结果。原人工调整记录仍会保留。', '重新质控', { type: 'warning' }) } catch (_) { return }
       }
       if (!this.detail) {
         return
       }
+      const idMedrecdoc = this.detail.record.idMedrecdoc
       this.analyzing = true
+      this.detail = { ...this.detail, qc: null }
+      this.records = this.records.map(row => row.idMedrecdoc === idMedrecdoc ? pendingQueryRows([row])[0] : row)
       try {
-        const analysis = await analyzeRecord(this.detail.record.idMedrecdoc, force)
+        const analysis = await analyzeRecord(idMedrecdoc, force)
         this.detailQueryError = ''
         this.detail = { ...this.detail, qc: analysis, record: { ...this.detail.record, stale: Boolean(analysis.stale) } }
         this.records = applyQueryItems(this.records, [{ ...analysis, idMedrecdoc: this.detail.record.idMedrecdoc, status: 'succeeded' }])
@@ -713,6 +719,8 @@ export default {
           analysis.reused ? '已复用未过期的质控结果' : `质控完成，总分 ${analysis.score}`
         )
       } catch (error) {
+        this.detailQueryError = `本次质控失败：${error.message}`
+        this.records = applyQueryItems(this.records, [{ idMedrecdoc, status: 'failed', errorMessage: error.message }])
         this.$message.error(error.message)
       } finally {
         this.analyzing = false
@@ -736,7 +744,8 @@ export default {
               score: analysis.score,
               findingCount: analysis.findingCount,
               highSeverityCount: analysis.highSeverityCount,
-              resultSource: analysis.resultSource
+              resultSource: analysis.resultSource,
+              proxyRefill: Boolean(analysis.proxyRefill)
             }
           : row)
         this.reviewEditing = false

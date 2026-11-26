@@ -17,27 +17,29 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class EmrQcWriterTransactionTest {
-    @Test
-    void auditFailureRollsBackTheSameWriteTransaction() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"ai", "proxy_refill"})
+    void auditFailureRollsBackTheSameWriteTransaction(String source) {
         PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
         TransactionStatus status = mock(TransactionStatus.class);
         when(transactions.getTransaction(any())).thenReturn(status);
         EmrQcWriter writer = transactionalWriter(transactions);
-        assertThrows(IllegalStateException.class, () -> writer.saveWithAudit(draft(), () -> {
+        assertThrows(IllegalStateException.class, () -> writer.saveWithAudit(draft(source), () -> {
             throw new IllegalStateException("audit failed");
         }));
         verify(transactions).rollback(status);
         verify(transactions, never()).commit(any());
     }
 
-    @Test
-    void commitsOnlyAfterResultAndSuccessAuditHaveBothCompleted() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"ai", "proxy_refill"})
+    void commitsOnlyAfterResultAndSuccessAuditHaveBothCompleted(String source) {
         PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
         TransactionStatus status = mock(TransactionStatus.class);
         when(transactions.getTransaction(any())).thenReturn(status);
         AtomicBoolean audited = new AtomicBoolean();
         doAnswer(inv -> { assertTrue(audited.get()); return null; }).when(transactions).commit(status);
-        transactionalWriter(transactions).saveWithAudit(draft(), () -> audited.set(true));
+        transactionalWriter(transactions).saveWithAudit(draft(source), () -> audited.set(true));
         verify(transactions).commit(status);
         verify(transactions, never()).rollback(any());
     }
@@ -50,10 +52,11 @@ class EmrQcWriterTransactionTest {
         return (EmrQcWriter) factory.getProxy();
     }
 
-    private EmrQcDraft draft() {
+    private EmrQcDraft draft(String source) {
         EmrQcDraft draft = new EmrQcDraft();
         draft.setIdOrg("ORG-FAKE"); draft.setIdMedrecdoc("RECORD-FAKE");
         draft.setFindings(Collections.emptyList());
+        draft.setResultSource(source);
         return draft;
     }
 }

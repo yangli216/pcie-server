@@ -3939,6 +3939,14 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 接口前缀 `/admin/api/emr-qc`，均需 `Authorization: Bearer {adminToken}`。仅 `bbp` 认证模式可用，不限制 PHIS 角色类型，能否查询由登录管理员的 PHIS `tk` 会话决定；PCIE 角色必须包含 `SYSTEM_ADMIN`、`ORG_ADMIN` 或 `EMR_QC_REVIEWER`，仅有 `ORG_ANALYST` 或其他角色时拒绝。服务端复用管理员 BBP 登录会话中与 12 小时令牌同生命周期的 `tk` Cookie，不接受、不回传 PHIS 凭据、ServiceId、ServiceMethod、上游地址或机构 ID 列表。PHIS 全程只读，不写回、不打印、不导出 PDF。完整的边界与数据模型见 [ARCHITECTURE.md](./ARCHITECTURE.md) 3.1.4 与第 7 节。
 
+### 代配药结果语义（v11）
+
+任务116仅当前主诉明确肯定完整词组“代配药”时整体免质控：九维满分合计100、空findings、findingCount/highSeverityCount为0，不解析AI配置或调用AI。空主诉、仅药名、否定/不明表述及仅“代开药/代取药”不免检；“家长代配药，患儿咳嗽3天”仍免检。不从其他章节、诊断、处方或历史结果推断。
+
+列表记录、详情record及qc、单份analyze结果与批量items新增布尔`proxyRefill`，由服务端已保存结果来源派生。来源`resultSource`取`ai`、`manual`或`proxy_refill`；免检时`model/aiScore`及人工调整信息为null，不是AI分析结果。标记表示该份结果的来源，须结合`stale`/`snapshot`及规则版本判断有效性；过期/快照显示“上次代配药（待重新核验）”，不得宣称当前仍免检。旧批量任务缺少标记按false兼容，不能由100分反推。
+
+待计算/运行/失败时前端清理旧分数和标记；成功后显示“代配药 · 免质控”、100分、0问题。免检不可人工扣分，review拒绝返回409 `EMR-QC-CONFLICT`；修改主诉后重新质控恢复普通规则。无新增端点、请求字段、权限或上游调用。用户明确统计另立需求，本期不提供合格率统计，不宣称原验收6已完成。
+
 ### GET `/admin/api/emr-qc/session`
 
 用途：读取当前管理员可用的 PHIS 门诊会话与数据作用域，供页面判断是否可查询。会话不可用时仍返回 HTTP 200，由页面展示重新登录提示；病历与质控接口则返回对应错误。
@@ -3948,7 +3956,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 ```json
 {
   "available": true,
-  "ruleVersion": "emr-qc-rules-v10",
+  "ruleVersion": "emr-qc-rules-v11",
   "hisOrgId": "4046",
   "hisOrgName": "萧山区第一人民医院",
   "deptId": "D001",
@@ -4092,7 +4100,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
     "findingCount": 5,
     "highSeverityCount": 1,
     "model": "qwen-plus",
-    "ruleVersion": "emr-qc-rules-v10",
+    "ruleVersion": "emr-qc-rules-v11",
     "resultSource": "ai",
     "aiScore": null,
     "reviewedByName": null,
@@ -4107,9 +4115,9 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 说明：
 
 1. `sections` 按 PHIS 模板章节顺序输出，字段值统一为纯文本；空值与未知字段不展示。前端不得把任何字段当作 HTML 渲染。
-2. 未质控时 `qc=null`。2026-10-26 起 `dimensions` 固定为 9 个维度：患者基础信息（10）、主诉（5）、现病史（20）、既往史（10）、查体与辅助检查（15）、诊断（10）、诊疗措施（20）、病历书写基本要求（5）、其他（5），满分合计 100 分；“其他”包含急诊就诊时间未具体到分钟扣 2 分、急诊病人无 T/P/R/BP 生命体征记录扣 3 分。`weight` 为该维度满分，`score` 为该维度实际得分（0 至满分），`qc.score` 为服务端按维度得分求和的总分。维度、满分与规则版本由服务端代码维护，当前规则版本为 `emr-qc-rules-v10`。
+2. 未质控时 `qc=null`。2026-10-26 起 `dimensions` 固定为 9 个维度：患者基础信息（10）、主诉（5）、现病史（20）、既往史（10）、查体与辅助检查（15）、诊断（10）、诊疗措施（20）、病历书写基本要求（5）、其他（5），满分合计 100 分；“其他”包含急诊就诊时间未具体到分钟扣 2 分、急诊病人无 T/P/R/BP 生命体征记录扣 3 分。`weight` 为该维度满分，`score` 为该维度实际得分（0 至满分），`qc.score` 为服务端按维度得分求和的总分。维度、满分与规则版本由服务端代码维护，当前规则版本为 `emr-qc-rules-v11`。
 3. `findings[].excerpt` 来自脱敏后的归一化文本，最长 500 字符，可能包含 `[姓名]` 等掩码占位符；`sectionName` 用于在页面定位。`deduction` 为该问题扣分的非负整数，`ignored` 表示人工是否忽略；忽略项仍保留在明细中，但不计入 `findingCount` 与 `highSeverityCount`。有效问题扣分由服务端汇总计算维度得分，最多扣至零分；主诉加号与超20字由服务端确定性检查，其余问题由 AI 判断。三条新增主诉规则使用 `R-CHIEF-PLUS`、`R-CHIEF-LENGTH`、`R-CHIEF-DIAGNOSIS`，每条独立扣1分、分别提示且按规则去重。字数含标点、数字、英文字符，严格超过20字才命中；诊断名规则联动现病史，仅明确无症状的明确诊断复诊或单纯配药随访可豁免，“要求配药”本身不豁免，现病史为空不命中该项。不新增PHIS字典调用或正文修改。辅助检查有检验检查项目但无实际结果时，AI返回 `R-AUX-RESULT-MISSING`，归属查体与辅助检查维度，每份最多扣5分；只有项目名或待回报/未回报视为无结果。不查报告状态、不区分结果来源、无外送或建卡豁免，合并结果不强制逐项匹配，无项目且该栏空不触发。过敏史沿用患者基础信息维度：明确空字段用 `R-ALLERGY-MISSING` 扣5分；非空但未同时覆盖药物与食物用 `R-ALLERGY-INCOMPLETE` 扣1分，互斥且不重复。判定仅限过敏史固定字段，不扩展其他病史；缺类指明补写类别，已有阳性过敏不建议改为否认。不保存完整病历正文；只读详情按当前会话授权返回预览及章节。
-4. `staleReason` 取 `content_changed`（文本 SHA-256 变化）或 `record_updated`（PHIS `updateTime` 晚于质控时间）。
+4. `staleReason` 取 `content_changed`（文本 SHA-256 变化）、`record_updated`（PHIS 更新时间变化）、`snapshot_unverified`（本地快照待核验）或 `rule_updated`（规则版本已更新）。
 5. `htmlPreview` 为清理后的完整预览文档，缺失或正文为空时为 `""`，前端回退纯文章节。仅允许在无脚本/无同源权限的 sandbox iframe 中展示；文档 CSP 禁止外部资源、网络、表单和导航基地址。仅保留受限静态排版，移除签名图片、事件属性、URL 和交互；身份及联系方式脱敏，原始 HTML 不落库、不入日志、不直接发送 AI；安全预览提取脱敏纯文字供 AI 质控并参与 `contentHash`，不可用时回退结构化章节。预览在白名单清洗前复用 PHIS 打印预览的受控展示语义：移除 `data-printhidden=true`、`display:none`、`hidden`、标签标记、非打印节点和占位节点，去除标题必填星号，并仅对结构化字段中明确启用 `PRINTVALUE` 的字段按文章/字段 ID 回填 `TEXT`；服务端不执行 PHIS `printscript`，也不接入分页、打印、PDF 或写接口。预览去掉模板字段大括号，依据结构化元数据隐藏明确为空的占位字段；男性仅隐藏空月经史独立段落，真实记录不隐藏。脱敏预览纯文字变化影响评分输入和哈希，样式变化不影响哈希。
 6. 文书不存在、已不在当前会话列表范围或不属于登录机构时统一返回 `EMR-RECORD-NOT-FOUND`，不区分具体原因，避免探测其他机构文书。
 
@@ -4125,7 +4133,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 }
 ```
 
-`force=false`（默认）时，若已有质控结果、内容未过期且 `ruleVersion` 与当前规则版本一致，直接返回最近结果并标记 `reused=true`；旧规则版本结果不得按未变更复用。`force=true` 时无论是否过期都重新调用 AI。请求体可省略。
+`force=false`（默认）时，若已有质控结果、内容未过期且 `ruleVersion` 与当前规则版本一致，直接返回最近结果并标记 `reused=true`；旧规则版本结果不得按未变更复用。`force=true` 时无论是否过期都重新读取并执行本次判定；代配药免检不调用AI，普通病历重新调用AI。请求体可省略。
 
 响应 `data`：返回与详情接口 `qc` 相同的结构，并额外包含：
 
@@ -4144,7 +4152,7 @@ DashScope 推荐组合：实时模型使用 `qwen-audio-3.0-asr-flash-streaming`
 
 ### PUT `/admin/api/emr-qc/records/{idMedrecdoc}/review`
 
-评分规则 v10：维度得分由服务端按该维度有效问题扣分合计计算，扣分上限为维度满分；仅主诉加号、超20字由服务端确定性检查，各独立扣1分；诊断名代替症状及其余问题由 AI 判断；出生年月、联系电话、工作单位和地址由患者档案维护，不作为病历质控检查或扣分项。维度直接调整须以人工扣分明细表达。请求必须携带 `baseAnalysisId`；保存前服务端核对最新结果版本、PHIS 正文及可获得的更新时间，冲突返回 409 `EMR-QC-CONFLICT`。旧规则结果须重新质控后调整。客户端提交的维度分数需与明细一致，否则拒绝保存。
+评分规则 v11：维度得分由服务端按该维度有效问题扣分合计计算，扣分上限为维度满分；仅主诉加号、超20字由服务端确定性检查，各独立扣1分；诊断名代替症状及其余问题由 AI 判断；出生年月、联系电话、工作单位和地址由患者档案维护，不作为病历质控检查或扣分项。维度直接调整须以人工扣分明细表达。请求必须携带 `baseAnalysisId`；保存前服务端核对最新结果版本、PHIS 正文及可获得的更新时间，冲突返回 409 `EMR-QC-CONFLICT`。旧规则结果须重新质控后调整。客户端提交的维度分数需与明细一致，否则拒绝保存。
 
 用途：在已有 AI 质控结果上进行人工调整，保存调整后的维度得分与问题明细；AI 原始结果保留用于追溯。
 

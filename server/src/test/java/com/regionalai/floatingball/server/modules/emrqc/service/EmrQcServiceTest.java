@@ -832,7 +832,7 @@ class EmrQcServiceTest {
         verify(writer).saveWithAudit(draft.capture(), any());
         assertEquals(97, draft.getValue().getScore());
         assertEquals(9, objectMapper.valueToTree(fullDimensions()).size());
-        assertEquals("emr-qc-rules-v10", draft.getValue().getRuleVersion());
+        assertEquals("emr-qc-rules-v11", draft.getValue().getRuleVersion());
         verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
     }
 
@@ -1102,6 +1102,208 @@ class EmrQcServiceTest {
         assertEquals(93, draft.getValue().getScore());
         org.assertj.core.api.Assertions.assertThat(draft.getValue().getFindings()).extracting(EmrQcAnalysisVO.Finding::getRuleCode)
             .containsExactlyInAnyOrder(EmrQcChiefComplaintRules.PLUS, EmrQcAllergyRules.INCOMPLETE, EmrQcRubric.AUX_RESULT_MISSING);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void proxyRefillSkipsAllRulesAndAiForSingleBatchAndBothContentSources(boolean batch, boolean preview) throws Exception {
+        AdminCurrentUser user = user();
+        PhisEmrRecord record = record("A");
+        if (!batch) {
+            when(sessionScope.require(user)).thenReturn(scope());
+            recordCache.putAll("s1", Collections.singletonList(record));
+        }
+        ObjectNode data = proxyContent("家长代配药＋咳嗽伴发热流涕咳痰已经三天且要求续配药物");
+        if (!preview) data.remove("htmlContent");
+        when(phisClient.detail(any(), eq("A"))).thenReturn(data);
+        persistDrafts();
+
+        EmrQcAnalysisVO result = batch
+            ? service.analyzeForTask(new EmrQcContext(user, scope(), "ORG001", "req"), record, true)
+            : service.analyze(user, "A", true, "req");
+
+        assertEquals(100, result.getScore());
+        assertEquals(9, result.getDimensions().size());
+        for (EmrQcAnalysisVO.Dimension dimension : result.getDimensions()) assertEquals(dimension.getWeight(), dimension.getScore());
+        assertEquals(0, result.getFindingCount());
+        assertEquals(0, result.getHighSeverityCount());
+        org.junit.jupiter.api.Assertions.assertTrue(result.getFindings().isEmpty());
+        org.junit.jupiter.api.Assertions.assertTrue(result.isProxyRefill());
+        org.junit.jupiter.api.Assertions.assertNull(result.getModel());
+        org.junit.jupiter.api.Assertions.assertNull(result.getAiScore());
+        assertEquals("emr-qc-rules-v11", result.getRuleVersion());
+        org.mockito.Mockito.verifyNoInteractions(configService, aiClient);
+        verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
+        verify(auditService).recordRequired(any(), eq(batch ? "batch_analyze" : "analyze"), eq("A"), isNull(), eq("proxy_refill"));
+        org.mockito.ArgumentCaptor<EmrQcDraft> draft = org.mockito.ArgumentCaptor.forClass(EmrQcDraft.class);
+        verify(writer).saveWithAudit(draft.capture(), any());
+        org.junit.jupiter.api.Assertions.assertNull(draft.getValue().getModel());
+        assertEquals("proxy_refill", draft.getValue().getResultSource());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullAndEmptySource
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"双歧杆菌三联活菌散", "无代配药", "非代配药", "代开药", "代取药", "要求配药", "咳嗽三天"})
+    void absentOrNonAffirmativeChiefComplaintDoesNotExemptOtherSectionsOrMedication(String complaint) {
+        AdminCurrentUser user = user(); when(sessionScope.require(user)).thenReturn(scope());
+        recordCache.putAll("s1", Collections.singletonList(record("A")));
+        ObjectNode data = objectMapper.createObjectNode();
+        data.put("htmlContent", (complaint == null ? "" : "<p>主诉：" + complaint + "</p>")
+            + "<p>现病史：家长代配药</p><p>处理：双歧杆菌三联活菌散</p>");
+        com.fasterxml.jackson.databind.node.ArrayNode sections = objectMapper.createArrayNode();
+        if (complaint != null) sections.addObject().put("ARTICLE", "主诉").putArray("eles")
+            .addObject().put("NAME", "主诉").put("TEXT", complaint);
+        sections.addObject().put("ARTICLE", "现病史").putArray("eles").addObject().put("TEXT", "家长代配药");
+        sections.addObject().put("ARTICLE", "处理").putArray("eles").addObject().put("TEXT", "双歧杆菌三联活菌散");
+        data.put("xmlContent", sections.toString());
+        when(phisClient.detail(any(), eq("A"))).thenReturn(data);
+        stubAnalysis(finding("medium", "现病史", 10, false));
+        service.analyze(user, "A", true, "req");
+        verify(aiClient).analyze(any(), any());
+        org.mockito.ArgumentCaptor<EmrQcDraft> draft = org.mockito.ArgumentCaptor.forClass(EmrQcDraft.class);
+        verify(writer).saveWithAudit(draft.capture(), any());
+        assertEquals("ai", draft.getValue().getResultSource());
+        assertEquals(90, draft.getValue().getScore());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void proxyRefillStillRejectsWriteTimeBodyOrTimestampChanges(boolean timestampOnly) {
+        AdminCurrentUser user = user(); when(sessionScope.require(user)).thenReturn(scope());
+        recordCache.putAll("s1", Collections.singletonList(record("A")));
+        ObjectNode before = proxyContent("家长代配药");
+        ObjectNode after = timestampOnly ? before.deepCopy().put("updateTime", "2026-10-24 09:31:00") : proxyContent("咳嗽三天");
+        when(phisClient.detail(any(), eq("A"))).thenReturn(before, after);
+        assertEquals("EMR-QC-CONFLICT", assertThrows(ConflictException.class,
+            () -> service.analyze(user, "A", true, "req")).getCode());
+        verify(writer, never()).saveWithAudit(any(), any());
+        org.mockito.Mockito.verifyNoInteractions(configService, aiClient);
+    }
+
+    @Test
+    void currentProxyResultCanBeReusedButChangingChiefComplaintRestoresNormalQc() {
+        AdminCurrentUser user = user(); when(sessionScope.require(user)).thenReturn(scope());
+        recordCache.putAll("s1", Collections.singletonList(record("A")));
+        ObjectNode data = proxyContent("家长代配药");
+        when(phisClient.detail(any(), eq("A"))).thenAnswer(inv -> data.deepCopy());
+        java.util.concurrent.atomic.AtomicReference<AiEmrQcRecord> stored = persistDrafts();
+        when(writer.findRecord("ORG001", "A")).thenAnswer(inv -> stored.get());
+        EmrQcAnalysisVO first = service.analyze(user, "A", true, "first");
+        EmrQcAnalysisVO reused = service.analyze(user, "A", false, "reuse");
+        org.junit.jupiter.api.Assertions.assertTrue(reused.getReused());
+        assertEquals(first.getAnalysisId(), reused.getAnalysisId());
+        stored.get().setRuleVersion("emr-qc-rules-v10");
+        EmrQcAnalysisVO updated = service.analyze(user, "A", false, "version");
+        org.junit.jupiter.api.Assertions.assertFalse(updated.getReused());
+        org.junit.jupiter.api.Assertions.assertNotEquals(first.getAnalysisId(), updated.getAnalysisId());
+        org.mockito.Mockito.verifyNoInteractions(configService, aiClient);
+
+        data.setAll(proxyContent("咳嗽三天"));
+        com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config = new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
+        config.setModel("fake"); config.setBaseUrl("https://model.invalid");
+        when(configService.resolveByScope(eq("ORG001"), isNull())).thenReturn(config);
+        EmrQcAiClient.Result ai = new EmrQcAiClient.Result(); ai.setDimensions(fullDimensions());
+        ai.setFindings(Collections.singletonList(finding("medium", "现病史", 10, false)));
+        when(aiClient.analyze(eq(config), any())).thenReturn(ai);
+        EmrQcAnalysisVO normal = service.analyze(user, "A", false, "changed");
+        org.junit.jupiter.api.Assertions.assertFalse(normal.isProxyRefill());
+        assertEquals("ai", normal.getResultSource());
+        assertEquals(90, normal.getScore());
+        verify(aiClient).analyze(eq(config), any());
+    }
+
+    @Test
+    void proxyMarkFlowsToListAndDetailAndBecomesHistoricalOnContentChange() {
+        AdminCurrentUser user = user(); when(sessionScope.require(user)).thenReturn(scope());
+        recordCache.putAll("s1", Collections.singletonList(record("A")));
+        ObjectNode data = proxyContent("家长代配药");
+        when(phisClient.detail(any(), eq("A"))).thenAnswer(inv -> data.deepCopy());
+        java.util.concurrent.atomic.AtomicReference<AiEmrQcRecord> stored = persistDrafts();
+        when(writer.findRecord("ORG001", "A")).thenAnswer(inv -> stored.get());
+        service.analyze(user, "A", true, "req");
+        stored.get().setIdMedrecdoc("A");
+        when(recordMapper.selectList(any())).thenAnswer(inv -> Collections.singletonList(stored.get()));
+        PhisEmrClient.ListPage page = new PhisEmrClient.ListPage();
+        page.setRecords(Collections.singletonList(record("A"))); page.setTotal(1);
+        when(phisClient.list(any(), any(), any(), any(), any(), any(), any(), eq(1), eq(10))).thenReturn(page);
+        EmrQcRecordVO row = service.list(user, null, null, null, null, null, "all", 1, 10).getRecords().get(0);
+        org.junit.jupiter.api.Assertions.assertTrue(row.isProxyRefill());
+        assertEquals(100, row.getScore());
+        EmrQcDetailVO detail = service.detail(user, "A", "detail");
+        org.junit.jupiter.api.Assertions.assertTrue(detail.getQc().isProxyRefill());
+        org.junit.jupiter.api.Assertions.assertFalse(detail.getQc().isStale());
+        data.setAll(proxyContent("咳嗽三天"));
+        EmrQcDetailVO changed = service.detail(user, "A", "changed");
+        org.junit.jupiter.api.Assertions.assertTrue(changed.getQc().isProxyRefill());
+        org.junit.jupiter.api.Assertions.assertTrue(changed.getQc().isStale());
+        assertEquals("content_changed", changed.getQc().getStaleReason());
+    }
+
+    @Test
+    void proxyResultCannotBeManuallyDeducted() {
+        AdminCurrentUser user = user(); when(sessionScope.require(user)).thenReturn(scope());
+        recordCache.putAll("s1", Collections.singletonList(record("A")));
+        AiEmrQcRecord projection = new AiEmrQcRecord(); projection.setResultSource("proxy_refill");
+        when(writer.findRecord("ORG001", "A")).thenReturn(projection);
+        assertEquals("EMR-QC-CONFLICT", assertThrows(ConflictException.class,
+            () -> service.review(user, "A", new EmrQcReviewRequest(), "req")).getCode());
+        verify(writer, never()).saveReview(any(), any(), anyInt(), any(), any(), any(), any(), any());
+        org.mockito.Mockito.verifyNoInteractions(aiClient, configService);
+    }
+
+    @Test
+    void cachedProxyIdentityNeverBypassesAnExpiredSession() {
+        AdminCurrentUser user = user();
+        recordCache.putAll("s1", Collections.singletonList(record("A")));
+        when(sessionScope.require(user)).thenThrow(new ConflictException("EMR-PHIS-SESSION", "会话已失效"));
+        assertEquals("EMR-PHIS-SESSION", assertThrows(ConflictException.class,
+            () -> service.analyze(user, "A", true, "req")).getCode());
+        org.mockito.Mockito.verifyNoInteractions(phisClient, writer, aiClient, configService);
+    }
+
+    @Test
+    void cancellingProxyMarkerCannotReuseItsScoreWhenNormalAiConfigurationIsMissing() {
+        AdminCurrentUser user = user(); when(sessionScope.require(user)).thenReturn(scope());
+        recordCache.putAll("s1", Collections.singletonList(record("A")));
+        ObjectNode content = proxyContent("家长代配药");
+        when(phisClient.detail(any(), eq("A"))).thenAnswer(inv -> content.deepCopy());
+        java.util.concurrent.atomic.AtomicReference<AiEmrQcRecord> stored = persistDrafts();
+        when(writer.findRecord("ORG001", "A")).thenAnswer(inv -> stored.get());
+        service.analyze(user, "A", true, "first");
+        content.setAll(proxyContent("咳嗽三天"));
+        assertEquals("EMR-QC-UNAVAILABLE", assertThrows(ServiceUnavailableException.class,
+            () -> service.analyze(user, "A", false, "changed")).getCode());
+        verify(writer, org.mockito.Mockito.times(1)).saveWithAudit(any(), any());
+        org.mockito.Mockito.verifyNoInteractions(aiClient);
+        verify(auditService).record(any(), eq("analyze"), eq("A"), isNull(), eq("failed"));
+    }
+
+    private ObjectNode proxyContent(String complaint) {
+        ObjectNode data = objectMapper.createObjectNode();
+        com.fasterxml.jackson.databind.node.ArrayNode sections = objectMapper.createArrayNode();
+        sections.addObject().put("ARTICLE", "主诉").putArray("eles").addObject().put("NAME", "主诉").put("TEXT", complaint);
+        sections.addObject().put("ARTICLE", "现病史").putArray("eles").addObject().put("TEXT", "");
+        data.put("xmlContent", sections.toString());
+        data.put("htmlContent", "<p>主诉：" + complaint + "</p><p>现病史：</p><p>过敏史：否认过敏史</p><p>辅助检查：血常规待回报</p>");
+        data.put("updateTime", "2026-10-24 09:30:00");
+        return data;
+    }
+
+    /** Fake persistence only: checks service behavior, not database SQL or transaction durability. */
+    private java.util.concurrent.atomic.AtomicReference<AiEmrQcRecord> persistDrafts() {
+        java.util.concurrent.atomic.AtomicReference<AiEmrQcRecord> stored = new java.util.concurrent.atomic.AtomicReference<>();
+        when(writer.saveWithAudit(any(), any())).thenAnswer(inv -> {
+            EmrQcDraft draft = inv.getArgument(0);
+            inv.<Runnable>getArgument(1).run();
+            AiEmrQcRecord entity = new AiEmrQcRecord();
+            entity.setLatestAnalysisId(draft.getAnalysisId()); entity.setScore(draft.getScore());
+            entity.setDimensionsJson(draft.getDimensionsJson()); entity.setFindingCount(draft.getFindings().size());
+            entity.setHighSeverityCount(0); entity.setContentHash(draft.getContentHash());
+            entity.setPhisUpdateTime(draft.getPhisUpdateTime()); entity.setRuleVersion(draft.getRuleVersion());
+            entity.setResultSource(draft.getResultSource()); entity.setModel(draft.getModel());
+            stored.set(entity); return entity;
+        });
+        return stored;
     }
 
     private void stubAnalysis(EmrQcAnalysisVO.Finding finding) {

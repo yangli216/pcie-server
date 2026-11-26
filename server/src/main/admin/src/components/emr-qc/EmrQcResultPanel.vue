@@ -6,19 +6,20 @@
         <div class="qc-results__counts">
           <span>问题 <b>{{ displayFindingCount }}</b></span>
           <span :class="{ 'qc-results__high': displayHighSeverityCount > 0 }">重点 <b>{{ displayHighSeverityCount }}</b></span>
-          <status-pill v-if="editing" tone="warning" label="调整中" />
+          <status-pill v-if="proxyLabel" :tone="qc.stale ? 'warning' : 'muted'" :label="proxyLabel" />
+          <status-pill v-else-if="editing" tone="warning" label="调整中" />
           <status-pill v-else-if="qc.resultSource === 'manual'" tone="warning" label="人工调整" />
         </div>
         <details class="qc-results__metadata">
           <summary>质控信息</summary>
-          <div>{{ formatDateTime(qc.analyzedAt) }} · {{ qc.model || '未记录模型' }} · {{ qc.ruleVersion || '未记录规则版本' }}</div>
+          <div>{{ formatDateTime(qc.analyzedAt) }} · {{ qc.proxyRefill ? '规则免检（未调用AI）' : qc.model || '未记录模型' }} · {{ qc.ruleVersion || '未记录规则版本' }}</div>
           <div v-if="qc.resultSource === 'manual'">
             人工调整：{{ qc.reviewedByName || '未记录' }} · {{ formatDateTime(qc.reviewedAt) }} · AI 原始总分 {{ qc.aiScore == null ? '--' : qc.aiScore }}
           </div>
           <div v-if="qc.resultSource === 'manual' && qc.reviewReason">理由：{{ qc.reviewReason }}</div>
         </details>
       </div>
-      <p class="qc-results__notice">{{ editing ? '正在人工调整，仅修改本平台书写参考，不回写 PHIS；保存时必须填写调整理由。' : (qc.resultSource === 'manual' ? '本结果已经人工调整，仅作书写参考，不代表质控通过或医学审核通过。' : '仅作 AI 书写参考，不代表质控通过或医学审核通过。') }}</p>
+      <p class="qc-results__notice">{{ editing ? '正在人工调整，仅修改本平台书写参考，不回写 PHIS；保存时必须填写调整理由。' : (qc.proxyRefill ? (qc.stale ? '上次按代配药规则免质控计100分，须重新核验当前病历；不代表医学审核通过。' : '按代配药规则免质控，计100分；不代表医学审核通过。') : qc.resultSource === 'manual' ? '本结果已经人工调整，仅作书写参考，不代表质控通过或医学审核通过。' : '仅作 AI 书写参考，不代表质控通过或医学审核通过。') }}</p>
       <div class="qc-results__body" tabindex="0" aria-label="质控参考内容">
         <details v-if="displayDimensions.length" class="qc-results__dimensions" :open="editing">
           <summary>维度评分（{{ displayDimensions.length }} 项，点击展开）</summary>
@@ -135,7 +136,7 @@
             </template>
           </article>
         </div>
-        <p v-else class="qc-results__empty">{{ allFindings.length ? '当前严重程度下没有问题。' : (editing ? '无问题明细，可点击「添加问题」新增。' : '本次分析未发现可识别的书写问题。') }}</p>
+        <p v-else class="qc-results__empty">{{ allFindings.length ? '当前严重程度下没有问题。' : (editing ? '无问题明细，可点击「添加问题」新增。' : qc.proxyRefill ? '代配药免质控，不产生问题项。' : '本次分析未发现可识别的书写问题。') }}</p>
       </div>
       <div v-if="editing" class="qc-results__review-footer">
         <el-input
@@ -160,6 +161,7 @@
 <script>
 import StatusPill from '../ui/StatusPill.vue'
 import { formatDateTime } from '../../utils/admin'
+import { proxyRefillLabel } from '../../utils/emrQcQuery'
 import {
   dimensionPercent,
   findingLocation,
@@ -194,6 +196,7 @@ export default {
     }
   },
   computed: {
+    proxyLabel() { return proxyRefillLabel(this.qc) },
     displayDimensions() { return this.editing ? this.draftDimensions : ((this.qc && this.qc.dimensions) || []) },
     allFindings() { return this.editing ? this.draftFindings : orderedFindings(this.qc) },
     findings() {

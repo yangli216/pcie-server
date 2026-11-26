@@ -117,8 +117,9 @@ class EmrQcTaskServiceTest {
         verify(taskMapper, never()).insert(any());
     }
 
-    @Test
-    void batchProgressAccumulatesPerRecordFailuresWithoutAbortingBatch() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"ai", "proxy_refill"})
+    void batchProgressAccumulatesPerRecordFailuresWithoutAbortingBatch(String source) throws Exception {
         AdminCurrentUser user = user();
         when(emrQcService.context(user, "req")).thenReturn(context(user));
         when(emrQcService.requireRecord(any(), eq("A"))).thenReturn(record("A"));
@@ -146,11 +147,11 @@ class EmrQcTaskServiceTest {
         }).when(taskMapper).updateById(any());
 
         EmrQcAnalysisVO success = new EmrQcAnalysisVO();
-        success.setScore(82);
-        success.setFindingCount(5);
-        success.setHighSeverityCount(1);
+        success.setScore("proxy_refill".equals(source) ? 100 : 82);
+        success.setFindingCount("proxy_refill".equals(source) ? 0 : 5);
+        success.setHighSeverityCount("proxy_refill".equals(source) ? 0 : 1);
         success.setAnalysisId("ANALYSIS-CURRENT");
-        success.setResultSource("ai");
+        success.setResultSource(source);
         when(emrQcService.analyzeForTask(any(), org.mockito.ArgumentMatchers.argThat(r -> r != null && "A".equals(r.getIdMedrecdoc())), eq(false))).thenReturn(success);
         when(emrQcService.analyzeForTask(any(), org.mockito.ArgumentMatchers.argThat(r -> r != null && "B".equals(r.getIdMedrecdoc())), eq(false)))
             .thenThrow(new ServiceUnavailableException("EMR-PHIS-UNAVAILABLE", "PHIS 服务读取超时"));
@@ -170,9 +171,14 @@ class EmrQcTaskServiceTest {
         verify(emrQcService, org.mockito.Mockito.times(1)).requireRecord(any(), eq("A"));
         verify(emrQcService, org.mockito.Mockito.times(1)).requireRecord(any(), eq("B"));
         com.fasterxml.jackson.databind.JsonNode items = new ObjectMapper().readTree(saved.get().getItemsJson());
-        assertEquals(1, items.get(0).path("highSeverityCount").asInt());
+        assertEquals("proxy_refill".equals(source) ? 0 : 1, items.get(0).path("highSeverityCount").asInt());
         assertEquals("ANALYSIS-CURRENT", items.get(0).path("analysisId").asText());
-        assertEquals("ai", items.get(0).path("resultSource").asText());
+        assertEquals(source, items.get(0).path("resultSource").asText());
+        assertEquals("proxy_refill".equals(source), items.get(0).path("proxyRefill").asBoolean());
+        com.regionalai.floatingball.server.modules.emrqc.dto.EmrQcTaskVO.Item[] restored = new ObjectMapper().readValue(
+            saved.get().getItemsJson(), com.regionalai.floatingball.server.modules.emrqc.dto.EmrQcTaskVO.Item[].class);
+        assertEquals("proxy_refill".equals(source), restored[0].isProxyRefill());
+        assertEquals(false, restored[1].isProxyRefill());
         verify(auditService).record(any(), eq("batch_analyze"), isNull(), anyString(), eq("queued"));
     }
 

@@ -47,6 +47,8 @@ class EmrQcSchemaTest {
         for (String dialect : new String[]{"oracle", "gaussdb"}) {
             String sql = read(Paths.get("src/main/resources/sql", dialect).resolve("init.sql"));
             assertThat(sql).contains("patient_name_masked", "id_card_masked", "content_hash");
+            assertThat(sql).contains("当前结果来源：ai、manual或proxy_refill（代配药免质控）");
+            assertThat(read(Paths.get("src/main/resources/sql", dialect).resolve("README.md"))).contains("proxy_refill", "无需新增表/字段");
             assertThat(sql).contains("record_ids_json", "items_json", "processed_count", "succeeded_count", "failed_count");
             assertThat(sql).contains("operator_id", "request_id", "result_status");
             String qcSchema = sql.substring(sql.indexOf("CREATE TABLE c_ai_emr_qc_record ("), sql.indexOf("COMMIT;"));

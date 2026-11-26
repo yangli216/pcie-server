@@ -1843,7 +1843,7 @@ COMMENT ON COLUMN c_ai_emr_qc_record.high_severity_count IS '未忽略高严重�
 COMMENT ON COLUMN c_ai_emr_qc_record.model IS '质控模型';
 COMMENT ON COLUMN c_ai_emr_qc_record.rule_version IS '确定性规则版本';
 COMMENT ON COLUMN c_ai_emr_qc_record.analyzed_at IS '质控时间';
-COMMENT ON COLUMN c_ai_emr_qc_record.result_source IS '当前结果来源：ai或manual';
+COMMENT ON COLUMN c_ai_emr_qc_record.result_source IS '当前结果来源：ai、manual或proxy_refill（代配药免质控）';
 COMMENT ON COLUMN c_ai_emr_qc_record.ai_score IS 'AI原始总分';
 COMMENT ON COLUMN c_ai_emr_qc_record.ai_analysis_id IS 'AI原始分析UUID，用于追溯原始发现明细';
 COMMENT ON COLUMN c_ai_emr_qc_record.reviewed_by IS '人工调整操作人ID';

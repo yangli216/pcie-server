@@ -31,6 +31,11 @@ public class EmrQcTaskVO {
         private String analysisId;
         private LocalDateTime analyzedAt;
         private String resultSource;
+
+        @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
+        public boolean isProxyRefill() {
+            return "proxy_refill".equals(resultSource);
+        }
         private String errorCode;
         private String errorMessage;
     }

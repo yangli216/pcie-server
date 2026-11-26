@@ -46,6 +46,10 @@ public class EmrQcWriter {
 
     @Transactional
     public AiEmrQcRecord save(EmrQcDraft draft) {
+        boolean proxyRefill = EmrQcProxyRefill.SOURCE.equals(draft.getResultSource());
+        if (!proxyRefill && !"ai".equals(draft.getResultSource())) {
+            throw new IllegalArgumentException("Unsupported analysis source");
+        }
         AiEmrQcRecord entity = findRecord(draft.getIdOrg(), draft.getIdMedrecdoc());
         boolean insert = entity == null;
         if (insert) {
@@ -76,17 +80,21 @@ public class EmrQcWriter {
         entity.setDimensionsJson(draft.getDimensionsJson());
         entity.setFindingCount(countActive(draft.getFindings()));
         entity.setHighSeverityCount(countHigh(draft.getFindings()));
-        entity.setModel(draft.getModel());
+        entity.setModel(proxyRefill ? null : draft.getModel());
         entity.setRuleVersion(draft.getRuleVersion());
         entity.setAnalyzedAt(draft.getAnalyzedAt());
-        entity.setResultSource("ai");
-        entity.setAiScore(draft.getScore());
-        entity.setAiAnalysisId(draft.getAnalysisId());
+        entity.setResultSource(draft.getResultSource());
+        entity.setAiScore(proxyRefill ? null : draft.getScore());
+        entity.setAiAnalysisId(proxyRefill ? null : draft.getAnalysisId());
+        entity.setReviewedBy(null);
+        entity.setReviewedByName(null);
+        entity.setReviewedAt(null);
+        entity.setReviewReason(null);
         if (insert) {
             recordMapper.insert(entity);
         } else {
             recordMapper.updateById(entity);
-            clearReviewFields(entity.getIdQcRecord());
+            clearPreviousMetadata(entity.getIdQcRecord(), proxyRefill);
         }
 
         int sortNo = 1;
@@ -128,13 +136,17 @@ public class EmrQcWriter {
         return entity;
     }
 
-    private void clearReviewFields(String idQcRecord) {
-        recordMapper.update(null, new UpdateWrapper<AiEmrQcRecord>()
+    private void clearPreviousMetadata(String idQcRecord, boolean proxyRefill) {
+        UpdateWrapper<AiEmrQcRecord> update = new UpdateWrapper<AiEmrQcRecord>()
             .eq("id_qc_record", idQcRecord)
             .set("reviewed_by", null)
             .set("reviewed_by_name", null)
             .set("reviewed_at", null)
-            .set("review_reason", null));
+            .set("review_reason", null);
+        if (proxyRefill) {
+            update.set("model", null).set("ai_score", null).set("ai_analysis_id", null);
+        }
+        recordMapper.update(null, update);
     }
 
     private void insertFinding(String idQcRecord, String analysisId, int sortNo, EmrQcAnalysisVO.Finding source) {

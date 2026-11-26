@@ -367,6 +367,9 @@ public class EmrQcService {
             if (projection == null) {
                 throw new BusinessException("EMR-QC-400", "请先完成 AI 质控，再进行人工调整");
             }
+            if (EmrQcProxyRefill.SOURCE.equals(projection.getResultSource())) {
+                throw new ConflictException("EMR-QC-CONFLICT", "代配药结果免质控，不支持人工扣分；请在主诉更新后重新质控");
+            }
             if (request == null || !StringUtils.hasText(request.getReason())) {
                 throw new BusinessException("EMR-QC-400", "调整理由不能为空");
             }
@@ -534,15 +537,27 @@ public class EmrQcService {
 
             String analysisId = UUID.randomUUID().toString().replace("-", "");
             LocalDateTime analyzedAt = LocalDateTime.now();
-            ResolvedAiConfig aiConfig = resolveAiConfig(context.getIdOrg());
-            EmrQcAiClient.Result aiResult = aiClient.analyze(aiConfig, aiInput(record, loaded));
-
-            List<EmrQcAnalysisVO.Finding> findings = EmrQcChiefComplaintRules.merge(
-                EmrQcAllergyRules.withEvidence(aiResult.getFindings(), loaded.allergyFieldFilled),
-                loaded.chiefComplaintFindings, loaded.hasPresentIllness);
-            EmrQcRubric.scoreFromFindings(aiResult.getDimensions(), findings);
+            String model = null;
+            List<EmrQcAnalysisVO.Dimension> dimensions;
+            List<EmrQcAnalysisVO.Finding> findings;
+            if (loaded.proxyRefill) {
+                dimensions = new ArrayList<EmrQcAnalysisVO.Dimension>();
+                for (EmrQcRubric.Spec spec : EmrQcRubric.dimensions()) {
+                    dimensions.add(EmrQcRubric.dimension(spec.getCode(), spec.getWeight(), null));
+                }
+                findings = Collections.emptyList();
+            } else {
+                ResolvedAiConfig aiConfig = resolveAiConfig(context.getIdOrg());
+                EmrQcAiClient.Result aiResult = aiClient.analyze(aiConfig, aiInput(record, loaded));
+                model = aiConfig.getModel();
+                dimensions = aiResult.getDimensions();
+                findings = EmrQcChiefComplaintRules.merge(
+                    EmrQcAllergyRules.withEvidence(aiResult.getFindings(), loaded.allergyFieldFilled),
+                    loaded.chiefComplaintFindings, loaded.hasPresentIllness);
+                EmrQcRubric.scoreFromFindings(dimensions, findings);
+            }
             int calculatedScore = 0;
-            for (EmrQcAnalysisVO.Dimension dimension : aiResult.getDimensions()) {
+            for (EmrQcAnalysisVO.Dimension dimension : dimensions) {
                 dimension.setSummary(null);
                 calculatedScore += dimension.getScore();
             }
@@ -570,9 +585,10 @@ public class EmrQcService {
             draft.setContentHash(loaded.contentHash);
             draft.setAnalysisId(analysisId);
             draft.setScore(calculatedScore);
-            draft.setDimensionsJson(writeDimensions(aiResult.getDimensions()));
+            draft.setDimensionsJson(writeDimensions(dimensions));
             draft.setFindings(findings);
-            draft.setModel(aiConfig.getModel());
+            draft.setModel(model);
+            draft.setResultSource(loaded.proxyRefill ? EmrQcProxyRefill.SOURCE : "ai");
             draft.setRuleVersion(EmrQcRubric.RULE_VERSION);
             draft.setAnalyzedAt(analyzedAt);
 
@@ -583,7 +599,7 @@ public class EmrQcService {
             }
             draft.setPhisUpdateTime(verified.updateTime == null ? record.getUpdateTime() : verified.updateTime);
             AiEmrQcRecord saved = writer.saveWithAudit(draft, () ->
-                auditService.recordRequired(context, action, idMedrecdoc, null, "success"));
+                auditService.recordRequired(context, action, idMedrecdoc, null, loaded.proxyRefill ? "proxy_refill" : "success"));
             if (verified.updateTime != null) record.setUpdateTime(verified.updateTime);
             List<AiEmrQcFinding> savedFindings = writer.findFindings(analysisId);
             return toAnalysisVO(saved, savedFindings, false, null, Boolean.FALSE);
@@ -652,12 +668,16 @@ public class EmrQcService {
         if (complaint == null) complaint = EmrQcChiefComplaintRules.structuredField(objectMapper, xmlContent, "主诉");
         String presentIllness = previewProjection.presentIllness;
         if (presentIllness == null) presentIllness = EmrQcChiefComplaintRules.structuredField(objectMapper, xmlContent, "现病史");
-        loaded.chiefComplaintFindings = EmrQcChiefComplaintRules.evaluate(complaint, record, masker);
+        loaded.proxyRefill = EmrQcProxyRefill.matches(complaint);
+        loaded.chiefComplaintFindings = loaded.proxyRefill ? Collections.emptyList()
+            : EmrQcChiefComplaintRules.evaluate(complaint, record, masker);
         loaded.hasPresentIllness = StringUtils.hasText(presentIllness);
         String allergy = previewProjection.allergyHistory;
         if (allergy == null) allergy = EmrQcChiefComplaintRules.structuredField(objectMapper, xmlContent, "过敏史");
-        loaded.allergyFieldFilled = EmrQcAllergyRules.filled(allergy);
-        loaded.allergyInput = EmrQcAllergyRules.aiEvidence(allergy, record, masker);
+        if (!loaded.proxyRefill) {
+            loaded.allergyFieldFilled = EmrQcAllergyRules.filled(allergy);
+            loaded.allergyInput = EmrQcAllergyRules.aiEvidence(allergy, record, masker);
+        }
         if (includePreview) loaded.htmlPreview = preview;
         String previewText = EmrQcHtmlPreview.plainTextForAi(preview, record, masker);
         loaded.maskedText = normalizer.canonicalText(maskedSections);
@@ -772,7 +792,8 @@ public class EmrQcService {
             vo.setStale(false);
             return vo;
         }
-        boolean sameUpdate = sameUpdateTime(projection.getPhisUpdateTime(), record.getUpdateTime());
+        boolean sameUpdate = sameUpdateTime(projection.getPhisUpdateTime(), record.getUpdateTime())
+            && EmrQcRubric.RULE_VERSION.equals(projection.getRuleVersion()) && !record.isSnapshot();
         vo.setQcStatus(sameUpdate ? "analyzed" : "stale");
         vo.setStale(!sameUpdate);
         vo.setScore(projection.getScore());
@@ -785,7 +806,10 @@ public class EmrQcService {
 
     private StaleState staleState(AiEmrQcRecord projection, PhisEmrRecord record, String contentHash) {
         StaleState state = new StaleState();
-        if (StringUtils.hasText(projection.getContentHash()) && !projection.getContentHash().equals(contentHash)) {
+        if (!EmrQcRubric.RULE_VERSION.equals(projection.getRuleVersion())) {
+            state.stale = true;
+            state.reason = "rule_updated";
+        } else if (StringUtils.hasText(projection.getContentHash()) && !projection.getContentHash().equals(contentHash)) {
             state.stale = true;
             state.reason = "content_changed";
         } else if (record.isSnapshot()) {
@@ -1004,6 +1028,7 @@ public class EmrQcService {
         private List<PhisEmrSection> sections;
         private String htmlPreview = "";
         private String maskedText;
+        private boolean proxyRefill;
         private List<EmrQcAnalysisVO.Finding> chiefComplaintFindings;
         private boolean hasPresentIllness;
         private Boolean allergyFieldFilled;

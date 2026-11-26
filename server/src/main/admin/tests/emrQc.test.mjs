@@ -1,6 +1,29 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFile } from 'node:fs/promises'
+import * as compiler from 'vue/compiler-sfc'
+import { canReviewQc, proxyRefillLabel } from '../src/utils/emrQcQuery.js'
 import { isWithinOneCalendarYear, oneYearAfter } from '../src/utils/emrQcDateRange.js'
+
+test('proxy identity remains explicit and historical results require verification', () => {
+  const proxy = { proxyRefill: true, resultSource: 'proxy_refill', score: 100 }
+  assert.equal(proxyRefillLabel(proxy), '代配药 · 免质控')
+  assert.equal(proxyRefillLabel({ ...proxy, stale: true }), '上次代配药（待重新核验）')
+  assert.equal(proxyRefillLabel({ ...proxy, snapshot: true }), '上次代配药（待重新核验）')
+  assert.equal(proxyRefillLabel({ score: 100, resultSource: 'ai' }), '')
+  assert.equal(proxyRefillLabel({ ...proxy, proxyRefill: false }), '')
+  assert.equal(proxyRefillLabel(null), '')
+})
+
+test('ordinary current results remain reviewable and exempt results cannot receive manual deductions', () => {
+  const qc = { resultSource: 'ai', ruleVersion: 'emr-qc-rules-v11' }
+  assert.equal(canReviewQc(qc, qc.ruleVersion), true)
+  assert.equal(canReviewQc({ ...qc, resultSource: 'manual' }, qc.ruleVersion), true)
+  assert.equal(canReviewQc({ ...qc, resultSource: 'proxy_refill' }, qc.ruleVersion), false)
+  assert.equal(canReviewQc({ ...qc, stale: true }, qc.ruleVersion), false)
+  assert.equal(canReviewQc(qc, 'emr-qc-rules-v10'), false)
+  assert.equal(canReviewQc(qc, undefined), false)
+})
 import {
   departmentOptions,
   decorateEmrHtmlPreview,
@@ -181,6 +204,73 @@ test('keeps PHIS original layout for finding linkage whenever a safe preview exi
 
 // Query orchestration uses deterministic fake services and never calls a real model.
 const { applyQueryItems, isCurrentQcRuleVersion, pendingQueryRows, runPageQuery } = await import('../src/utils/emrQcQuery.js')
+
+// Execute the real view method with fake API transport; no browser, PHIS or model is involved.
+const viewSource = await readFile(new URL('../src/views/EmrQcView.vue', import.meta.url), 'utf8')
+const viewScript = compiler.parse({ source: viewSource, filename: 'EmrQcView.vue' }).script.content
+function detailView(analyzeRecord) {
+  const imports = {}
+  const script = viewScript.replace(/import\s+([\s\S]*?)\s+from\s+['"][^'"]+['"]\s*/g, (_, bindings) => {
+    for (const name of bindings.replace(/[{}]/g, '').split(',').map(s => s.trim()).filter(Boolean)) imports[name] = () => {}
+    return ''
+  }).replace('export default', 'return')
+  Object.assign(imports, { analyzeRecord, applyQueryItems, pendingQueryRows, canReviewQc, isCurrentQcRuleVersion, proxyRefillLabel })
+  const options = new Function(...Object.keys(imports), script)(...Object.values(imports))
+  const old = { proxyRefill: true, resultSource: 'proxy_refill', score: 100 }
+  return {
+    method: options.methods.analyzeDetail,
+    state: { detail: { record: { idMedrecdoc: 'A' }, qc: old }, records: [{ idMedrecdoc: 'A', ...old }],
+      $message: { success() {}, error() {} } }
+  }
+}
+
+test('detail reanalysis hides old exempt results while pending and after a failure', async () => {
+  let reject
+  const { method, state } = detailView(() => new Promise((_, fail) => { reject = fail }))
+  const run = method.call(state, true)
+  assert.equal(state.analyzing, true)
+  assert.equal(state.detail.qc, null)
+  assert.equal(state.records[0].score, null)
+  assert.equal(state.records[0].proxyRefill, false)
+  reject(new Error('AI configuration missing'))
+  await run
+  assert.equal(state.detail.qc, null)
+  assert.equal(state.records[0].qcStatus, 'failed')
+  assert.equal(state.records[0].score, null)
+  assert.match(state.detailQueryError, /AI configuration missing/)
+  assert.equal(state.analyzing, false)
+})
+
+test('detail reanalysis restores only the newly returned result and its proxy identity', async () => {
+  const analysis = { resultSource: 'ai', proxyRefill: false, score: 90, findings: [], findingCount: 1 }
+  const { method, state } = detailView(async () => analysis)
+  await method.call(state, true)
+  assert.equal(state.detail.qc, analysis)
+  assert.equal(state.records[0].score, 90)
+  assert.equal(state.records[0].proxyRefill, false)
+  assert.equal(state.detailQueryError, '')
+})
+
+test('new queries clear old exempt scores and batch success alone restores an explicit proxy marker', () => {
+  const old = [{ idMedrecdoc: 'A', proxyRefill: true, resultSource: 'proxy_refill', score: 100 }]
+  const pending = pendingQueryRows(old)
+  assert.equal(pending[0].score, null)
+  assert.equal(pending[0].proxyRefill, false)
+  assert.equal(proxyRefillLabel(pending[0]), '')
+  const success = applyQueryItems(pending, [{ idMedrecdoc: 'A', status: 'succeeded', score: 100,
+    proxyRefill: true, resultSource: 'proxy_refill', findingCount: 0 }])
+  assert.equal(proxyRefillLabel(success[0]), '代配药 · 免质控')
+  assert.equal(success[0].findingCount, 0)
+  const failed = applyQueryItems(success, [{ idMedrecdoc: 'A', status: 'failed', proxyRefill: true,
+    resultSource: 'proxy_refill', score: 100 }])
+  assert.equal(failed[0].proxyRefill, false)
+  assert.equal(failed[0].score, null)
+  const ordinary = applyQueryItems(success, [{ idMedrecdoc: 'A', status: 'succeeded', score: 90, resultSource: 'ai' }])
+  assert.equal(ordinary[0].proxyRefill, false)
+  assert.equal(ordinary[0].score, 90)
+  const legacy = applyQueryItems(success, [{ idMedrecdoc: 'A', status: 'succeeded', score: 100 }])
+  assert.equal(legacy[0].proxyRefill, false)
+})
 
 test('manual review compares the result to the server rule version without a hard-coded version', () => {
   for (const version of ['emr-qc-rules-v6', 'emr-qc-rules-v8', 'emr-qc-rules-v9', 'emr-qc-rules-v10', 'future-server-rule']) {

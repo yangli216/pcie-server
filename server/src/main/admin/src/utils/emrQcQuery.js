@@ -4,9 +4,18 @@ export function isCurrentQcRuleVersion(qc, ruleVersion) {
   return Boolean(qc && typeof ruleVersion === 'string' && ruleVersion && qc.ruleVersion === ruleVersion)
 }
 
+export function canReviewQc(qc, ruleVersion) {
+  return isCurrentQcRuleVersion(qc, ruleVersion) && !qc.stale && qc.resultSource !== 'proxy_refill'
+}
+
+export function proxyRefillLabel(result) {
+  if (!result || !result.proxyRefill || result.resultSource !== 'proxy_refill') return ''
+  return result.stale || result.snapshot ? '上次代配药（待重新核验）' : '代配药 · 免质控'
+}
+
 export function pendingQueryRows(rows) {
   return rows.map(row => ({ ...row, score: null, findingCount: null, highSeverityCount: null,
-    resultSource: null, analyzedAt: null, qcStatus: 'queued', queryState: 'pending', queryError: '' }))
+    resultSource: null, proxyRefill: false, analyzedAt: null, qcStatus: 'queued', queryState: 'pending', queryError: '' }))
 }
 
 export function applyQueryItems(rows, items) {
@@ -19,6 +28,8 @@ export function applyQueryItems(rows, items) {
       qcStatus: succeeded ? 'analyzed' : item.status === 'failed' ? 'failed' : 'running',
       score: succeeded ? item.score : null, findingCount: succeeded ? item.findingCount : null,
       highSeverityCount: succeeded ? item.highSeverityCount : null,
+      proxyRefill: succeeded && Boolean(item.proxyRefill) && item.resultSource === 'proxy_refill',
+      stale: succeeded ? false : row.stale,
       analyzedAt: succeeded ? item.analyzedAt : null, resultSource: succeeded ? item.resultSource || 'ai' : null }
   })
 }
