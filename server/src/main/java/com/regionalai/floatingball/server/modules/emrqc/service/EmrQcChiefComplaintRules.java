@@ -27,6 +27,12 @@ final class EmrQcChiefComplaintRules {
     static final String PLUS = "R-CHIEF-PLUS";
     static final String LENGTH = "R-CHIEF-LENGTH";
     static final String DIAGNOSIS = "R-CHIEF-DIAGNOSIS";
+    // Legacy/model responses may omit ruleCode. Recognize explicit plus complaints in the
+    // issue only, never a '+' occurring in clinical evidence or a suggested replacement.
+    private static final Pattern PLUS_ISSUE = Pattern.compile(
+        "^(?:主诉(?:中|内|的)?)?(?:(?:包含|含有|含|出现|存在|使用|带有|有)(?:了)?"
+            + "(?:(?:非规范|不规范|特殊)?符号)?(?:半角|全角)?(?:加号|[+＋])"
+            + "|(?:加号|[+＋])(?:号|符号)?[，,：:]?(?:不规范|不符合|不应|不能|禁止|不允许|多余))");
     // NUL denotes layout boundaries, distinct from a user-entered line break.
     private static final Pattern LABEL = Pattern.compile(
         "(?:^|[\\u0000；;])\\s*(主诉|现病史|既往史|个人史|家族史|婚育史|月经史|体格检查|查体|辅助检查|诊断|处理|治疗|诊疗措施|注意事项)\\s*[：:]");
@@ -180,6 +186,9 @@ final class EmrQcChiefComplaintRules {
             String code = finding.getRuleCode();
             // The model never owns the two mechanical checks, even if it returns an unexpected copy.
             if (PLUS.equals(code) || LENGTH.equals(code)) continue;
+            if (!StringUtils.hasText(code) && "主诉".equals(finding.getCategory())
+                    && StringUtils.hasText(finding.getIssue())
+                    && PLUS_ISSUE.matcher(finding.getIssue().replaceAll("[\\s“”‘’\"'「」『』]", "")).find()) continue;
             if (DIAGNOSIS.equals(code) && !hasPresentIllness) continue;
             String key = DIAGNOSIS.equals(code) ? code : finding.getCategory() + "\u0000" + finding.getIssue().trim();
             findings.putIfAbsent(key, finding);

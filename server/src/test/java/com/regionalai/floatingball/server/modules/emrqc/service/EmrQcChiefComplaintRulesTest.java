@@ -151,6 +151,59 @@ class EmrQcChiefComplaintRulesTest {
         assertThat(merged).extracting(EmrQcAnalysisVO.Finding::getRuleCode).containsExactly(EmrQcChiefComplaintRules.PLUS);
     }
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+        "主诉中包含加号", "主诉含有加号，书写不规范。", "主诉使用了特殊符号‘+’，不规范",
+        "主诉出现全角加号＋", "主诉中有“＋”符号", "主诉的+号不规范"
+    })
+    void untaggedPlusIssuesAreOwnedByMechanicalRule(String issue) {
+        EmrQcAnalysisVO.Finding ai = diagnosis(issue); ai.setRuleCode(null);
+        for (String complaint : Arrays.asList("反复咳嗽20+天", "咳嗽＋发热3天", "咳嗽++发热＋3天")) {
+            List<EmrQcAnalysisVO.Finding> merged = EmrQcChiefComplaintRules.merge(
+                Arrays.asList(ai, ai), evaluate(complaint), true);
+            assertThat(merged).singleElement().satisfies(f -> {
+                assertEquals(EmrQcChiefComplaintRules.PLUS, f.getRuleCode());
+                assertEquals(1, f.getDeduction());
+            });
+        }
+        // When the complaint is repaired, even a stale untagged model copy cannot survive.
+        assertThat(EmrQcChiefComplaintRules.merge(Collections.singletonList(ai), evaluate("反复咳嗽20天"), true)).isEmpty();
+    }
+
+    @Test
+    void plusDedupPreservesIndependentChiefFindingsAndLengthCharge() {
+        EmrQcAnalysisVO.Finding duplicate = diagnosis("主诉中包含加号"); duplicate.setRuleCode(null);
+        EmrQcAnalysisVO.Finding clinical = diagnosis("主诉缺少持续时间"); clinical.setRuleCode(null);
+        clinical.setExcerpt("咳嗽+发热"); clinical.setSuggestion("补充持续时间，去除加号");
+        EmrQcAnalysisVO.Finding diagnosis = diagnosis("主诉以诊断名代替症状");
+        List<EmrQcAnalysisVO.Finding> merged = EmrQcChiefComplaintRules.merge(
+            Arrays.asList(duplicate, clinical, diagnosis), evaluate("阴道炎反复发作伴不适要求配药治疗20+天，随访"), true);
+        assertThat(merged).contains(clinical, diagnosis).hasSize(4);
+        assertThat(merged).extracting(EmrQcAnalysisVO.Finding::getRuleCode)
+            .containsExactly(null, EmrQcChiefComplaintRules.DIAGNOSIS, EmrQcChiefComplaintRules.PLUS, EmrQcChiefComplaintRules.LENGTH);
+        List<EmrQcAnalysisVO.Dimension> dimensions = Collections.singletonList(EmrQcRubric.dimension(EmrQcRubric.CHIEF_COMPLAINT, 5, null));
+        EmrQcRubric.scoreFromFindings(dimensions, merged);
+        assertEquals(1, dimensions.get(0).getScore());
+        merged.stream().filter(f -> EmrQcChiefComplaintRules.PLUS.equals(f.getRuleCode())).forEach(f -> f.setIgnored(true));
+        EmrQcRubric.scoreFromFindings(dimensions, merged);
+        assertEquals(2, dimensions.get(0).getScore());
+    }
+
+    @Test
+    void doesNotClassifyOtherIssuesFromPlusInEvidenceOrAdvice() {
+        for (String issue : Arrays.asList("主诉缺少持续时间", "主诉未提炼咳嗽+发热的主要症状",
+                "主诉中包含多个症状，未说明主要症状", "主诉未包含加号，但缺少持续时间")) {
+            EmrQcAnalysisVO.Finding ai = diagnosis(issue); ai.setRuleCode(null);
+            ai.setExcerpt("咳嗽+发热"); ai.setSuggestion("补充症状时间，同时去除加号");
+            assertThat(EmrQcChiefComplaintRules.merge(Collections.singletonList(ai), evaluate("咳嗽+发热"), true))
+                .contains(ai).hasSize(2);
+        }
+        EmrQcAnalysisVO.Finding otherSection = diagnosis("计算中包含加号");
+        otherSection.setRuleCode(null); otherSection.setCategory("诊疗措施");
+        assertThat(EmrQcChiefComplaintRules.merge(Collections.singletonList(otherSection), evaluate("咳嗽+发热"), true))
+            .contains(otherSection).hasSize(2);
+    }
+
     private List<EmrQcAnalysisVO.Finding> evaluate(String text) {
         return EmrQcChiefComplaintRules.evaluate(text, new PhisEmrRecord(), masker);
     }
