@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.BufferedReader;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -224,6 +225,7 @@ public class AiProxyService {
                             Double temperature) {
         AiCallTiming timing = AiCallTiming.start();
         Map<String, Object> payload = buildChatPayload(
+            upstreamConfig.getBaseUrl(),
             upstreamConfig.getModel(),
             messages,
             Boolean.FALSE,
@@ -382,6 +384,7 @@ public class AiProxyService {
                             AiCallTiming timing) {
         log.info("ai chat stream request. model={}, baseUrl={}", upstreamConfig.getModel(), upstreamConfig.getBaseUrl());
         Map<String, Object> payload = buildChatPayload(
+            upstreamConfig.getBaseUrl(),
             upstreamConfig.getModel(),
             request.getMessages(),
             Boolean.TRUE,
@@ -811,7 +814,8 @@ public class AiProxyService {
         }
     }
 
-    private Map<String, Object> buildChatPayload(String model,
+    private Map<String, Object> buildChatPayload(String baseUrl,
+                                                 String model,
                                                  List<Map<String, Object>> messages,
                                                  Boolean stream,
                                                  Double temperature,
@@ -821,10 +825,14 @@ public class AiProxyService {
         payload.put("model", model);
         payload.put("messages", messages);
         payload.put("stream", stream);
-        payload.put("enable_thinking", enableThinking);
-        String modelId = model.substring(model.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
-        if ("qwen3".equals(modelId) || modelId.startsWith("qwen3-")) {
-            payload.put("chat_template_kwargs", Collections.singletonMap("enable_thinking", enableThinking));
+        if ("api.deepseek.com".equalsIgnoreCase(URI.create(baseUrl).getHost())) {
+            payload.put("thinking", Collections.singletonMap("type", enableThinking ? "enabled" : "disabled"));
+        } else {
+            payload.put("enable_thinking", enableThinking);
+            String modelId = model.substring(model.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
+            if ("qwen3".equals(modelId) || modelId.startsWith("qwen3-")) {
+                payload.put("chat_template_kwargs", Collections.singletonMap("enable_thinking", enableThinking));
+            }
         }
         if (enableSearch) {
             payload.put("enable_search", true);

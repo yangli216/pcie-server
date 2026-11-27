@@ -676,7 +676,7 @@ Content-Type: application/json
 语音配置字段说明：
 
 - `llm.fastModel`：供 `pcie/src/services/llm.ts` 的 `chatFast()` 使用的独立快速模型；未单独配置时回退 `llm.model`
-- `llm.enableThinking`：由服务端统一托管的思考模式开关；`floating-ball` 只读消费该值，`/v1/ai/chat` 代理据此设置上游 `enable_thinking`。实际模型名为 `Qwen3` / `Qwen3-*`（允许仓库名前缀）时，同时传入 `chat_template_kwargs.enable_thinking`，使本轮内网服务的模板开关实际生效；普通与 SSE、主/fast/reviewer 使用同一规则，其余模型载荷保持原协议。
+- `llm.enableThinking`：由服务端统一托管的思考模式开关；`floating-ball` 只读消费该值。`/v1/ai/chat` 代理访问精确主机 `api.deepseek.com` 时发送 `thinking.type = enabled/disabled`，其他上游发送 `enable_thinking`；实际模型名为 `Qwen3` / `Qwen3-*`（允许仓库名前缀）时，同时传入 `chat_template_kwargs.enable_thinking`。普通与 SSE、主/fast/reviewer、配置连通测试使用同一规则，第三方托管的 DeepSeek 模型仍遵循其原有兼容协议。
 - `reviewer.checkExaminationEnabled`：控制是否启用 `check_examination` 独立审查；未显式配置时默认开启，保证旧配置行为不变
 - `llm.audioModel`：服务端实际提交给上游的语音模型；`openai-compatible` 默认 `whisper-1`，`aliyun-dashscope` 默认 `qwen3-asr-flash`
 - `speech.provider`：下发给 `floating-ball` 的语音提供方标识，当前兼容 `openai-compatible`、`aliyun-dashscope`、`funasr-websocket`
@@ -2555,7 +2555,7 @@ BBP 已停用、未明确返回 `active=true`、已移出当前机构目录但�
 语音配置最小要求：
 
 0. `fastModelName` 为服务端 `chatFast` 独立模型；可留空，留空时回退 `modelName`。
-1. `enableThinking` 用于控制服务端代理主模型 / `chatFast` / 审查模型时是否附带上游 `enable_thinking`；默认关闭。
+1. `enableThinking` 用于控制服务端代理主模型 / `chatFast` / 审查模型的思考模式，默认关闭；供应商参数映射与 `bootstrap.llm.enableThinking` 一致，DeepSeek 官方接口使用 `thinking.type`，不依赖其不识别的 `enable_thinking`。不新增环境变量或客户端配置。
 2. `apiKey` 为主模型密钥，也是 `audioApiKey` 留空时的语音密钥回退值。
 3. `audioApiKey` 为批量语音上游独立密钥；可留空，留空时复用 `apiKey`。FunASR 原生实时连接不发送该密钥；仅当批量转写与主模型供应商或账号不一致时填写。
 4. `audioBaseUrl` 为服务端实际语音转写地址；可留空，留空时复用 `apiBaseUrl`。

@@ -158,6 +158,77 @@ class AiProxyServiceTest {
     }
 
     @Test
+    void deepSeekOfficialApiShouldHonorThinkingAcrossProfilesAndTransports() {
+        for (String profile : new String[] {"default", "fast", "reviewer"}) {
+            for (boolean stream : new boolean[] {false, true}) {
+                for (boolean thinking : new boolean[] {false, true}) {
+                    RestTemplate rest = new RestTemplate();
+                    MockRestServiceServer upstream = MockRestServiceServer.createServer(rest);
+                    ConfigService configs = mock(ConfigService.class);
+                    ResolvedAiConfig config = resolvedChatConfig();
+                    config.setBaseUrl("https://api.deepseek.com");
+                    config.setModel("deepseek-v4-pro");
+                    config.setFastModel("deepseek-flash");
+                    config.setReviewerEnabled(true);
+                    config.setReviewerBaseUrl("https://api.deepseek.com/v1");
+                    config.setReviewerApiKey("test-reviewer-key");
+                    config.setReviewerModel("deepseek-flash");
+                    config.setEnableThinking(thinking);
+                    when(configs.resolveByDevice(any(AiDevice.class))).thenReturn(config);
+                    AiProxyService service = new AiProxyService(configs, mock(AuditService.class), rest,
+                        new ObjectMapper(), offlineOutboundSecurity(), Runnable::run);
+                    ChatRequest request = chatRequest(stream);
+                    request.setConfigProfile(profile);
+                    String url = "reviewer".equals(profile)
+                        ? "https://api.deepseek.com/v1/chat/completions" : "https://api.deepseek.com/chat/completions";
+                    upstream.expect(requestTo(url))
+                        .andExpect(jsonPath("$.thinking.type").value(thinking ? "enabled" : "disabled"))
+                        .andExpect(jsonPath("$.enable_thinking").doesNotExist())
+                        .andExpect(jsonPath("$.chat_template_kwargs").doesNotExist())
+                        .andExpect(jsonPath("$.stream").value(stream))
+                        .andRespond(stream
+                            ? withSuccess("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n", MediaType.TEXT_EVENT_STREAM)
+                            : withSuccess("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"ok\"}}]}", MediaType.APPLICATION_JSON));
+                    if (stream) service.chatStream(new AiDevice(), request);
+                    else assertThat(service.chat(new AiDevice(), request)).isEqualTo("ok");
+                    upstream.verify();
+                }
+            }
+        }
+    }
+
+    @Test
+    void deepSeekConnectionTestShouldDisableThinkingUsingOfficialProtocol() {
+        RestTemplate rest = new RestTemplate();
+        MockRestServiceServer upstream = MockRestServiceServer.createServer(rest);
+        AiProxyService service = new AiProxyService(mock(ConfigService.class), mock(AuditService.class), rest,
+            new ObjectMapper(), offlineOutboundSecurity(), Runnable::run);
+        upstream.expect(requestTo("https://api.deepseek.com/v1/chat/completions"))
+            .andExpect(jsonPath("$.thinking.type").value("disabled"))
+            .andExpect(jsonPath("$.max_tokens").value(4096))
+            .andRespond(withSuccess("{\"choices\":[{\"message\":{\"content\":\"测试成功\"}}]}", MediaType.APPLICATION_JSON));
+        assertThat(service.testChatConnection("https://api.deepseek.com/v1/", "test-key", "deepseek-flash", false))
+            .isEqualTo("测试成功");
+        upstream.verify();
+    }
+
+    @Test
+    void thirdPartyDeepSeekModelsShouldKeepTheirExistingProtocol() {
+        for (String baseUrl : new String[] {"http://127.0.0.1:18080/v1", "https://api.deepseek.com.example/v1"}) {
+            RestTemplate rest = new RestTemplate();
+            MockRestServiceServer upstream = MockRestServiceServer.createServer(rest);
+            AiProxyService service = new AiProxyService(mock(ConfigService.class), mock(AuditService.class), rest,
+                new ObjectMapper(), offlineOutboundSecurity(), Runnable::run);
+            upstream.expect(requestTo(baseUrl + "/chat/completions"))
+                .andExpect(jsonPath("$.enable_thinking").value(false))
+                .andExpect(jsonPath("$.thinking").doesNotExist())
+                .andRespond(withSuccess("{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}", MediaType.APPLICATION_JSON));
+            assertThat(service.testChatConnection(baseUrl, "test-key", "deepseek-flash", false)).isEqualTo("ok");
+            upstream.verify();
+        }
+    }
+
+    @Test
     void qwen3StreamingShouldApplyTheSameTemplateFlagForNamespacedModels() {
         RestTemplate rest = new RestTemplate();
         MockRestServiceServer upstream = MockRestServiceServer.createServer(rest);
@@ -309,6 +380,7 @@ class AiProxyServiceTest {
         Map<String, Object> payload = (Map<String, Object>) ReflectionTestUtils.invokeMethod(
             service,
             "buildChatPayload",
+            "https://provider.example/v1",
             "main-model",
             Collections.<Map<String, Object>>emptyList(),
             Boolean.FALSE,
@@ -330,6 +402,7 @@ class AiProxyServiceTest {
         Map<String, Object> enabledPayload = (Map<String, Object>) ReflectionTestUtils.invokeMethod(
             service,
             "buildChatPayload",
+            "https://provider.example/v1",
             "main-model",
             Collections.<Map<String, Object>>emptyList(),
             Boolean.TRUE,
@@ -340,6 +413,7 @@ class AiProxyServiceTest {
         Map<String, Object> disabledPayload = (Map<String, Object>) ReflectionTestUtils.invokeMethod(
             service,
             "buildChatPayload",
+            "https://provider.example/v1",
             "main-model",
             Collections.<Map<String, Object>>emptyList(),
             Boolean.TRUE,
@@ -548,6 +622,16 @@ class AiProxyServiceTest {
             mock(OutboundSecurityService.class),
             Runnable::run
         );
+    }
+
+    private OutboundSecurityService offlineOutboundSecurity() {
+        // MockRestServiceServer handles transport; avoid DNS in provider protocol tests.
+        return new OutboundSecurityService(new OutboundSecurityProperties()) {
+            @Override
+            public java.net.URI validateHttpUrl(String rawUrl, String operation) {
+                return java.net.URI.create(rawUrl);
+            }
+        };
     }
 
     private ResolvedAiConfig resolvedChatConfig() {

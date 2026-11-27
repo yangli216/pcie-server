@@ -321,7 +321,7 @@ pcie-server/
 
 1. 当 `configProfile=fast` 时，服务端优先使用 AI 配置中的独立快速模型；缺失时回退主模型配置
 2. 当 `configProfile=reviewer` 时，服务端优先使用 AI 配置中的独立审查模型地址 / 密钥 / 模型；缺失时回退主模型配置
-3. `enableThinking` 统一作用于主模型 / fast / reviewer 的普通与 SSE 代理请求，映射为上游 `enable_thinking`；有效模型名为 `Qwen3` / `Qwen3-*`（含仓库名前缀）时，另携带同值 `chat_template_kwargs.enable_thinking`。本轮真实服务 A/B 已确认仅根字段不能关闭思考，模板参数能够生效；其余模型不增加模板参数。
+3. `enableThinking` 统一作用于主模型 / fast / reviewer、配置连通测试的普通与 SSE 代理请求。上游主机为 `api.deepseek.com` 时按 [DeepSeek 协议](https://api-docs.deepseek.com/guides/thinking_mode/)发送 `thinking.type = enabled/disabled`，不发送其他厂商的 `enable_thinking`；仅传后者无法关闭 DeepSeek 默认开启的思考，非流式 4096 token 预算可能被思考耗尽而没有正文。其他上游仍使用 `enable_thinking`；有效模型名为 `Qwen3` / `Qwen3-*`（含仓库名前缀）时另携带同值 `chat_template_kwargs.enable_thinking`。按精确主机选择 DeepSeek 协议，不因第三方托管模型名称含 DeepSeek 而更改其参数。配置仍默认关闭、存储于既有 AI 配置，客户端协议及输出预算不变。
 4. `bootstrap` 仅向桌面端暴露 `llm.model`、`llm.fastModel`、`llm.enableThinking`、`reviewer.enabled`、`reviewer.model`、`reviewer.checkExaminationEnabled` 等非敏感字段，不返回密钥
 5. `reviewer.checkExaminationEnabled` 只控制桌面端是否触发 `check_examination` 场景的独立审查，不影响诊断、用药、病历一致性等其他 reviewer 场景；默认开启以兼容旧配置
 6. `/v1/ai/chat` 与 `/v1/client/bootstrap` 的实际生效模型、thinking 开关和检查项目独立审查开关以服务端当前解析到的配置为准；桌面端不应依赖本地缓存的 `model` 回传覆盖服务端配置，确保后台修改后下一次请求立即生效
