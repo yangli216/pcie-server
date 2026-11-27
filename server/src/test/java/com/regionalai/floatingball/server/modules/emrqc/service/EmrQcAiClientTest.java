@@ -150,7 +150,7 @@ class EmrQcAiClientTest {
     void allergyPromptCoversCategoriesScopePositiveHistoryAndMissingEvidence() {
         List<java.util.Map<String, Object>> messages = ReflectionTestUtils.invokeMethod(client, "messages", "【过敏史固定字段证据】\n字段状态：已填写\n填写内容：青霉素过敏");
         org.assertj.core.api.Assertions.assertThat((String) messages.get(0).get("content"))
-            .contains("明确为空", "扣5分", "deduction=1", "否认药物及食物过敏史", "补充食物过敏情况", "补充药物过敏情况",
+            .contains("明确为空", "扣5分", "deduction=1", "否认药物及食物过敏史", "无过敏史", "既往史中的过敏语句", "补充食物过敏情况", "补充药物过敏情况",
                 "不得把已记录的阳性过敏建议改为否认", "具体药名", "具体食物", "两个过敏史规则互斥", "不扩展家族史", "未知", "字段标题本身不能代替填写内容");
     }
 

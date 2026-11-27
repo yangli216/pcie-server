@@ -459,7 +459,7 @@ class EmrQcServiceTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(strings = {"emr-qc-rules-v6", "emr-qc-rules-v7", "emr-qc-rules-v10", "emr-qc-rules-v11"})
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"emr-qc-rules-v6", "emr-qc-rules-v7", "emr-qc-rules-v10", "emr-qc-rules-v11", "emr-qc-rules-v12"})
     void reuseRequiresCurrentRuleVersion(String oldVersion) {
         PhisEmrRecord record = record("A");
         AiEmrQcRecord projection = new AiEmrQcRecord();
@@ -833,7 +833,7 @@ class EmrQcServiceTest {
         verify(writer).saveWithAudit(draft.capture(), any());
         assertEquals(97, draft.getValue().getScore());
         assertEquals(9, objectMapper.valueToTree(fullDimensions()).size());
-        assertEquals("emr-qc-rules-v12", draft.getValue().getRuleVersion());
+        assertEquals("emr-qc-rules-v13", draft.getValue().getRuleVersion());
         verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
     }
 
@@ -1194,7 +1194,7 @@ class EmrQcServiceTest {
         org.junit.jupiter.api.Assertions.assertTrue(result.isProxyRefill());
         org.junit.jupiter.api.Assertions.assertNull(result.getModel());
         org.junit.jupiter.api.Assertions.assertNull(result.getAiScore());
-        assertEquals("emr-qc-rules-v12", result.getRuleVersion());
+        assertEquals("emr-qc-rules-v13", result.getRuleVersion());
         org.mockito.Mockito.verifyNoInteractions(configService, aiClient);
         verify(phisClient, org.mockito.Mockito.times(2)).detail(any(), eq("A"));
         verify(auditService).recordRequired(any(), eq(batch ? "batch_analyze" : "analyze"), eq("A"), isNull(), eq("proxy_refill"));
@@ -1339,6 +1339,92 @@ class EmrQcServiceTest {
         verify(writer, org.mockito.Mockito.times(1)).saveWithAudit(any(), any());
         org.mockito.Mockito.verifyNoInteractions(aiClient);
         verify(auditService).record(any(), eq("analyze"), eq("A"), isNull(), eq("failed"));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "pastAllergy={0}, batch={1}")
+    @org.junit.jupiter.params.provider.MethodSource("unlabelledPastHistoryAllergyCases")
+    void rejectedPhisUnlabelledPastHistoryAllergyIsExtractedAndScoredInSingleAndBatch(
+            String pastText, boolean batch, String section, String expectedEvidence, String ruleCode, int deduction, int expectedDeduction) {
+        AdminCurrentUser user = user();
+        PhisEmrRecord record = record("A");
+        if (!batch) {
+            when(sessionScope.require(user)).thenReturn(scope());
+            recordCache.putAll("s1", Collections.singletonList(record));
+        }
+        com.fasterxml.jackson.databind.node.ArrayNode pages = objectMapper.createArrayNode();
+        pages.addObject().put("ARTICLE", "主诉").putArray("eles").addObject().put("NAME", "主诉").put("TEXT", "咳嗽3天");
+        pages.addObject().put("ARTICLE", section).putArray("eles").addObject().put("NAME", "内容").put("TEXT", pastText);
+        if (expectedEvidence == null && "既往史".equals(section) && deduction == 5) {
+            ((com.fasterxml.jackson.databind.node.ArrayNode) pages.get(1).get("eles"))
+                .addObject().put("NAME", "过敏史").put("TEXT", "");
+        }
+        String html = "<p class='tag-article'><b class='tag-article-title'>主诉：</b>咳嗽3天</p>"
+            + "<p class='tag-article'><b class='tag-article-title'>" + section + "：</b>" + pastText + "</p>";
+        when(phisClient.detail(any(), eq("A"))).thenReturn(objectMapper.createObjectNode()
+            .put("xmlContent", pages.toString())
+            .put("htmlContent", html));
+        com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig config =
+            new com.regionalai.floatingball.server.modules.config.dto.ResolvedAiConfig();
+        config.setModel("fake");
+        config.setBaseUrl("https://model.invalid");
+        when(configService.resolveByScope(eq("ORG001"), isNull())).thenReturn(config);
+        EmrQcAiClient.Result ai = new EmrQcAiClient.Result();
+        ai.setDimensions(fullDimensions());
+        if (ruleCode == null) {
+            ai.setFindings(Collections.emptyList());
+        } else {
+            EmrQcAnalysisVO.Finding finding = finding("low", "患者基础信息", deduction, false);
+            finding.setRuleCode(ruleCode);
+            finding.setSectionName("既往史");
+            finding.setSuggestion("补充所缺类别的过敏情况，保留已有阳性过敏记录");
+            ai.setFindings(Collections.singletonList(finding));
+        }
+        when(aiClient.analyze(eq(config), any())).thenReturn(ai);
+        AiEmrQcRecord saved = new AiEmrQcRecord();
+        saved.setDimensionsJson("[]");
+        when(writer.saveWithAudit(any(), any())).thenReturn(saved);
+
+        if (batch) {
+            service.analyzeForTask(new EmrQcContext(user, scope(), "ORG001", "req"), record, true);
+        } else {
+            service.analyze(user, "A", true, "req");
+        }
+
+        org.mockito.ArgumentCaptor<String> input = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(aiClient).analyze(eq(config), input.capture());
+        if (expectedEvidence != null) {
+            org.assertj.core.api.Assertions.assertThat(input.getValue())
+                .contains("【过敏史固定字段证据】", "字段状态：已填写", "填写内容：" + expectedEvidence);
+        } else if (deduction == 5) {
+            org.assertj.core.api.Assertions.assertThat(input.getValue())
+                .contains("【过敏史固定字段证据】", "字段状态：明确为空");
+        } else {
+            org.assertj.core.api.Assertions.assertThat(input.getValue())
+                .contains("【过敏史固定字段证据】", "字段状态：未识别");
+        }
+
+        org.mockito.ArgumentCaptor<EmrQcDraft> draft = org.mockito.ArgumentCaptor.forClass(EmrQcDraft.class);
+        verify(writer).saveWithAudit(draft.capture(), any());
+        assertEquals(100 - expectedDeduction, draft.getValue().getScore());
+        assertEquals(expectedDeduction == 0 ? 0 : 1, draft.getValue().getFindings().size());
+        assertEquals("emr-qc-rules-v13", draft.getValue().getRuleVersion());
+    }
+
+    private static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> unlabelledPastHistoryAllergyCases() {
+        String phisPast = "平素体健；高血压病史标志高血压，糖尿病病史标志糖尿病，否认肝炎史，否认结核史，否认疟疾史，否认其他传染病史；"
+            + "否认心脏病史；否认脑血管病史；否认肺部疾病史；否认肾脏疾病史；否认其他重大疾病史；否认手术史；否认外伤史；否认输血史；否认过敏史。";
+        Object[][] cases = {
+            {phisPast, "既往史", "否认过敏史", EmrQcAllergyRules.INCOMPLETE, 1, 1},
+            {"既往体健，否认高血压、糖尿病等慢性病史，否认药物及食物过敏史。", "既往史", "否认药物及食物过敏史", null, 0, 0},
+            {"平素体健；青霉素过敏。", "既往史", "青霉素过敏", EmrQcAllergyRules.INCOMPLETE, 1, 1},
+            {"平素体健；海鲜过敏。", "既往史", "海鲜过敏", EmrQcAllergyRules.INCOMPLETE, 1, 1},
+            {"平素体健；否认输血史。", "既往史", null, EmrQcAllergyRules.MISSING, 5, 5},
+            {"平素体健；否认输血史。", "既往史", null, EmrQcAllergyRules.MISSING, 1, 0},
+            {"否认家族遗传病史；否认过敏史。", "家族史", null, EmrQcAllergyRules.INCOMPLETE, 1, 0},
+            {"否认吸烟史；否认过敏史。", "个人史", null, EmrQcAllergyRules.INCOMPLETE, 1, 0}
+        };
+        return java.util.Arrays.stream(cases).flatMap(c -> java.util.stream.Stream.of(false, true)
+            .map(batch -> org.junit.jupiter.params.provider.Arguments.of(c[0], batch, c[1], c[2], c[3], c[4], c[5])));
     }
 
     private ObjectNode proxyContent(String complaint) {

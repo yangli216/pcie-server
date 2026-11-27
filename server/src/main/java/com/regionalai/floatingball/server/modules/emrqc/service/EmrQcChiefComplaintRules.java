@@ -57,7 +57,7 @@ final class EmrQcChiefComplaintRules {
             if ("过敏史".equals(name) && EmrQcAllergyRules.excludedPreview(article)) continue;
             Element content = article.clone();
             content.select(".tag-article-title").remove();
-            values.add(visibleText(content).replace("\u0000", ""));
+            values.add(visibleText(content).replaceAll("\\u0000+", "既往史".equals(name) ? "\n" : ""));
         }
         if (!values.isEmpty()) return select(values, name);
         // Limit a plain labelled field to its smallest containing block. Otherwise a following
@@ -115,10 +115,11 @@ final class EmrQcChiefComplaintRules {
                     for (Element element : body.select("[style]")) {
                         if (element.attr("style").matches("(?is).*(?:display\\s*:\\s*none|visibility\\s*:\\s*hidden).*")) element.remove();
                     }
-                    value = visibleText(body).replace("\u0000", "");
-                    if (namedSection) section.append(value);
-                    else if (matchesLabel(field.path("DEFAULTVALUE").asText(), name)
-                        || matchesLabel(field.path("NAME").asText(), name)) fields.add(value);
+                    value = visibleText(body).replaceAll("\\u0000+", "既往史".equals(name) ? "\n" : "");
+                    if (namedSection) {
+                        if ("既往史".equals(name) && section.length() > 0 && StringUtils.hasText(value)) section.append('\n');
+                        section.append(value);
+                    } else if (matchesStructuredLabel(field, name)) fields.add(value);
                 }
                 if (namedSection) sections.add(section.toString());
             }
@@ -132,6 +133,16 @@ final class EmrQcChiefComplaintRules {
 
     private static String label(String value) {
         return value == null ? "" : value.replaceAll("[\\s：:*]", "");
+    }
+
+    private static boolean matchesStructuredLabel(JsonNode field, String name) {
+        if (!"过敏史".equals(name)) {
+            return matchesLabel(field.path("DEFAULTVALUE").asText(), name)
+                || matchesLabel(field.path("NAME").asText(), name);
+        }
+        return EmrQcAllergyRules.isStructuredLabel(label(field.path("DEFAULTVALUE").asText()))
+            || EmrQcAllergyRules.isStructuredLabel(label(field.path("NAME").asText()))
+            || EmrQcAllergyRules.isStructuredLabel(label(field.path("DESCNAME").asText()));
     }
 
     private static boolean matchesLabel(String value, String name) {

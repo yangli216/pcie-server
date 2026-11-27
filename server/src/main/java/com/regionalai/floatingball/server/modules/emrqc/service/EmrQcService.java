@@ -673,7 +673,9 @@ public class EmrQcService {
             : EmrQcChiefComplaintRules.evaluate(complaint, record, masker);
         loaded.hasPresentIllness = StringUtils.hasText(presentIllness);
         String allergy = previewProjection.allergyHistory;
+        if (allergy == null) allergy = EmrQcAllergyRules.fromPastHistory(previewProjection.pastHistory);
         if (allergy == null) allergy = EmrQcChiefComplaintRules.structuredField(objectMapper, xmlContent, "过敏史");
+        if (allergy == null) allergy = EmrQcAllergyRules.fromPastHistory(EmrQcChiefComplaintRules.structuredField(objectMapper, xmlContent, "既往史"));
         if (!loaded.proxyRefill) {
             loaded.allergyFieldFilled = EmrQcAllergyRules.filled(allergy);
             loaded.allergyInput = EmrQcAllergyRules.aiEvidence(allergy, record, masker);
